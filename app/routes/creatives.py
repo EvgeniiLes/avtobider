@@ -308,7 +308,7 @@ def check_photos(business_id: int, force: bool = False, user: sqlite3.Row = Depe
         _charge(conn, business_id, "check")
         try:
             result = asyncio.run(check_photo(_data_url(_asset_path(business_id, r["stored_name"])), key, s.fal_text_model, transport,
-                                             logo=r["kind"] == "logo"))
+                                             logo=r["kind"] == "logo", synthetic=r["kind"] == "generated"))
         except (OSError, ValueError):
             result = None
         if result is None:
