@@ -5,7 +5,7 @@ from pathlib import Path
 
 from app.config import get_settings
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (
@@ -36,6 +36,42 @@ CREATE TABLE IF NOT EXISTS ad_accounts (
     client_login TEXT NOT NULL DEFAULT '',
     created_at   TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Описание бизнеса. Деньги в микрорублях (рубли × 1 000 000).
+CREATE TABLE IF NOT EXISTS businesses (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id             INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name                TEXT NOT NULL,
+    kind                TEXT NOT NULL,
+    description         TEXT NOT NULL DEFAULT '',
+    city                TEXT NOT NULL DEFAULT '',
+    site_url            TEXT NOT NULL DEFAULT '',
+    tone                TEXT NOT NULL DEFAULT '',
+    color_main          TEXT NOT NULL DEFAULT '',
+    color_extra         TEXT NOT NULL DEFAULT '',
+    avg_check_micro     INTEGER NOT NULL DEFAULT 0,
+    target_cpa_micro    INTEGER NOT NULL DEFAULT 0,
+    weekly_budget_micro INTEGER NOT NULL DEFAULT 0,
+    status              TEXT NOT NULL DEFAULT 'draft',
+    created_at          TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Файлы бизнеса для создания рекламы: логотип, фото, видео.
+CREATE TABLE IF NOT EXISTS business_assets (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,  -- номера не переиспользуются: на них ссылаются адреса и кэш браузера
+    business_id INTEGER NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+    kind        TEXT NOT NULL,                 -- logo, photo, video
+    tag         TEXT NOT NULL DEFAULT '',      -- interior, work, team, product, other
+    caption     TEXT NOT NULL DEFAULT '',
+    stored_name TEXT NOT NULL,
+    orig_name   TEXT NOT NULL DEFAULT '',
+    mime        TEXT NOT NULL,
+    size_bytes  INTEGER NOT NULL,
+    width       INTEGER,
+    height      INTEGER,
+    created_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_assets_business ON business_assets (business_id);
 """
 
 

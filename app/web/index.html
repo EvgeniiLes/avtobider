@@ -35,47 +35,145 @@
       </div>
     </section>
 
-    <!-- Кабинеты -->
     <section id="view-app" hidden>
-      <div class="card">
-        <h2>Мои рекламные кабинеты</h2>
-        <p id="accounts-empty" class="hint" hidden>Пока нет ни одного кабинета. Подключите первый ниже.</p>
-        <ul id="accounts" class="list"></ul>
-      </div>
+      <nav class="tabs main-tabs">
+        <button id="nav-business" class="tab active">Мой бизнес</button>
+        <button id="nav-accounts" class="tab">Рекламные кабинеты</button>
+      </nav>
 
-      <div class="card" id="campaigns-card" hidden>
-        <h2 id="campaigns-title">Кампании</h2>
-        <p id="units" class="hint"></p>
-        <p id="campaigns-empty" hidden>В этом кабинете пока нет кампаний.</p>
-        <div class="table-wrap">
-          <table id="table" hidden>
-            <thead><tr><th>Название</th><th>Тип</th><th>Состояние</th><th>Проверка</th></tr></thead>
-            <tbody></tbody>
-          </table>
+      <!-- Бизнес -->
+      <div id="page-business">
+        <div class="card">
+          <h2>Ваши бизнесы</h2>
+          <div id="business-list" class="chips"></div>
+          <button id="business-new" class="small secondary">Добавить бизнес</button>
+        </div>
+
+        <div class="card">
+          <h2 id="business-title">Расскажите о бизнесе</h2>
+          <form id="business-form">
+            <label for="b-name">Название</label>
+            <input type="text" id="b-name" maxlength="100" required placeholder="Например, Салон «Лотос»">
+
+            <label for="b-kind">Чем вы занимаетесь</label>
+            <input type="text" id="b-kind" maxlength="80" required list="kinds" placeholder="Например, маникюрный салон">
+            <datalist id="kinds">
+              <option value="Маникюрный салон"></option>
+              <option value="Йога-студия"></option>
+              <option value="Барбершоп"></option>
+              <option value="Салон красоты"></option>
+              <option value="Фитнес-студия"></option>
+            </datalist>
+
+            <label for="b-description">Расскажите подробнее</label>
+            <textarea id="b-description" rows="5" maxlength="2000" placeholder="Какие услуги, чем вы лучше других, для кого, какие цены и акции. Чем подробнее, тем лучше получатся объявления."></textarea>
+
+            <label for="b-city">Город</label>
+            <input type="text" id="b-city" maxlength="100" placeholder="Например, Москва">
+
+            <label for="b-site">Сайт <span class="hint">(необязательно)</span></label>
+            <input type="text" id="b-site" maxlength="300" placeholder="salon.ru">
+
+            <h3>Стиль рекламы</h3>
+            <label for="b-tone">Какой тон вам ближе</label>
+            <select id="b-tone"><option value="">Не важно</option></select>
+
+            <div class="row">
+              <div>
+                <label for="b-color-main">Главный цвет</label>
+                <div class="color"><input type="color" id="b-color-main"><button type="button" class="link" data-clear="b-color-main">Сбросить</button></div>
+              </div>
+              <div>
+                <label for="b-color-extra">Второй цвет</label>
+                <div class="color"><input type="color" id="b-color-extra"><button type="button" class="link" data-clear="b-color-extra">Сбросить</button></div>
+              </div>
+            </div>
+            <p class="hint">Цвета и логотип помогут сделать картинки в вашем стиле.</p>
+
+            <h3>Деньги</h3>
+            <label for="b-check">Средний чек, ₽</label>
+            <input type="number" id="b-check" min="0" step="1" placeholder="Сколько в среднем платит один клиент">
+            <label for="b-cpa">Сколько готовы платить за одного клиента, ₽</label>
+            <input type="number" id="b-cpa" min="0" step="1" placeholder="Если не знаете, оставьте пустым">
+            <label for="b-budget">Бюджет на рекламу в неделю, ₽</label>
+            <input type="number" id="b-budget" min="0" step="1" placeholder="Больше этой суммы сервис не потратит">
+
+            <button type="submit" id="business-save">Сохранить</button>
+            <button type="button" id="business-delete" class="secondary" hidden>Удалить бизнес</button>
+            <p id="business-status" class="status" role="status"></p>
+          </form>
+        </div>
+
+        <div class="card" id="files-card">
+          <h2>Фото и видео для рекламы</h2>
+          <p id="files-locked" class="hint">Сначала сохраните описание бизнеса, потом сможете загрузить файлы.</p>
+          <div id="files" hidden>
+            <p class="hint">Чем больше настоящих фото, тем лучше получится реклама. Мы приведём их к нужным размерам сами.</p>
+
+            <h3>Логотип</h3>
+            <div id="logo-box" class="logo-box"></div>
+            <input type="file" id="logo-file" accept="image/*">
+            <p class="hint">PNG, JPG или WEBP. Лучше на прозрачном или белом фоне.</p>
+
+            <h3>Фото бизнеса</h3>
+            <div id="photos" class="grid"></div>
+            <div class="upload-row">
+              <select id="photo-tag"></select>
+              <input type="file" id="photo-file" accept="image/*" multiple>
+            </div>
+            <p class="hint">Помещение, ваши работы, команда, товар или услуга. Подойдут фото от 450 пикселей по короткой стороне, до 15 МБ. Не больше 20 фото.</p>
+
+            <h3>Видео</h3>
+            <div id="videos" class="grid"></div>
+            <input type="file" id="video-file" accept="video/mp4,video/quicktime,video/webm">
+            <p class="hint">MP4, MOV или WEBM до 100 МБ. Не больше 3 видео.</p>
+            <p id="files-status" class="status" role="status"></p>
+          </div>
         </div>
       </div>
 
-      <div class="card">
-        <h2>Подключить кабинет</h2>
-        <form id="account-form">
-          <label for="title">Название <span class="hint">(для себя, необязательно)</span></label>
-          <input type="text" id="title" placeholder="Например, Салон на Невском">
+      <!-- Кабинеты -->
+      <div id="page-accounts" hidden>
+        <div class="card">
+          <h2>Мои рекламные кабинеты</h2>
+          <p id="accounts-empty" class="hint" hidden>Пока нет ни одного кабинета. Подключите первый ниже.</p>
+          <ul id="accounts" class="list"></ul>
+        </div>
 
-          <label for="token">Токен Яндекса</label>
-          <input type="password" id="token" autocomplete="off" placeholder="Вставьте токен">
-          <p class="hint">Токен разрешает сервису работать с вашим кабинетом в Яндекс Директе. <a id="token-link" href="#" target="_blank" rel="noopener" hidden>Получить токен</a></p>
+        <div class="card" id="campaigns-card" hidden>
+          <h2 id="campaigns-title">Кампании</h2>
+          <p id="units" class="hint"></p>
+          <p id="campaigns-empty" hidden>В этом кабинете пока нет кампаний.</p>
+          <div class="table-wrap">
+            <table id="table" hidden>
+              <thead><tr><th>Название</th><th>Тип</th><th>Состояние</th><th>Проверка</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
 
-          <label for="login">Логин рекламного кабинета <span class="hint">(необязательно)</span></label>
-          <input type="text" id="login" autocomplete="off" placeholder="Нужен, только если токен выдан на другой логин">
+        <div class="card">
+          <h2>Подключить кабинет</h2>
+          <form id="account-form">
+            <label for="title">Название <span class="hint">(для себя, необязательно)</span></label>
+            <input type="text" id="title" placeholder="Например, Салон на Невском">
 
-          <label class="check" id="dev-row" hidden>
-            <input type="checkbox" id="dev-token">
-            Взять токен с сервера (режим разработки)
-          </label>
+            <label for="token">Токен Яндекса</label>
+            <input type="password" id="token" autocomplete="off" placeholder="Вставьте токен">
+            <p class="hint">Токен разрешает сервису работать с вашим кабинетом в Яндекс Директе. <a id="token-link" href="#" target="_blank" rel="noopener" hidden>Получить токен</a></p>
 
-          <button type="submit" id="account-submit">Подключить</button>
-          <p id="account-status" class="status" role="status"></p>
-        </form>
+            <label for="login">Логин рекламного кабинета <span class="hint">(необязательно)</span></label>
+            <input type="text" id="login" autocomplete="off" placeholder="Нужен, только если токен выдан на другой логин">
+
+            <label class="check" id="dev-row" hidden>
+              <input type="checkbox" id="dev-token">
+              Взять токен с сервера (режим разработки)
+            </label>
+
+            <button type="submit" id="account-submit">Подключить</button>
+            <p id="account-status" class="status" role="status"></p>
+          </form>
+        </div>
       </div>
     </section>
   </main>

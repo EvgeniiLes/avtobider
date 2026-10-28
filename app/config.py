@@ -31,6 +31,11 @@ class Settings:
     db_path: Path
     secret_key: str
 
+    @property
+    def uploads_dir(self) -> Path:
+        """Папка с файлами бизнесов (логотипы, фото, видео). Лежит рядом с базой."""
+        return self.db_path.parent / "uploads"
+
 
 def _secret_key(db_path: Path) -> str:
     """SECRET_KEY из окружения; если не задан, создаётся и хранится в файле рядом с базой."""
