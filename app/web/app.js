@@ -115,6 +115,7 @@ function showAuth() {
   $("view-app").hidden = true;
   $("user").hidden = true;
   $("nav").hidden = true;
+  $("biz-switch").hidden = true;
   setAuthMode("login");
 }
 
@@ -153,6 +154,7 @@ function showPage(name, push = true) {
   if (name === "creatives") loadCreatives();
   if (name === "home" || name === "stats") loadStats();
   if (name === "history") { setStatus("history-status", ""); loadHistory(); }
+  if (name === "accounts" && accountsList.length) showCampaigns(accountsList[0].id);  // кампании кабинета видны сразу
 }
 
 /* ---------- Бизнес ---------- */
@@ -215,7 +217,27 @@ async function loadBusinesses(selectId) {
     chip.addEventListener("click", () => selectBusiness(b.id));
     box.append(chip);
   }
+  businessList = list;
   if (wanted) await selectBusiness(wanted, false); else newBusiness();
+  renderSwitch();
+}
+
+let businessList = [];
+
+// Переключатель бизнеса в шапке: виден на любой странице, если бизнесов несколько.
+function renderSwitch() {
+  const sw = $("biz-switch");
+  sw.replaceChildren(...businessList.map((b) => el("option", { value: String(b.id), textContent: b.name })),
+    el("option", { value: "new", textContent: "＋ Новый бизнес" }));
+  sw.value = currentBusiness ? String(currentBusiness.id) : "new";
+  sw.hidden = $("view-app").hidden || businessList.length < 1;
+}
+
+async function onSwitch() {
+  const value = $("biz-switch").value;
+  if (value === "new") { newBusiness(); showPage("business"); return; }
+  await selectBusiness(Number(value));
+  showPage(currentPage, false);
 }
 
 async function selectBusiness(id, refreshList = true) {
@@ -226,6 +248,7 @@ async function selectBusiness(id, refreshList = true) {
   renderFiles();
   refreshStopbar();
   loadMetrika();
+  if ($("biz-switch").options.length) $("biz-switch").value = String(currentBusiness.id);
   if (refreshList) {
     for (const chip of $("business-list").children) {
       chip.classList.toggle("active", chip.textContent === currentBusiness.name);
@@ -238,6 +261,7 @@ function newBusiness() {
   fillForm(null);
   renderFiles();
   $("stopbar").hidden = true;
+  if ($("biz-switch").options.length) $("biz-switch").value = "new";
   for (const chip of $("business-list").children) chip.classList.remove("active");
 }
 
@@ -979,12 +1003,15 @@ async function rollbackChange(change, force = false) {
 
 /* ---------- Кабинеты ---------- */
 
+let accountsList = [];
+
 async function loadAccounts() {
   const result = await api("GET", "/api/accounts");
   if (result.status === 401) { showAuth(); return; }
   const list = $("accounts");
   list.replaceChildren();
   const accounts = result.ok ? result.data.accounts : [];
+  accountsList = accounts;
   $("accounts-empty").hidden = accounts.length > 0;
   for (const account of accounts) {
     const info = el("div", {}, el("strong", { textContent: account.title }), el("span", { className: "hint", textContent: ` ${account.platform}` }));
@@ -1062,6 +1089,7 @@ async function start() {
 
   window.addEventListener("popstate", () => { if (!$("view-app").hidden) showPage(pageFromHash(), false); });
   $("example-off").addEventListener("click", () => $("sim-reset").click());
+  $("biz-switch").addEventListener("change", onSwitch);
   $("nav-home").addEventListener("click", () => showPage("home"));
   $("home-cta").addEventListener("click", () => { if (homeAction) homeAction(); });
   $("nav-business").addEventListener("click", () => showPage("business"));

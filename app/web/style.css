@@ -44,6 +44,9 @@ p { margin: 0 0 10px; }
 main { max-width: 980px; margin: 0 auto; padding: 20px 16px 96px; }
 .page-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 4px 0 14px; flex-wrap: wrap; }
 
+.biz-switch { width: auto; max-width: 200px; padding: 7px 10px; font-weight: 600; font-size: 14px; }
+@media (max-width: 760px) { .biz-switch { max-width: 140px; margin-left: auto; } }
+
 /* ----- навигация: сверху на компьютере, снизу на телефоне ----- */
 .nav { display: flex; gap: 4px; }
 .nav button { margin: 0; background: transparent; color: var(--muted); border: 0; border-radius: 10px; padding: 8px 12px; font-weight: 600; font-size: 15px; display: flex; align-items: center; gap: 7px; box-shadow: none; }
