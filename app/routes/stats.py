@@ -139,6 +139,12 @@ def overview(business_id: int, user: sqlite3.Row = Depends(current_user), conn: 
             "verdict": (CLASS_LABELS[cls] if not real or conversions else "Идёт показ") if u["state"] == "active" else STATE_LABELS.get(u["state"], "Остановлено"),
             "verdict_code": (cls if not real or conversions else "waiting") if u["state"] == "active" else u["state"],
         })
+    marks = conn.execute(
+        "SELECT COALESCE(SUM(count), 0) AS n, COUNT(*) AS days FROM client_marks WHERE business_id = ? AND day BETWEEN ? AND ?",
+        (business_id, start, today),
+    ).fetchone()
+    if real and marks["days"]:
+        total["clients"] = marks["n"]  # точное число от владельца вместо оценки
     result["totals"] = {
         "spend": _rub(total["spend"]),
         "clicks": total["clicks"],
@@ -147,7 +153,7 @@ def overview(business_id: int, user: sqlite3.Row = Depends(current_user), conn: 
         "cost_per_lead": _ratio(total["spend"], total["leads"]),
         "cost_per_client": _ratio(total["spend"], total["clients"]),
         "days": cfg.window_days,
-        "clients_estimated": bool(real and conversions),
+        "clients_estimated": bool(real and conversions and not marks["days"]),
     }
     if real:
         states = {u["state"] for u in units}
@@ -171,6 +177,35 @@ def overview(business_id: int, user: sqlite3.Row = Depends(current_user), conn: 
         "percent": round(week_spend / budget * 100) if budget else 0,
     }
     return result
+
+
+class ClientsIn(BaseModel):
+    day: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    count: int = Field(ge=0, le=1000)
+
+
+@router.post("/clients")
+def mark_clients(business_id: int, data: ClientsIn, user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connection = Depends(get_db)):
+    """Владелец записывает, сколько клиентов пришло из рекламы за день."""
+    _own(conn, user, business_id)
+    try:
+        day = date.fromisoformat(data.day)
+    except ValueError:
+        raise HTTPException(400, detail={"message": "Дата указана неверно."})
+    if day > date.today():
+        raise HTTPException(400, detail={"message": "Нельзя указать клиентов из будущего."})
+    conn.execute(
+        "INSERT INTO client_marks (business_id, day, count) VALUES (?,?,?) "
+        "ON CONFLICT(business_id, day) DO UPDATE SET count = excluded.count", (business_id, data.day, data.count))
+    conn.commit()
+    return {"ok": True}
+
+
+@router.get("/clients")
+def list_clients(business_id: int, user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connection = Depends(get_db)):
+    _own(conn, user, business_id)
+    rows = conn.execute("SELECT day, count FROM client_marks WHERE business_id = ? ORDER BY day DESC LIMIT 14", (business_id,)).fetchall()
+    return {"marks": [{"day": r["day"], "count": r["count"]} for r in rows]}
 
 
 class Advance(BaseModel):

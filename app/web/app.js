@@ -581,6 +581,8 @@ async function loadStats() {
     : data.real
       ? (data.sync.at ? `Данные обновлены: ${new Date(data.sync.at).toLocaleString("ru-RU")}` : "Данные ещё не обновлялись.")
       : "Пока нет рекламы. Нажмите «Создать рекламу» или посмотрите, как всё работает, на примере.";
+  $("clients-box").hidden = !(data.real && data.conversions);
+  if (!$("clients-day").value) $("clients-day").value = new Date().toISOString().slice(0, 10);
   const notices = $("notices");
   notices.replaceChildren(...(data.notices || []).map((n) => el("li", { textContent: n })));
 
@@ -660,6 +662,14 @@ async function syncNow() {
   if (!result.ok) { setStatus("stats-status", errorText(result), "err"); await loadStats(); return; }
   setStatus("stats-status", result.data.changes ? `Готово. Новых записей в истории: ${result.data.changes}.` : "Данные обновлены.", "ok");
   await Promise.all([loadStats(), refreshStopbar()]);
+}
+
+async function saveClients() {
+  const count = $("clients-count").value;
+  if (count === "" || !$("clients-day").value) { setStatus("clients-status", "Укажите дату и число клиентов.", "err"); return; }
+  const r = await api("POST", `/api/businesses/${currentBusiness.id}/clients`, { day: $("clients-day").value, count: Number(count) });
+  setStatus("clients-status", r.ok ? "Записали." : errorText(r), r.ok ? "ok" : "err");
+  if (r.ok) { $("clients-count").value = ""; await loadStats(); }
 }
 
 async function simAction(path, body) {
@@ -825,6 +835,7 @@ async function start() {
   $("launch-go").addEventListener("click", confirmLaunch);
   $("launch-cancel").addEventListener("click", () => { $("launch-card").hidden = true; });
   $("sync-now").addEventListener("click", syncNow);
+  $("clients-save").addEventListener("click", saveClients);
   $("stop-all").addEventListener("click", stopAll);
   $("resume-all").addEventListener("click", resumeAll);
   $("nav-history").addEventListener("click", () => showPage("history"));

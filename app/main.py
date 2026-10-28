@@ -2,7 +2,7 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -22,6 +22,24 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="Автобидер", lifespan=lifespan)
+
+CSP = (
+    "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; "
+    "connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+)
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    """Защитные заголовки: запрет вставки сайта в чужие страницы, чужих скриптов и угадывания типа файла."""
+    response = await call_next(request)
+    response.headers.setdefault("Content-Security-Policy", CSP)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "same-origin")
+    if request.url.scheme == "https":
+        response.headers.setdefault("Strict-Transport-Security", "max-age=31536000")
+    return response
 app.include_router(auth.router)
 app.include_router(yandex_login.router)
 app.include_router(direct_connect.router)

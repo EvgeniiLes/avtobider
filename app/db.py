@@ -180,6 +180,15 @@ CREATE TABLE IF NOT EXISTS generations (
     created_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Сколько клиентов пришло из рекламы за день: отмечает владелец (Метрика видит обращения, но не знает, кто купил).
+CREATE TABLE IF NOT EXISTS client_marks (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    business_id INTEGER NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+    day         TEXT NOT NULL,
+    count       INTEGER NOT NULL,
+    UNIQUE (business_id, day)
+);
+
 -- Ожидающие подтверждения подключения кабинета (вход по коду).
 CREATE TABLE IF NOT EXISTS oauth_pending (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,

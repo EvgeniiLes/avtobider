@@ -259,6 +259,16 @@
             <p id="stats-status" class="status" role="status"></p>
 
             <div id="tiles" class="tiles" hidden></div>
+            <details id="clients-box" class="own-text" hidden>
+              <summary>Записать, сколько клиентов пришло из рекламы</summary>
+              <p class="hint">Метрика видит обращения, но не знает, кто в итоге стал клиентом. Укажите число, и цена клиента станет точной, а не оценкой.</p>
+              <div class="upload-row">
+                <input type="date" id="clients-day">
+                <input type="number" id="clients-count" min="0" max="1000" step="1" placeholder="Сколько клиентов">
+                <button id="clients-save" class="small">Записать</button>
+              </div>
+              <p id="clients-status" class="status" role="status"></p>
+            </details>
             <div id="budget-box" hidden>
               <p class="hint" id="budget-text"></p>
               <div class="bar"><div id="budget-fill" class="fill"></div></div>

@@ -125,3 +125,14 @@ def test_real_leads_flow_into_engine_decisions(isolated):
         assert ov["conversions"] is True and ov["totals"]["leads"] == 24
         assert ov["totals"]["clients_estimated"] is True and ov["totals"]["clients"] == round(24 * 0.3)
         assert not any("Метрика ещё не подключена" in n for n in ov["notices"])
+
+        # владелец записал настоящее число клиентов: оценка заменяется точной цифрой
+        today = date.today().isoformat()
+        assert http.post(f"/api/businesses/{bid}/clients", json={"day": today, "count": 5}).status_code == 200
+        assert http.post(f"/api/businesses/{bid}/clients", json={"day": today, "count": 6}).status_code == 200  # правка того же дня
+        ov = http.get(f"/api/businesses/{bid}/overview").json()
+        assert ov["totals"]["clients"] == 6 and ov["totals"]["clients_estimated"] is False
+        assert http.get(f"/api/businesses/{bid}/clients").json()["marks"] == [{"day": today, "count": 6}]
+        assert http.post(f"/api/businesses/{bid}/clients", json={"day": "2999-01-01", "count": 1}).status_code == 400
+        assert http.post(f"/api/businesses/{bid}/clients", json={"day": "вчера", "count": 1}).status_code == 422
+        assert http.post(f"/api/businesses/{bid}/clients", json={"day": today, "count": -1}).status_code == 422

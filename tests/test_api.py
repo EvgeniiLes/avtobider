@@ -160,6 +160,25 @@ def test_unreadable_token_after_key_change(monkeypatch):
         assert r.status_code == 409
 
 
+def test_security_headers_everywhere():
+    with TestClient(app) as http:
+        for path in ("/", "/api/health", "/static/app.js"):
+            h = http.get(path).headers
+            assert "frame-ancestors 'none'" in h["content-security-policy"] and "script-src 'self'" in h["content-security-policy"]
+            assert h["x-content-type-options"] == "nosniff" and h["x-frame-options"] == "DENY"
+        assert "strict-transport-security" not in http.get("/").headers  # по обычному http HSTS не отправляем
+        assert "max-age" in http.get("https://testserver/").headers["strict-transport-security"]
+
+
+def test_page_has_no_inline_scripts_or_handlers():
+    """CSP запрещает встроенные скрипты: страница должна жить только на подключённых файлах."""
+    import re
+    with TestClient(app) as http:
+        html = http.get("/").text
+        assert not re.search(r"<script(?![^>]*\bsrc=)[^>]*>", html, re.I)
+        assert not re.search(r"\son\w+\s*=", html, re.I) and "style=" not in html
+
+
 def test_signup_rate_limit():
     from app.routes import auth as auth_routes
     auth_routes._signups.clear()
