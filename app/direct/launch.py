@@ -8,6 +8,7 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import date, timedelta
 
+from app.creative.compose import style_for
 from app.direct.client import DirectClient, DirectError
 from app.direct.negatives import negatives_for
 from app.direct.texts import alternative_variant, check, draft_variants
@@ -133,12 +134,12 @@ async def create_unit(client: DirectClient, plan: Plan, variant: dict, name: str
 
 
 def save_unit(conn: sqlite3.Connection, biz, account_id: int, campaign_row_id: int, variant: dict, ids: dict,
-              weekly_micro: int, today: str, variant_of: int | None = None) -> int:
+              weekly_micro: int, today: str, variant_of: int | None = None, style: str = "") -> int:
     cur = conn.execute(
         "INSERT INTO ad_units (campaign_id, business_id, title, body, state, budget_micro, variant_of, last_changed_day, created_day, "
-        "external_campaign_id, external_group_id, external_ad_id) VALUES (?,?,?,?, 'moderation', ?,?,?,?,?,?,?)",
+        "external_campaign_id, external_group_id, external_ad_id, style) VALUES (?,?,?,?, 'moderation', ?,?,?,?,?,?,?,?)",
         (campaign_row_id, biz["id"], variant["title"], variant["text"], weekly_micro, variant_of, today, today,
-         ids["campaign_id"], ids["group_id"], ids["ad_id"]),
+         ids["campaign_id"], ids["group_id"], ids["ad_id"], style),
     )
     return cur.lastrowid
 
@@ -211,7 +212,8 @@ async def launch(client: DirectClient, conn: sqlite3.Connection, biz, account_id
         (biz["id"], account_id, f"Реклама: {biz['name']}"),
     )
     unit_ids = [
-        save_unit(conn, biz, account_id, row.lastrowid, c["variant"], c, plan.per_unit_micro, today) for c in created
+        save_unit(conn, biz, account_id, row.lastrowid, c["variant"], c, plan.per_unit_micro, today, style=style_for(i))
+        for i, c in enumerate(created)
     ]
     if banner_problems:
         conn.execute("UPDATE ad_units SET status_note = ? WHERE id = ?", ("Картинки добавлены не ко всем объявлениям", unit_ids[0]))

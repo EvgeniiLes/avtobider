@@ -202,13 +202,13 @@ def _banner_styled(style: str, photo: bytes, title: str, color_main: str, logo: 
         canvas = Image.new("RGBA", (W, H), bg + (255,))
         d = ImageDraw.Draw(canvas)
         d.rectangle((22, 22, W - 23, H - 23), outline=accent + (255,), width=2)
-        _shaped_photo(canvas, pic, (640, 170, 1130, 660), "circle")
-        d.ellipse((628, 158, 1142, 672), outline=accent + (255,), width=3)
+        _shaped_photo(canvas, pic, (560, 120, 1150, 710), "circle")
+        d.ellipse((548, 108, 1162, 722), outline=accent + (255,), width=3)
         x, y = 80, 150
         if brand:
             _text(d, (x, y), brand.upper(), _font(28), accent + (255,))
             y += 64
-        font, lines = _fit(d, title, (60, 54, 48, 42, 36), 500, 4, _serif)
+        font, lines = _fit(d, title, (56, 50, 44, 38, 34), 420, 5, _serif)
         y = _lines(d, x, y, lines, font, (245, 240, 228), 1.25) + 18
         if badge:
             _text(d, (x, y), badge.replace("\u00a0", " "), _serif(52), accent + (255,))

@@ -206,6 +206,49 @@ def series(business_id: int, days: int = 14, user: sqlite3.Row = Depends(current
     return {"days": out}
 
 
+STYLE_LABELS = {"photo": "Фото-герой", "luxe": "Тёмный люкс", "pastel": "Пастель", "bold": "Яркая типографика", "card": "Светлая карточка"}
+MIN_IMPRESSIONS = 1000  # меньше показов на стиль: разница в кликах может быть случайной
+MIN_LEADS = 3           # меньше обращений: цену обращения сравнивать рано
+
+
+@router.get("/insights")
+def insights(business_id: int, user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connection = Depends(get_db)):
+    """Что работает лучше: результаты по стилям объявлений. Выводы только когда данных достаточно."""
+    _own(conn, user, business_id)
+    rows = conn.execute(
+        "SELECT u.style AS style, COUNT(DISTINCT u.id) AS units, COALESCE(SUM(s.impressions),0) AS imp, "
+        "COALESCE(SUM(s.clicks),0) AS clicks, COALESCE(SUM(s.spend_micro),0) AS spend, COALESCE(SUM(s.leads),0) AS leads "
+        "FROM ad_units u LEFT JOIN stats_daily s ON s.unit_id = u.id WHERE u.business_id = ? AND u.style != '' GROUP BY u.style",
+        (business_id,),
+    ).fetchall()
+    groups = []
+    for r in rows:
+        groups.append({
+            "style": r["style"], "label": STYLE_LABELS.get(r["style"], r["style"]), "units": r["units"],
+            "impressions": r["imp"], "clicks": r["clicks"], "spend": _rub(r["spend"]), "leads": r["leads"],
+            "ctr": round(r["clicks"] / r["imp"] * 100, 2) if r["imp"] else None,
+            "cost_per_lead": _ratio(r["spend"], r["leads"]),
+        })
+    groups.sort(key=lambda g: list(STYLE_LABELS).index(g["style"]) if g["style"] in STYLE_LABELS else 99)
+    conclusions: list[str] = []
+    if len(groups) < 2:
+        return {"groups": groups, "conclusions": ["Сравнивать пока не с чем: нужны объявления как минимум двух разных стилей."]}
+    by_ctr = sorted((g for g in groups if g["impressions"] >= MIN_IMPRESSIONS and g["ctr"] is not None), key=lambda g: -g["ctr"])
+    if len(by_ctr) >= 2 and by_ctr[0]["ctr"] >= 1.3 * by_ctr[1]["ctr"]:
+        conclusions.append(f"Чаще всего кликают на стиль «{by_ctr[0]['label']}»: {by_ctr[0]['ctr']}% против {by_ctr[1]['ctr']}% у «{by_ctr[1]['label']}».")
+    by_cpl = sorted((g for g in groups if g["leads"] >= MIN_LEADS and g["cost_per_lead"]), key=lambda g: g["cost_per_lead"])
+    if len(by_cpl) >= 2 and by_cpl[0]["cost_per_lead"] <= 0.8 * by_cpl[1]["cost_per_lead"]:
+        conclusions.append(
+            f"Дешевле всего обращения у стиля «{by_cpl[0]['label']}»: {round(by_cpl[0]['cost_per_lead'])} ₽ против {round(by_cpl[1]['cost_per_lead'])} ₽ у «{by_cpl[1]['label']}».")
+    if not conclusions:
+        lack = [g["label"] for g in groups if g["impressions"] < MIN_IMPRESSIONS]
+        conclusions.append(
+            "Пока мало данных, чтобы назвать лучший стиль: разница может быть случайной. "
+            + (f"Нужно хотя бы {MIN_IMPRESSIONS} показов на каждый стиль, не хватает у: {', '.join(lack)}." if lack
+               else f"Нужно хотя бы {MIN_LEADS} обращений на стиль, чтобы сравнить цену обращения."))
+    return {"groups": groups, "conclusions": conclusions}
+
+
 class ClientsIn(BaseModel):
     day: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
     count: int = Field(ge=0, le=1000)

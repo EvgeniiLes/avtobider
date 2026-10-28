@@ -229,6 +229,7 @@ ADDED_COLUMNS = [
     ("ad_units", "external_group_id", "INTEGER"),
     ("ad_units", "external_ad_id", "TEXT"),
     ("ad_units", "status_note", "TEXT NOT NULL DEFAULT ''"),
+    ("ad_units", "style", "TEXT NOT NULL DEFAULT ''"),
     ("changes", "status", "TEXT NOT NULL DEFAULT 'applied'"),
 ]
 

@@ -126,6 +126,20 @@ def test_stop_all_and_resume_all_api():
         assert ov["stopped"] is False and all(u["active"] for u in ov["units"])
 
 
+def test_insights_compare_styles_and_wait_for_enough_data():
+    with TestClient(app) as http:
+        register(http)
+        bid = make_business(http)
+        assert http.get(f"/api/businesses/{bid}/insights").json()["groups"] == []
+        http.post(f"/api/businesses/{bid}/sim/start")
+        data = http.get(f"/api/businesses/{bid}/insights").json()
+        assert {g["style"] for g in data["groups"]} == {"photo", "luxe", "pastel", "bold", "card"} | {"photo"}  # шесть объявлений, пять стилей
+        assert "мало данных" in data["conclusions"][0] or "Нужно" in data["conclusions"][0]
+        http.post(f"/api/businesses/{bid}/sim/advance", json={"days": 30})
+        data = http.get(f"/api/businesses/{bid}/insights").json()
+        assert all(g["impressions"] > 0 and g["label"] for g in data["groups"]) and data["conclusions"]
+
+
 def test_checklist_follows_progress():
     with TestClient(app) as http:
         register(http)

@@ -749,6 +749,19 @@ function renderChart(days) {
   }
 }
 
+async function loadInsights() {
+  const card = $("insights-card");
+  const result = await api("GET", `/api/businesses/${currentBusiness.id}/insights`);
+  const groups = result.ok ? result.data.groups : [];
+  card.hidden = !groups.length;
+  if (!groups.length) return;
+  $("insights-notes").replaceChildren(...result.data.conclusions.map((t) => el("li", { textContent: t })));
+  const body = $("insights-table").querySelector("tbody");
+  body.replaceChildren(...groups.map((g) => el("tr", {},
+    ...[g.label, String(g.units), String(g.impressions), String(g.clicks), g.ctr == null ? "—" : `${g.ctr}%`, String(g.leads), money(g.cost_per_lead)]
+      .map((v) => el("td", { textContent: v })))));
+}
+
 async function loadSeries() {
   const result = await api("GET", `/api/businesses/${currentBusiness.id}/series?days=14`);
   renderChart(result.ok ? result.data.days : []);
@@ -837,6 +850,7 @@ async function loadStats() {
   renderHome(data);
   renderGoal(data);
   if (data.real || data.example) loadSeries(); else renderChart([]);
+  if (data.real || data.example) loadInsights(); else $("insights-card").hidden = true;
   renderDecisions();
   $("example-notice").hidden = !data.example;
   $("stats-needs").textContent = data.real || data.example ? data.needs : "";
