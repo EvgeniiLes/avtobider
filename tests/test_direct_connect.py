@@ -82,7 +82,7 @@ def test_start_gives_a_short_code_for_the_user():
     with TestClient(app) as http:
         login(http)
         data = start(http)
-        assert data["user_code"] == "ABCD1234" and data["url"] == "https://ya.ru/device" and data["interval"] == 5
+        assert data["user_code"] == "abcd1234" and data["url"] == "https://ya.ru/device" and data["interval"] == 5
         assert "client_id=api-client" in seen["code_body"] and "api-secret" not in seen["code_body"]
 
 

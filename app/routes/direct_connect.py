@@ -53,7 +53,7 @@ async def start(user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connect
     conn.commit()
     return {
         "pending_id": cur.lastrowid,
-        "user_code": data["user_code"].upper(),
+        "user_code": data["user_code"],  # ровно как выдал Яндекс: регистр не меняем
         "url": data.get("verification_url", "https://ya.ru/device"),
         "interval": int(data.get("interval", 5)),
         "expires_in": int(data.get("expires_in", 300)),

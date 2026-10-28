@@ -1074,8 +1074,11 @@ const LOGIN_ERRORS = {
 
 let connectTimer = null;
 
+let connectCountdown = null;
+
 function stopConnect() {
   clearTimeout(connectTimer);
+  clearInterval(connectCountdown);
   connectTimer = null;
   $("connect-panel").hidden = true;
   $("connect-direct").disabled = false;
@@ -1086,11 +1089,19 @@ async function connectDirect() {
   $("connect-direct").disabled = true;
   const started = await api("POST", "/api/direct/connect/start");
   if (!started.ok) { setStatus("connect-status", errorText(started), "err"); $("connect-direct").disabled = false; return; }
-  const { pending_id, user_code, url, interval } = started.data;
+  const { pending_id, user_code, url, interval, expires_in } = started.data;
   $("connect-code").textContent = user_code;
   $("connect-url").href = url;
   $("connect-url").textContent = url.replace(/^https?:\/\//, "");
   $("connect-panel").hidden = false;
+  // Код живёт ограниченное время: показываем остаток и сами выдаём новый, когда он истёк.
+  const until = Date.now() + (expires_in || 300) * 1000;
+  clearInterval(connectCountdown);
+  connectCountdown = setInterval(() => {
+    const left = Math.round((until - Date.now()) / 1000);
+    if (left <= 0) { stopConnect(); connectDirect(); return; }
+    $("connect-wait").textContent = `Ждём подтверждения от Яндекса… Код действует ещё ${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`;
+  }, 1000);
 
   const poll = async () => {
     const result = await api("POST", "/api/direct/connect/poll", { pending_id });
