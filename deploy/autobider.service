@@ -1,0 +1,24 @@
+[Unit]
+Description=Автобидер: сайт
+After=network.target
+
+[Service]
+Type=simple
+User=autobider
+Group=autobider
+WorkingDirectory=/opt/autobider
+EnvironmentFile=/opt/autobider/.env
+# Сайт слушает только локальный адрес, наружу его отдаёт nginx.
+# --proxy-headers нужен, чтобы сайт знал, что пользователь пришёл по HTTPS.
+ExecStart=/opt/autobider/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --proxy-headers --forwarded-allow-ips 127.0.0.1
+Restart=on-failure
+RestartSec=3
+# Ограничения безопасности: сервис пишет только в папку data.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/opt/autobider/data
+
+[Install]
+WantedBy=multi-user.target

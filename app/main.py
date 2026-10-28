@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import get_settings, load_env
 from app.db import init_db
-from app.routes import accounts, auth, businesses, stats
+from app.routes import accounts, auth, businesses, stats, yandex_login
 
 WEB_DIR = Path(__file__).resolve().parent / "web"
 
@@ -23,6 +23,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(title="Автобидер", lifespan=lifespan)
 app.include_router(auth.router)
+app.include_router(yandex_login.router)
 app.include_router(accounts.router)
 app.include_router(businesses.router)
 app.include_router(stats.router)
@@ -38,6 +39,7 @@ def config():
     s = get_settings()
     return {
         "dev_token_available": s.dev_mode and bool(s.dev_token),
+        "yandex_login": bool(s.login_client_id and s.login_client_secret),
         "token_url": (
             f"https://oauth.yandex.ru/authorize?response_type=token&client_id={s.client_id}" if s.client_id else ""
         ),

@@ -516,6 +516,7 @@ async function start() {
   await loadOptions();
   const config = await api("GET", "/api/config");
   if (config.ok) {
+    $("yandex-box").hidden = !config.data.yandex_login;
     $("dev-row").hidden = !config.data.dev_token_available;
     if (config.data.token_url) {
       $("token-link").href = config.data.token_url;
@@ -524,6 +525,21 @@ async function start() {
   }
   const me = await api("GET", "/api/auth/me");
   if (me.ok) showApp(me.data.email); else showAuth();
+  showLoginError();
+}
+
+const LOGIN_ERRORS = {
+  denied: "Вы не разрешили вход через Яндекс. Попробуйте ещё раз или войдите по e-mail и паролю.",
+  state: "Вход не удался: страница устарела. Нажмите «Войти через Яндекс ID» ещё раз.",
+  failed: "Яндекс не подтвердил вход. Попробуйте ещё раз чуть позже.",
+  not_configured: "Вход через Яндекс пока не настроен. Войдите по e-mail и паролю.",
+};
+
+function showLoginError() {
+  const code = new URLSearchParams(location.search).get("login_error");
+  if (!code) return;
+  history.replaceState(null, "", "/");
+  setStatus("auth-status", LOGIN_ERRORS[code] || "Не получилось войти. Попробуйте ещё раз.", "err");
 }
 
 start();

@@ -1,6 +1,7 @@
 """Общие зависимости запросов."""
 import sqlite3
 
+import httpx
 from fastapi import Cookie, Depends, HTTPException
 
 from app.db import get_db
@@ -11,6 +12,11 @@ from app.security import SESSION_COOKIE, find_user_by_session
 def client_factory():
     """Создаёт клиент Директа. В тестах подменяется заглушкой."""
     return DirectClient
+
+
+def yandex_http():
+    """HTTP-клиент для запросов к Яндекс ID. В тестах подменяется заглушкой."""
+    return httpx.AsyncClient(timeout=15.0)
 
 
 def current_user(

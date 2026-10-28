@@ -5,7 +5,7 @@ from pathlib import Path
 
 from app.config import get_settings
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (
@@ -16,7 +16,8 @@ CREATE TABLE IF NOT EXISTS meta (
 CREATE TABLE IF NOT EXISTS users (
     id            INTEGER PRIMARY KEY,
     email         TEXT NOT NULL UNIQUE,
-    password_hash TEXT NOT NULL,
+    password_hash TEXT NOT NULL,                -- пусто у тех, кто входит только через Яндекс ID
+    yandex_id     TEXT,
     created_at    TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -165,6 +166,7 @@ CREATE TABLE IF NOT EXISTS sim_units (
 # Колонки, добавленные после первых версий схемы (для баз, созданных раньше).
 ADDED_COLUMNS = [
     ("businesses", "client_share", "REAL NOT NULL DEFAULT 0.3"),
+    ("users", "yandex_id", "TEXT"),
 ]
 
 
@@ -173,6 +175,7 @@ def _add_missing_columns(conn: sqlite3.Connection) -> None:
         have = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
         if column not in have:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_yandex ON users (yandex_id) WHERE yandex_id IS NOT NULL")
 
 
 def connect(db_path: Path) -> sqlite3.Connection:

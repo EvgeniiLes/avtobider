@@ -26,6 +26,9 @@ class Settings:
     dev_mode: bool
     dev_token: str
     client_id: str
+    login_client_id: str
+    login_client_secret: str
+    redirect_uri: str
     direct_api_version: str
     direct_client_login: str
     db_path: Path
@@ -59,6 +62,9 @@ def get_settings() -> Settings:
         dev_mode=os.environ.get("APP_ENV", "").strip().lower() == "development",
         dev_token=os.environ.get("YANDEX_DEV_TOKEN", "").strip(),
         client_id=os.environ.get("YANDEX_CLIENT_ID", "").strip(),
+        login_client_id=os.environ.get("YANDEX_LOGIN_CLIENT_ID", "").strip(),
+        login_client_secret=os.environ.get("YANDEX_LOGIN_CLIENT_SECRET", "").strip(),
+        redirect_uri=os.environ.get("YANDEX_REDIRECT_URI", "").strip(),
         direct_api_version=os.environ.get("DIRECT_API_VERSION", "").strip() or "v501",
         direct_client_login=os.environ.get("DIRECT_CLIENT_LOGIN", "").strip(),
         db_path=db_path,

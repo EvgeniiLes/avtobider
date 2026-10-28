@@ -70,6 +70,9 @@ tr.off td { color:var(--muted); }
 .history .when { font-size:13px; color:var(--muted); }
 .history .text { margin:2px 0; }
 .history .what { font-weight:600; }
+.or { text-align:center; margin:16px 0 8px; }
+.btn-yandex { display:block; text-align:center; padding:11px 20px; border-radius:8px; background:#000; color:#fff; font-weight:600; text-decoration:none; }
+.btn-yandex:hover { background:#222; }
 .table-wrap { overflow-x:auto; }
 table { width:100%; border-collapse:collapse; }
 th, td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); }
