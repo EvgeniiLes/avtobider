@@ -35,6 +35,9 @@ class SimulatedPlatform:
             "UPDATE ad_units SET budget_micro = ?, last_changed_day = ? WHERE id = ?", (budget_micro, day, unit_id)
         )
 
+    def touch(self, unit_id: int, day: str) -> None:
+        self.conn.execute("UPDATE ad_units SET last_changed_day = ? WHERE id = ?", (day, unit_id))
+
     def create_variant(self, unit_id: int, day: str) -> int:
         a = self.conn.execute("SELECT * FROM ad_units WHERE id = ?", (unit_id,)).fetchone()
         sim = self.conn.execute("SELECT * FROM sim_units WHERE unit_id = ?", (unit_id,)).fetchone()

@@ -71,6 +71,9 @@ def parse_tsv(text: str) -> list[dict]:
     return [dict(zip(columns, line.split("\t"))) for line in lines[1:]]
 
 
+DEFAULT_TRANSPORT: httpx.AsyncBaseTransport | None = None  # в тестах сюда подставляют заглушку Директа
+
+
 class DirectClient:
     def __init__(
         self,
@@ -92,7 +95,7 @@ class DirectClient:
         }
         if login:
             self._headers["Client-Login"] = login
-        self._http = httpx.AsyncClient(transport=transport, timeout=timeout)
+        self._http = httpx.AsyncClient(transport=transport or DEFAULT_TRANSPORT, timeout=timeout)
         self._slots = asyncio.Semaphore(MAX_PARALLEL)
 
     async def aclose(self) -> None:
@@ -157,6 +160,7 @@ class DirectClient:
         date_to: str,
         name: str = "autobider",
         *,
+        goals: list[str] | None = None,
         poll_seconds: float = 5.0,
         max_polls: int = 24,
     ) -> list[dict]:
@@ -175,6 +179,9 @@ class DirectClient:
             "IncludeVAT": "YES",
             "IncludeDiscount": "NO",
         }}
+        if goals:  # обращения по цели Метрики: поле Conversions станет Conversions_<цель>_<модель>
+            body["params"]["Goals"] = [str(g) for g in goals]
+            body["params"]["AttributionModels"] = ["AUTO"]
         headers = {
             **self._headers,
             "processingMode": "auto",
@@ -223,20 +230,24 @@ class DirectClient:
             )
         return item
 
-    async def create_text_campaign(self, name: str, weekly_limit_micro: int, start_date: str) -> int:
+    async def create_text_campaign(self, name: str, weekly_limit_micro: int, start_date: str,
+                                   counter_ids: list[int] | None = None) -> int:
         """Кампания на поиске с автоматической стратегией и жёстким недельным бюджетом.
 
         Показы в сетях выключены (SERVING_OFF), чтобы бюджет шёл только на поиск."""
+        text_campaign = {"BiddingStrategy": {
+            "Search": {
+                "BiddingStrategyType": "WB_MAXIMUM_CLICKS",
+                "WbMaximumClicks": {"WeeklySpendLimit": weekly_limit_micro},
+            },
+            "Network": {"BiddingStrategyType": "SERVING_OFF"},
+        }}
+        if counter_ids:
+            text_campaign["CounterIds"] = {"Items": counter_ids}
         result = await self.call("campaigns", "add", {"Campaigns": [{
             "Name": name,
             "StartDate": start_date,
-            "TextCampaign": {"BiddingStrategy": {
-                "Search": {
-                    "BiddingStrategyType": "WB_MAXIMUM_CLICKS",
-                    "WbMaximumClicks": {"WeeklySpendLimit": weekly_limit_micro},
-                },
-                "Network": {"BiddingStrategyType": "SERVING_OFF"},
-            }},
+            "TextCampaign": text_campaign,
         }]})
         return self._result_item(result, "AddResults")["Id"]
 
@@ -267,6 +278,25 @@ class DirectClient:
         for i in range(len(ad_ids)):
             self._result_item(result, "ModerateResults", i)
 
+    async def set_weekly_limit(self, campaign_id: int, weekly_limit_micro: int) -> None:
+        """Меняет недельный лимит кампании (Директ хранит её как единую перфоманс-кампанию)."""
+        result = await self.call("campaigns", "update", {"Campaigns": [{
+            "Id": campaign_id,
+            "UnifiedCampaign": {"BiddingStrategy": {
+                "Search": {
+                    "BiddingStrategyType": "WB_MAXIMUM_CLICKS",
+                    "WbMaximumClicks": {"WeeklySpendLimit": weekly_limit_micro},
+                },
+                "Network": {"BiddingStrategyType": "SERVING_OFF"},
+            }},
+        }]})
+        self._result_item(result, "UpdateResults")
+
+    async def delete_campaigns(self, campaign_ids: list[int]) -> None:
+        result = await self.call("campaigns", "delete", {"SelectionCriteria": {"Ids": campaign_ids}})
+        for i in range(len(campaign_ids)):
+            self._result_item(result, "DeleteResults", i)
+
     async def set_campaigns_state(self, campaign_ids: list[int], active: bool) -> None:
         """Остановить или возобновить показы кампаний."""
         method = "resume" if active else "suspend"
@@ -279,6 +309,14 @@ class DirectClient:
         result = await self.call("ads", method, {"SelectionCriteria": {"Ids": ad_ids}})
         for i in range(len(ad_ids)):
             self._result_item(result, "ResumeResults" if active else "SuspendResults", i)
+
+    async def whoami(self) -> str:
+        """Логин рекламодателя, на которого выдан токен. Заодно проверяет, что доступ к API есть."""
+        result = await self.call("clients", "get", {"FieldNames": ["Login"]})
+        clients = result.get("Clients") or []
+        if not clients:
+            raise DirectError("Не удалось определить ваш рекламный кабинет.")
+        return clients[0]["Login"]
 
     async def find_region_id(self, city: str) -> int | None:
         """Номер региона Директа по названию города (Москва = 213). None, если не нашли."""
@@ -299,14 +337,12 @@ class DirectClient:
                         return int(prop["Value"])
         return None
 
-    async def ad_stats(self, date_from: str, date_to: str) -> list[dict]:
-        """Статистика по объявлениям и дням: показы, клики, расход (микрорубли)."""
-        rows = await self.report(
-            "AD_PERFORMANCE_REPORT",
-            ["Date", "CampaignId", "AdId", "Impressions", "Clicks", "Cost"],
-            date_from,
-            date_to,
-        )
+    async def ad_stats(self, date_from: str, date_to: str, goal_id: str | None = None) -> list[dict]:
+        """Статистика по объявлениям и дням: показы, клики, расход (микрорубли) и обращения по цели Метрики."""
+        fields = ["Date", "CampaignId", "AdId", "Impressions", "Clicks", "Cost"]
+        if goal_id:
+            fields.append("Conversions")
+        rows = await self.report("AD_PERFORMANCE_REPORT", fields, date_from, date_to, goals=[goal_id] if goal_id else None)
         return [
             {
                 "day": r["Date"],
@@ -315,9 +351,17 @@ class DirectClient:
                 "impressions": _to_int(r["Impressions"]),
                 "clicks": _to_int(r["Clicks"]),
                 "spend_micro": _to_int(r["Cost"]),
+                "leads": sum(_to_int(v) for k, v in r.items() if k.startswith("Conversions")),
             }
             for r in rows
         ]
+
+    async def set_counters(self, campaign_id: int, counter_ids: list[int]) -> None:
+        """Привязывает счётчики Метрики к кампании (нужно, чтобы Директ считал обращения)."""
+        result = await self.call("campaigns", "update", {"Campaigns": [{
+            "Id": campaign_id, "UnifiedCampaign": {"CounterIds": {"Items": counter_ids}},
+        }]})
+        self._result_item(result, "UpdateResults")
 
     async def list_campaigns(self) -> list[dict]:
         """Все кампании кабинета (постранично)."""

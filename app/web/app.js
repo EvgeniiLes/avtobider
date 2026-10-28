@@ -179,6 +179,7 @@ async function selectBusiness(id, refreshList = true) {
   fillForm(currentBusiness);
   renderFiles();
   refreshStopbar();
+  loadMetrika();
   if (refreshList) {
     for (const chip of $("business-list").children) {
       chip.classList.toggle("active", chip.textContent === currentBusiness.name);
@@ -239,6 +240,53 @@ async function deleteBusiness() {
   await api("DELETE", `/api/businesses/${currentBusiness.id}`);
   currentBusiness = null;
   await loadBusinesses();
+}
+
+/* ---------- Яндекс Метрика ---------- */
+
+async function loadMetrika() {
+  const card = $("metrika-card");
+  card.hidden = !currentBusiness;
+  if (!currentBusiness) return;
+  setStatus("metrika-status", "");
+  $("metrika-form").hidden = true;
+  const result = await api("GET", `/api/businesses/${currentBusiness.id}/metrika/counters`);
+  if (!result.ok) { $("metrika-howto").textContent = ""; setStatus("metrika-status", errorText(result), "err"); return; }
+  const { counters, selected, how_to } = result.data;
+  $("metrika-howto").textContent = how_to;
+  if (!counters.length) {
+    setStatus("metrika-status", "В вашей Метрике пока нет счётчиков. Создайте счётчик для сайта и вернитесь сюда.", "");
+    return;
+  }
+  $("metrika-form").hidden = false;
+  const counter = $("m-counter");
+  counter.replaceChildren(...counters.map((c) => el("option", { value: c.id, textContent: c.site ? `${c.name} (${c.site})` : c.name })));
+  if (selected.counter) counter.value = selected.counter;
+  $("m-clear").hidden = !selected.counter;
+  await loadGoals(selected.goal);
+}
+
+async function loadGoals(selectedGoal) {
+  const goal = $("m-goal");
+  const result = await api("GET", `/api/businesses/${currentBusiness.id}/metrika/counters/${$("m-counter").value}/goals`);
+  if (!result.ok) { setStatus("metrika-status", errorText(result), "err"); return; }
+  const goals = result.data.goals;
+  goal.replaceChildren(...goals.map((g) => el("option", { value: g.id, textContent: g.name })));
+  if (selectedGoal) goal.value = selectedGoal;
+  if (!goals.length) setStatus("metrika-status", "В этом счётчике нет целей. Создайте цель «Обращение» в Метрике.", "");
+}
+
+async function saveMetrika() {
+  const result = await api("PUT", `/api/businesses/${currentBusiness.id}/metrika`, { counter_id: $("m-counter").value, goal_id: $("m-goal").value });
+  if (!result.ok) { setStatus("metrika-status", errorText(result), "err"); return; }
+  setStatus("metrika-status", "Готово. Теперь сервис видит обращения с сайта.", "ok");
+  $("m-clear").hidden = false;
+}
+
+async function clearMetrika() {
+  await api("DELETE", `/api/businesses/${currentBusiness.id}/metrika`);
+  setStatus("metrika-status", "Метрика отключена. Сервис перестанет оценивать рекламу, пока вы её не подключите снова.", "ok");
+  $("m-clear").hidden = true;
 }
 
 /* ---------- Файлы бизнеса ---------- */
@@ -386,10 +434,18 @@ async function loadStats() {
   }
   $("example-notice").hidden = !data.example;
   $("stats-needs").textContent = data.needs;
-  $("sim-start").hidden = data.example;
+  $("sim-start").hidden = data.example || data.real;
   $("sim-reset").hidden = !data.example;
+  $("launch-open").hidden = data.real;
+  $("sync-now").hidden = !data.real;
   for (const b of document.querySelectorAll("[data-advance]")) b.hidden = !data.example;
-  $("sim-day").textContent = data.example ? `Сегодня в примере: ${data.today}` : "Пока нет данных. Нажмите «Запустить пример», чтобы увидеть, как работает сервис.";
+  $("sim-day").textContent = data.example
+    ? `Сегодня в примере: ${data.today}`
+    : data.real
+      ? (data.sync.at ? `Данные обновлены: ${new Date(data.sync.at).toLocaleString("ru-RU")}` : "Данные ещё не обновлялись.")
+      : "Пока нет рекламы. Нажмите «Создать рекламу» или посмотрите, как всё работает, на примере.";
+  const notices = $("notices");
+  notices.replaceChildren(...(data.notices || []).map((n) => el("li", { textContent: n })));
 
   const tiles = $("tiles");
   tiles.hidden = !data.totals;
@@ -399,8 +455,8 @@ async function loadStats() {
     tiles.append(
       tile(money(t.spend), `Расход за ${t.days} дней`),
       tile(String(t.leads), "Обращения"),
-      tile(String(t.clients), "Клиенты"),
-      tile(money(t.cost_per_client), "Цена клиента"),
+      tile(String(t.clients), t.clients_estimated ? "Клиенты (оценка)" : "Клиенты"),
+      tile(money(t.cost_per_client), t.clients_estimated ? "Цена клиента (оценка)" : "Цена клиента"),
     );
   }
   $("budget-box").hidden = !data.budget;
@@ -418,6 +474,7 @@ async function loadStats() {
   $("units-hint").hidden = data.units.length === 0;
   for (const u of data.units) {
     const name = el("td", { textContent: u.title });
+    if (u.note) name.append(el("span", { className: "sub", textContent: u.note }));
     if (u.in_test) name.append(el("span", { className: "sub", textContent: "Идёт сравнение двух вариантов" }));
     else if (u.variant) name.append(el("span", { className: "sub", textContent: "Второй вариант для сравнения" }));
     const cell = (v) => el("td", { textContent: v });
@@ -426,6 +483,42 @@ async function loadStats() {
       cell(money(u.spend)), cell(String(u.leads)), cell(String(u.clients)), cell(money(u.cost_per_client)));
     body.append(row);
   }
+}
+
+async function openLaunch() {
+  if (!currentBusiness) return;
+  setStatus("stats-status", "Готовим план…");
+  const result = await api("GET", `/api/businesses/${currentBusiness.id}/launch/preview`);
+  if (!result.ok) { setStatus("stats-status", errorText(result), "err"); $("launch-card").hidden = true; return; }
+  setStatus("stats-status", "");
+  const p = result.data;
+  $("launch-summary").textContent =
+    `Кабинет: ${p.account}. Город: ${p.city}. Объявлений: ${p.count}, по ${p.per_unit} ₽ в неделю каждое (всего ${p.total} ₽). Ведёт на: ${p.link}.`;
+  $("launch-variants").replaceChildren(...p.variants.map((v) =>
+    el("li", {}, el("div", { className: "t", textContent: v.title }), el("div", { className: "hint", textContent: v.text }))));
+  $("launch-warnings").replaceChildren(...p.warnings.map((w) => el("li", { textContent: w })));
+  $("launch-card").hidden = false;
+  $("launch-card").scrollIntoView({ block: "nearest" });
+}
+
+async function confirmLaunch() {
+  const button = $("launch-go");
+  button.disabled = true;
+  setStatus("stats-status", "Создаём рекламу в Яндекс Директе…");
+  const result = await api("POST", `/api/businesses/${currentBusiness.id}/launch`, {});
+  button.disabled = false;
+  if (!result.ok) { setStatus("stats-status", errorText(result), "err"); return; }
+  $("launch-card").hidden = true;
+  setStatus("stats-status", result.data.message, "ok");
+  await Promise.all([loadStats(), refreshStopbar()]);
+}
+
+async function syncNow() {
+  setStatus("stats-status", "Обновляем данные из Яндекс Директа…");
+  const result = await api("POST", `/api/businesses/${currentBusiness.id}/sync`);
+  if (!result.ok) { setStatus("stats-status", errorText(result), "err"); await loadStats(); return; }
+  setStatus("stats-status", result.data.changes ? `Готово. Новых записей в истории: ${result.data.changes}.` : "Данные обновлены.", "ok");
+  await Promise.all([loadStats(), refreshStopbar()]);
 }
 
 async function simAction(path, body) {
@@ -575,6 +668,13 @@ async function start() {
   $("nav-business").addEventListener("click", () => showPage("business"));
   $("nav-accounts").addEventListener("click", () => showPage("accounts"));
   $("nav-stats").addEventListener("click", () => showPage("stats"));
+  $("m-counter").addEventListener("change", () => loadGoals(""));
+  $("m-save").addEventListener("click", saveMetrika);
+  $("m-clear").addEventListener("click", clearMetrika);
+  $("launch-open").addEventListener("click", openLaunch);
+  $("launch-go").addEventListener("click", confirmLaunch);
+  $("launch-cancel").addEventListener("click", () => { $("launch-card").hidden = true; });
+  $("sync-now").addEventListener("click", syncNow);
   $("stop-all").addEventListener("click", stopAll);
   $("resume-all").addEventListener("click", resumeAll);
   $("nav-history").addEventListener("click", () => showPage("history"));
@@ -602,6 +702,9 @@ async function start() {
   const config = await api("GET", "/api/config");
   if (config.ok) {
     $("yandex-box").hidden = !config.data.yandex_login;
+    $("connect-direct").hidden = !config.data.direct_oauth;
+    $("connect-off").hidden = !!config.data.direct_oauth;
+    $("manual-card").hidden = !(config.data.dev_token_available || !config.data.direct_oauth);
     $("dev-row").hidden = !config.data.dev_token_available;
     if (config.data.token_url) {
       $("token-link").href = config.data.token_url;
@@ -609,8 +712,9 @@ async function start() {
     }
   }
   const me = await api("GET", "/api/auth/me");
-  if (me.ok) showApp(me.data.email); else showAuth();
+  if (me.ok) await showApp(me.data.email); else showAuth();
   showLoginError();
+  if (me.ok) showConnectResult();
 }
 
 const LOGIN_ERRORS = {
@@ -619,6 +723,24 @@ const LOGIN_ERRORS = {
   failed: "Яндекс не подтвердил вход. Попробуйте ещё раз чуть позже.",
   not_configured: "Вход через Яндекс пока не настроен. Войдите по e-mail и паролю.",
 };
+
+const CONNECT_RESULTS = {
+  ok: ["Кабинет подключён.", "ok"],
+  denied: ["Вы не разрешили доступ в Яндексе. Нажмите «Подключить» ещё раз и выберите «Разрешить».", "err"],
+  state: ["Подключение не удалось: страница устарела. Нажмите «Подключить» ещё раз.", "err"],
+  failed: ["Яндекс не подтвердил подключение. Попробуйте ещё раз чуть позже.", "err"],
+  no_direct: ["У этого аккаунта нет доступа к Яндекс Директу. Выберите аккаунт, в котором есть рекламный кабинет.", "err"],
+  not_configured: ["Подключение кабинетов ещё не настроено на сервере.", "err"],
+};
+
+function showConnectResult() {
+  const code = new URLSearchParams(location.search).get("connect");
+  if (!code) return;
+  history.replaceState(null, "", "/");
+  showPage("accounts");
+  const [text, kind] = CONNECT_RESULTS[code] || ["Не получилось подключить кабинет. Попробуйте ещё раз.", "err"];
+  setStatus("connect-status", text, kind);
+}
 
 function showLoginError() {
   const code = new URLSearchParams(location.search).get("login_error");

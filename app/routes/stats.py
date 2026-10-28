@@ -12,6 +12,11 @@ from app.engine.config import EngineConfig
 from app.engine.cycle import (
     CLASS_LABELS, approve, reject, resume_all, rollback, run_cycle, stop_all, target_cpa_micro, target_lead_micro, unit_stats,
 )
+from app.config import get_settings
+from app.direct.client import DirectError
+from app.direct.launch import STATE_LABELS
+from app.direct.runner import account_token
+from app.platforms.direct import DirectPlatform
 from app.engine.util import EngineError, MICRO, day_add
 from app.platforms.simulator import SimulatedPlatform, advance_day, get_today, reset_demo, start_demo
 from app.routes.businesses import _own
@@ -27,8 +32,17 @@ ACTION_LABELS = {
 STATUS = {"conflict": 409, "stale": 409, "not_found": 404}
 
 
-def _fail(e: EngineError) -> HTTPException:
-    return HTTPException(STATUS.get(e.code, 400), detail={"message": e.message, "code": e.code})
+def _platform(conn: sqlite3.Connection, biz: sqlite3.Row):
+    """Площадка бизнеса: настоящий Директ, если реклама создана там, иначе пример."""
+    if conn.execute("SELECT 1 FROM campaigns WHERE business_id = ? AND source = 'direct'", (biz["id"],)).fetchone():
+        token, login = account_token(conn, biz["account_id"])
+        return DirectPlatform(conn, token, get_settings().direct_api_version, login)
+    return SimulatedPlatform(conn)
+
+
+def _fail(e: EngineError | DirectError) -> HTTPException:
+    code = getattr(e, "code", None)
+    return HTTPException(STATUS.get(code, 400), detail={"message": e.message, "code": code})
 
 
 def _rub(micro: float) -> float:
@@ -62,9 +76,13 @@ def checklist(biz: sqlite3.Row, accounts: int, units: int) -> list[dict]:
 def overview(business_id: int, user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connection = Depends(get_db)):
     biz = _own(conn, user, business_id)
     cfg = EngineConfig()
-    today = get_today(conn, business_id)
-    result = {"example": bool(today), "today": today, "units": [], "totals": None, "budget": None, "needs": "",
-              "mode": biz["mode"], "proposals": 0, "stopped": False}
+    sim_today = get_today(conn, business_id)
+    real = conn.execute("SELECT 1 FROM campaigns WHERE business_id = ? AND source = 'direct'", (business_id,)).fetchone() is not None
+    today = sim_today or (date.today().isoformat() if real else None)
+    result = {"example": bool(sim_today), "real": real, "today": today, "units": [], "totals": None, "budget": None, "needs": "",
+              "mode": biz["mode"], "proposals": 0, "stopped": False, "notices": [],
+              "sync": {"at": biz["last_sync_at"], "error": biz["last_sync_error"]},
+              "has_account": bool(conn.execute("SELECT 1 FROM ad_accounts WHERE user_id = ?", (user["id"],)).fetchone())}
     try:
         target_cpa_micro(biz)
     except EngineError as e:
@@ -82,6 +100,8 @@ def overview(business_id: int, user: sqlite3.Row = Depends(current_user), conn: 
     if not today:
         return result
 
+    conversions = bool(sim_today) or bool(biz["metrika_counter_id"] and biz["metrika_goal_id"])
+    result["conversions"] = conversions
     start = day_add(today, -(cfg.window_days - 1))
     units = conn.execute("SELECT * FROM ad_units WHERE business_id = ? ORDER BY id", (business_id,)).fetchall()
     total = {"spend": 0, "clicks": 0, "leads": 0, "clients": 0}
@@ -91,6 +111,9 @@ def overview(business_id: int, user: sqlite3.Row = Depends(current_user), conn: 
     }
     for u in units:
         s = unit_stats(conn, u["id"], start, today)
+        if real and conversions and not s["clients"]:
+            # Метрика видит обращения, но не знает, кто стал клиентом: оцениваем по доле, которую назвал владелец.
+            s["clients"] = round(s["leads"] * biz["client_share"])
         for k in total:
             total[k] += s[k]
         ev = conn.execute("SELECT cls FROM evaluations WHERE unit_id = ? ORDER BY day DESC, id DESC LIMIT 1", (u["id"],)).fetchone()
@@ -108,8 +131,10 @@ def overview(business_id: int, user: sqlite3.Row = Depends(current_user), conn: 
             "clients": s["clients"],
             "cost_per_lead": _ratio(s["spend"], s["leads"]),
             "cost_per_client": _ratio(s["spend"], s["clients"]),
-            "verdict": CLASS_LABELS[cls] if u["state"] == "active" else "Остановлено",
-            "verdict_code": cls if u["state"] == "active" else "paused",
+            "state": u["state"],
+            "note": u["status_note"] if "status_note" in u.keys() else "",
+            "verdict": (CLASS_LABELS[cls] if not real or conversions else "Идёт показ") if u["state"] == "active" else STATE_LABELS.get(u["state"], "Остановлено"),
+            "verdict_code": (cls if not real or conversions else "waiting") if u["state"] == "active" else u["state"],
         })
     result["totals"] = {
         "spend": _rub(total["spend"]),
@@ -119,7 +144,22 @@ def overview(business_id: int, user: sqlite3.Row = Depends(current_user), conn: 
         "cost_per_lead": _ratio(total["spend"], total["leads"]),
         "cost_per_client": _ratio(total["spend"], total["clients"]),
         "days": cfg.window_days,
+        "clients_estimated": bool(real and conversions),
     }
+    if real:
+        states = {u["state"] for u in units}
+        if "moderation" in states:
+            result["notices"].append("Яндекс проверяет объявления. Обычно это занимает от нескольких минут до нескольких часов.")
+        if "rejected" in states:
+            result["notices"].append("Часть объявлений не прошла проверку. Причина указана рядом с объявлением. Сервис предложит новый текст.")
+        if "unpaid" in states:
+            result["notices"].append("Объявления одобрены. Чтобы начались показы, пополните счёт в Яндекс Директе: минимум 300 ₽.")
+        if not conversions:
+            result["notices"].append(
+                "Яндекс Метрика ещё не подключена, поэтому сервис пока не видит обращений. Он следит за бюджетом, "
+                "но не останавливает и не усиливает объявления, пока не поймёт, какие из них приводят клиентов.")
+        if biz["last_sync_error"]:
+            result["notices"].append(f"Последнее обновление данных не удалось: {biz['last_sync_error']}")
     week_spend = sum(unit_stats(conn, u["id"], day_add(today, -6), today)["spend"] for u in units)
     budget = biz["weekly_budget_micro"]
     result["budget"] = {
@@ -201,8 +241,8 @@ def _decide(business_id: int, change_id: int, user, conn, fn):
     biz = _own(conn, user, business_id)
     today = get_today(conn, business_id) or date.today().isoformat()
     try:
-        fn(biz, SimulatedPlatform(conn), today)
-    except EngineError as e:
+        fn(biz, _platform(conn, biz), today)
+    except (EngineError, DirectError) as e:
         raise _fail(e)
     return {"ok": True}
 
@@ -221,14 +261,20 @@ def change_reject(business_id: int, change_id: int, user: sqlite3.Row = Depends(
 def stop_everything(business_id: int, user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connection = Depends(get_db)):
     biz = _own(conn, user, business_id)
     today = get_today(conn, business_id) or date.today().isoformat()
-    return {"stopped": stop_all(conn, SimulatedPlatform(conn), biz, today)}
+    try:
+        return {"stopped": stop_all(conn, _platform(conn, biz), biz, today)}
+    except (EngineError, DirectError) as e:
+        raise _fail(e)
 
 
 @router.post("/resume-all")
 def resume_everything(business_id: int, user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connection = Depends(get_db)):
     biz = _own(conn, user, business_id)
     today = get_today(conn, business_id) or date.today().isoformat()
-    return {"resumed": resume_all(conn, SimulatedPlatform(conn), biz, today)}
+    try:
+        return {"resumed": resume_all(conn, _platform(conn, biz), biz, today)}
+    except (EngineError, DirectError) as e:
+        raise _fail(e)
 
 
 class RollbackIn(BaseModel):
@@ -246,7 +292,7 @@ def change_rollback(
     biz = _own(conn, user, business_id)
     today = get_today(conn, business_id) or date.today().isoformat()
     try:
-        rollback(conn, SimulatedPlatform(conn), biz, change_id, today, data.force)
-    except EngineError as e:
+        rollback(conn, _platform(conn, biz), biz, change_id, today, data.force)
+    except (EngineError, DirectError) as e:
         raise _fail(e)
     return {"ok": True}

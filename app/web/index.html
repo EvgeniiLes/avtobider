@@ -129,6 +129,20 @@
           </form>
         </div>
 
+        <div class="card" id="metrika-card" hidden>
+          <h2>Обращения с сайта (Яндекс Метрика)</h2>
+          <p id="metrika-howto" class="hint"></p>
+          <div id="metrika-form" hidden>
+            <label for="m-counter">Счётчик</label>
+            <select id="m-counter"></select>
+            <label for="m-goal">Цель «обращение»</label>
+            <select id="m-goal"></select>
+            <button id="m-save" class="small">Сохранить</button>
+            <button id="m-clear" class="small secondary" hidden>Отключить</button>
+          </div>
+          <p id="metrika-status" class="status" role="status"></p>
+        </div>
+
         <div class="card" id="files-card">
           <h2>Фото и видео для рекламы</h2>
           <p id="files-locked" class="hint">Сначала сохраните описание бизнеса, потом сможете загрузить файлы.</p>
@@ -167,8 +181,20 @@
             <p id="proposals-note" class="notice proposals" hidden></p>
             <p class="notice" id="example-notice" hidden>Пример данных. Это учебная симуляция, а не ваша реальная реклама. Деньги не тратятся, но сервис принимает решения так же, как на настоящей рекламе.</p>
             <p id="stats-needs" class="status err"></p>
+            <ul id="notices" class="notices"></ul>
+            <div id="launch-card" class="launch" hidden>
+              <h3>Что будет создано в Яндекс Директе</h3>
+              <p id="launch-summary" class="hint"></p>
+              <ul id="launch-variants" class="variants"></ul>
+              <ul id="launch-warnings" class="notices"></ul>
+              <p class="hint">Деньги спишутся только после того, как Яндекс одобрит объявления и вы пополните счёт. Больше недельного бюджета сервис не потратит.</p>
+              <button id="launch-go" class="small">Создать и отправить на проверку</button>
+              <button id="launch-cancel" class="small secondary">Отмена</button>
+            </div>
             <div class="actions">
-              <button id="sim-start" class="small">Запустить пример</button>
+              <button id="launch-open" class="small">Создать рекламу</button>
+              <button id="sync-now" class="small secondary" hidden>Обновить данные</button>
+              <button id="sim-start" class="small secondary">Посмотреть на примере</button>
               <button class="small secondary" data-advance="1">Прокрутить 1 день</button>
               <button class="small secondary" data-advance="7">7 дней</button>
               <button class="small secondary" data-advance="30">30 дней</button>
@@ -226,6 +252,14 @@
 
         <div class="card">
           <h2>Подключить кабинет</h2>
+          <p>Нажмите кнопку, войдите в Яндекс и разрешите Автобидеру вести рекламу в вашем кабинете Директа. Пароль и токен вводить не нужно.</p>
+          <p id="connect-status" class="status" role="status"></p>
+          <a id="connect-direct" class="btn-yandex btn-direct" href="/auth/direct/start">Подключить Яндекс Директ</a>
+          <p id="connect-off" class="hint" hidden>Подключение кабинетов ещё не настроено на сервере: нужны ключи приложения Яндекса.</p>
+        </div>
+
+        <details class="card" id="manual-card" hidden>
+          <summary>Для опытных: подключить по готовому токену</summary>
           <form id="account-form">
             <label for="title">Название <span class="hint">(для себя, необязательно)</span></label>
             <input type="text" id="title" placeholder="Например, Салон на Невском">
@@ -245,7 +279,7 @@
             <button type="submit" id="account-submit">Подключить</button>
             <p id="account-status" class="status" role="status"></p>
           </form>
-        </div>
+        </details>
       </div>
     </section>
   </main>

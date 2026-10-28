@@ -43,8 +43,9 @@ chmod 640 "$APP_DIR/.env"
 
 echo "==> Включаю службу"
 cp "$APP_DIR/deploy/autobider.service" /etc/systemd/system/autobider.service
+cp "$APP_DIR/deploy/autobider-worker.service" /etc/systemd/system/autobider-worker.service
 systemctl daemon-reload
-systemctl enable --now autobider
+systemctl enable --now autobider autobider-worker
 
 echo "==> Настраиваю nginx для $DOMAIN"
 sed "s/__DOMAIN__/$DOMAIN/g" "$APP_DIR/deploy/nginx.conf" > /etc/nginx/sites-available/autobider

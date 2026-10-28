@@ -1,0 +1,21 @@
+[Unit]
+Description=Автобидер: фоновый процесс (обновление данных и решения по рекламе)
+After=network.target autobider.service
+
+[Service]
+Type=simple
+User=autobider
+Group=autobider
+WorkingDirectory=/opt/autobider
+EnvironmentFile=/opt/autobider/.env
+ExecStart=/opt/autobider/.venv/bin/python -m app.worker
+Restart=on-failure
+RestartSec=10
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/opt/autobider/data
+
+[Install]
+WantedBy=multi-user.target

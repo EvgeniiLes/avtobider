@@ -1,0 +1,198 @@
+"""Запуск рекламы бизнеса в Яндекс Директе: план, создание кампаний, отправка на проверку, синхронизация.
+
+Устройство: на каждый вариант объявления своя кампания со своим недельным лимитом,
+внутри одна группа (автотаргетинг включается сам, ключевые фразы не нужны) и одно объявление.
+Так бюджет делится между объявлениями жёстко, и сервис может усиливать или останавливать каждое отдельно.
+"""
+import sqlite3
+from dataclasses import dataclass
+from datetime import date, timedelta
+
+from app.direct.client import DirectClient, DirectError
+from app.direct.texts import alternative_variant, check, draft_variants
+from app.engine.util import EngineError, MICRO, day_add, rub
+
+MAX_VARIANTS = 6
+START_SHARE = 0.7   # какую часть доступного бюджета раздаём сразу, остальное про запас для роста
+RESERVE = 0.10      # часть недельного бюджета, которую не раздаём вообще
+MIN_WEEKLY = 300 * MICRO  # минимум Директа на кампанию; точное значение берём из справочника
+
+STATE_LABELS = {
+    "draft": "Черновик",
+    "moderation": "На проверке в Яндексе",
+    "rejected": "Не прошло проверку",
+    "unpaid": "Нужно пополнить счёт",
+    "active": "Идёт показ",
+    "paused": "Остановлено",
+}
+
+
+@dataclass
+class Plan:
+    count: int
+    per_unit_micro: int
+    variants: list[dict]
+    region_id: int
+    city: str
+    href: str
+    business_id: int | None
+    warnings: list[str]
+    counter_ids: list[int] | None = None
+
+
+def _maps_id(biz) -> int | None:
+    from app.routes.businesses import maps_org_id  # импорт здесь, чтобы не было круга
+    value = maps_org_id(biz["maps_url"])
+    return int(value) if value else None
+
+
+def plan_launch(biz, region_id: int | None, min_weekly_micro: int = MIN_WEEKLY) -> Plan:
+    """Считает, что будет создано. Если создавать нечего или нельзя, объясняет простыми словами."""
+    if not (biz["site_url"] or _maps_id(biz)):
+        raise EngineError("Укажите сайт или ссылку на ваш бизнес в Яндекс Картах: без них объявлению некуда вести.", "no_target_link")
+    if not biz["city"].strip():
+        raise EngineError("Укажите город, где показывать рекламу.", "no_city")
+    if region_id is None:
+        raise EngineError(f"Не нашёл город «{biz['city']}» в Яндексе. Проверьте, как он написан (например, «Москва»).", "no_region")
+    if biz["weekly_budget_micro"] <= 0:
+        raise EngineError("Укажите бюджет на неделю.", "no_budget")
+
+    available = int(biz["weekly_budget_micro"] * (1 - RESERVE))
+    start_pool = int(available * START_SHARE)
+    count = min(MAX_VARIANTS, start_pool // min_weekly_micro)
+    if count < 1:
+        need = rub(min_weekly_micro / START_SHARE / (1 - RESERVE))
+        raise EngineError(f"Бюджет слишком мал: на одну кампанию Яндекс требует минимум {rub(min_weekly_micro)} в неделю. Нужно хотя бы {need} в неделю.", "budget_too_small")
+
+    variants = draft_variants(biz, count)
+    warnings = []
+    for v in variants:
+        warnings += check(v["title"], v["text"])
+    if count < MAX_VARIANTS:
+        warnings.append(f"При таком бюджете хватает на {count} вариантов объявлений. Больше бюджет, больше вариантов для сравнения.")
+    counters = [int(biz["metrika_counter_id"])] if biz["metrika_counter_id"] else None
+    return Plan(
+        count=count, per_unit_micro=start_pool // count, variants=variants, region_id=region_id,
+        city=biz["city"], href=biz["site_url"], business_id=_maps_id(biz), warnings=warnings, counter_ids=counters,
+    )
+
+
+async def create_unit(client: DirectClient, plan: Plan, variant: dict, name: str, weekly_micro: int, start_date: str) -> dict:
+    """Создаёт кампанию, группу и объявление. Если что-то не вышло, удаляет уже созданное и пробрасывает ошибку."""
+    campaign_id = group_id = ad_id = None
+    try:
+        campaign_id = await client.create_text_campaign(name, weekly_micro, start_date, counter_ids=plan.counter_ids)
+        group_id = await client.create_ad_group(campaign_id, "Основная", [plan.region_id])
+        ad_id = await client.create_text_ad(
+            group_id, variant["title"], variant["text"], href=plan.href, business_id=plan.business_id,
+        )
+    except DirectError:
+        if campaign_id:
+            try:
+                await client.delete_campaigns([campaign_id])
+            except DirectError:
+                pass
+        raise
+    return {"campaign_id": campaign_id, "group_id": group_id, "ad_id": ad_id}
+
+
+def save_unit(conn: sqlite3.Connection, biz, account_id: int, campaign_row_id: int, variant: dict, ids: dict,
+              weekly_micro: int, today: str, variant_of: int | None = None) -> int:
+    cur = conn.execute(
+        "INSERT INTO ad_units (campaign_id, business_id, title, body, state, budget_micro, variant_of, last_changed_day, created_day, "
+        "external_campaign_id, external_group_id, external_ad_id) VALUES (?,?,?,?, 'moderation', ?,?,?,?,?,?,?)",
+        (campaign_row_id, biz["id"], variant["title"], variant["text"], weekly_micro, variant_of, today, today,
+         ids["campaign_id"], ids["group_id"], ids["ad_id"]),
+    )
+    return cur.lastrowid
+
+
+async def launch(client: DirectClient, conn: sqlite3.Connection, biz, account_id: int, plan: Plan, today: str) -> list[int]:
+    """Создаёт все варианты в кабинете, отправляет объявления на проверку и записывает в базу."""
+    start_date = day_add(today, 1)
+    created: list[dict] = []
+    try:
+        for i, variant in enumerate(plan.variants, start=1):
+            ids = await create_unit(client, plan, variant, f"Автобидер: {biz['name']} #{i}", plan.per_unit_micro, start_date)
+            created.append({**ids, "variant": variant})
+        await client.moderate_ads([c["ad_id"] for c in created])
+    except DirectError:
+        for c in created:  # откат: не оставляем в кабинете недоделанные кампании
+            try:
+                await client.delete_campaigns([c["campaign_id"]])
+            except DirectError:
+                pass
+        raise
+
+    row = conn.execute(
+        "INSERT INTO campaigns (business_id, account_id, name, source) VALUES (?,?,?, 'direct')",
+        (biz["id"], account_id, f"Реклама: {biz['name']}"),
+    )
+    unit_ids = [
+        save_unit(conn, biz, account_id, row.lastrowid, c["variant"], c, plan.per_unit_micro, today) for c in created
+    ]
+    conn.execute("UPDATE businesses SET account_id = ?, status = 'running' WHERE id = ?", (account_id, biz["id"]))
+    conn.commit()
+    return unit_ids
+
+
+# ---------- синхронизация с кабинетом ----------
+
+def map_state(state: str, status: str, payment: str) -> str:
+    """Состояние кампании в Директе → понятное состояние объявления у нас."""
+    if status == "DRAFT":
+        return "draft"
+    if status == "MODERATION":
+        return "moderation"
+    if status == "REJECTED":
+        return "rejected"
+    if state == "ON":
+        return "active"
+    if state == "OFF" and payment == "DISALLOWED":
+        return "unpaid"
+    return "paused"
+
+
+async def sync_units(client: DirectClient, conn: sqlite3.Connection, biz, today: str, days: int = 30) -> dict:
+    """Подтягивает из Директа состояния кампаний и статистику по объявлениям."""
+    units = conn.execute(
+        "SELECT * FROM ad_units WHERE business_id = ? AND external_campaign_id IS NOT NULL", (biz["id"],)
+    ).fetchall()
+    if not units:
+        return {"units": 0, "rows": 0}
+    ids = [u["external_campaign_id"] for u in units]
+    result = await client.call("campaigns", "get", {
+        "SelectionCriteria": {"Ids": ids},
+        "FieldNames": ["Id", "State", "Status", "StatusPayment", "StatusClarification"],
+    })
+    by_id = {c["Id"]: c for c in result.get("Campaigns", [])}
+    for u in units:
+        c = by_id.get(u["external_campaign_id"])
+        if c is None:
+            conn.execute("UPDATE ad_units SET state = 'paused', status_note = 'Кампанию удалили в кабинете Директа' WHERE id = ?", (u["id"],))
+            continue
+        state = map_state(c.get("State", ""), c.get("Status", ""), c.get("StatusPayment", ""))
+        note = c.get("StatusClarification") or ""
+        if state == "active" and biz["status"] == "stopped":
+            # стоп-кран нажат: объявление, которое Яндекс только что одобрил или владелец оплатил, не пускаем в показ
+            await client.set_campaigns_state([u["external_campaign_id"]], False)
+            state = "paused"
+        conn.execute("UPDATE ad_units SET state = ?, status_note = ? WHERE id = ?", (state, note, u["id"]))
+
+    goal = biz["metrika_goal_id"] or None
+    rows = await client.ad_stats(day_add(today, -(days - 1)), today, goal_id=goal)
+    by_ad = {str(u["external_ad_id"]): u["id"] for u in units}
+    n = 0
+    for r in rows:
+        unit_id = by_ad.get(str(r["ad_id"]))
+        if unit_id is None:
+            continue
+        conn.execute(
+            "INSERT INTO stats_daily (unit_id, day, impressions, clicks, spend_micro, leads) VALUES (?,?,?,?,?,?) "
+            "ON CONFLICT(unit_id, day) DO UPDATE SET impressions = excluded.impressions, clicks = excluded.clicks, "
+            "spend_micro = excluded.spend_micro, leads = excluded.leads",
+            (unit_id, r["day"], r["impressions"], r["clicks"], r["spend_micro"], r["leads"] if goal else 0),
+        )
+        n += 1
+    conn.commit()
+    return {"units": len(units), "rows": n}

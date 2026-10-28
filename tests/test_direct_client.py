@@ -260,8 +260,26 @@ def test_ad_stats_parses_tsv_and_money_stays_in_micros():
     assert params["SelectionCriteria"] == {"DateFrom": "2026-10-27", "DateTo": "2026-10-27"}
     assert "returnMoneyInMicros" not in seen["headers"]
     assert seen["headers"]["skipReportHeader"] == "true"
-    assert rows[0] == {"day": "2026-10-27", "campaign_id": "10", "ad_id": "77", "impressions": 1000, "clicks": 30, "spend_micro": 450_000_000}
+    assert rows[0] == {"day": "2026-10-27", "campaign_id": "10", "ad_id": "77", "impressions": 1000, "clicks": 30,
+                       "spend_micro": 450_000_000, "leads": 0}
     assert rows[1]["clicks"] == 0 and rows[1]["spend_micro"] == 0  # «--» значит ноль
+
+
+def test_ad_stats_with_goal_reads_conversions_column():
+    seen = {}
+
+    def handler(request):
+        seen["params"] = json.loads(request.content)["params"]
+        return httpx.Response(200, text="Date\tCampaignId\tAdId\tImpressions\tClicks\tCost\tConversions_9001_AUTO\n"
+                                        "2026-10-27\t10\t77\t1000\t30\t450000000\t4\n2026-10-27\t10\t78\t1\t1\t1000000\t--\n")
+
+    async def go(client):
+        return await client.ad_stats("2026-10-27", "2026-10-27", goal_id="9001")
+
+    rows = run_client(handler, go)
+    assert seen["params"]["Goals"] == ["9001"] and seen["params"]["AttributionModels"] == ["AUTO"]
+    assert "Conversions" in seen["params"]["FieldNames"]
+    assert [r["leads"] for r in rows] == [4, 0]
 
 
 def test_offline_report_is_awaited():

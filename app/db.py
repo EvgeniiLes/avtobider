@@ -5,7 +5,7 @@ from pathlib import Path
 
 from app.config import get_settings
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (
@@ -172,6 +172,18 @@ ADDED_COLUMNS = [
     ("users", "yandex_id", "TEXT"),
     ("businesses", "maps_url", "TEXT NOT NULL DEFAULT ''"),
     ("businesses", "mode", "TEXT NOT NULL DEFAULT 'auto'"),
+    ("ad_accounts", "expires_at", "TEXT NOT NULL DEFAULT ''"),
+    ("ad_accounts", "refresh_token_enc", "TEXT NOT NULL DEFAULT ''"),
+    ("businesses", "account_id", "INTEGER"),
+    ("businesses", "metrika_counter_id", "TEXT NOT NULL DEFAULT ''"),
+    ("businesses", "metrika_goal_id", "TEXT NOT NULL DEFAULT ''"),
+    ("businesses", "last_sync_at", "TEXT NOT NULL DEFAULT ''"),
+    ("businesses", "last_sync_error", "TEXT NOT NULL DEFAULT ''"),
+    ("campaigns", "account_id", "INTEGER"),
+    ("ad_units", "external_campaign_id", "INTEGER"),
+    ("ad_units", "external_group_id", "INTEGER"),
+    ("ad_units", "external_ad_id", "TEXT"),
+    ("ad_units", "status_note", "TEXT NOT NULL DEFAULT ''"),
     ("changes", "status", "TEXT NOT NULL DEFAULT 'applied'"),
 ]
 

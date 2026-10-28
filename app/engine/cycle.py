@@ -112,6 +112,9 @@ def _finish_experiments(conn, platform, biz, today, as_of, cfg, propose=False) -
     for ex in conn.execute("SELECT * FROM experiments WHERE business_id = ? AND status = 'running'", (biz["id"],)).fetchall():
         a = conn.execute("SELECT * FROM ad_units WHERE id = ?", (ex["unit_a"],)).fetchone()
         b = conn.execute("SELECT * FROM ad_units WHERE id = ?", (ex["unit_b"],)).fetchone()
+        waiting = {"draft", "moderation", "unpaid"}
+        if (a["state"] in waiting or b["state"] in waiting) and days_between(ex["started_day"], today) < 10:
+            continue  # второй вариант ещё проверяет Яндекс или ждёт оплаты: тест не начался
         if a["state"] != "active" or b["state"] != "active":
             conn.execute("UPDATE experiments SET status = 'cancelled', ended_day = ? WHERE id = ?", (today, ex["id"]))
             continue
@@ -160,7 +163,7 @@ def _finish_experiments(conn, platform, biz, today, as_of, cfg, propose=False) -
 
 def run_cycle(
     conn: sqlite3.Connection, biz: sqlite3.Row, platform: Platform, today: str,
-    cfg: EngineConfig = EngineConfig(), propose: bool | None = None,
+    cfg: EngineConfig = EngineConfig(), propose: bool | None = None, decide: bool = True,
 ) -> list[int]:
     """Выполняет один цикл и возвращает номера созданных записей истории.
 
@@ -195,6 +198,11 @@ def run_cycle(
         conn.commit()
         return made
     block_growth = budget_total > 0 and week_spend >= cfg.block_growth_at * budget_total
+
+    if not decide:
+        # Нет данных об обращениях (Метрика не подключена): судить о рекламе нечем, работает только защита бюджета.
+        conn.commit()
+        return made
 
     # 2. Завершённые A/B-тесты.
     made += _finish_experiments(conn, platform, biz, today, as_of, cfg, propose=propose)
@@ -316,7 +324,7 @@ def _start_test(conn, platform, biz, unit, today, free_text: str, evidence=None,
         "INSERT INTO experiments (business_id, unit_a, unit_b, started_day) VALUES (?,?,?,?)",
         (biz["id"], unit["id"], variant_id, today),
     )
-    platform.set_state(unit["id"], "active", today)  # объявление не менялось, но тест начался: даём ему «остыть»
+    platform.touch(unit["id"], today)  # объявление не менялось, но тест начался: даём ему «остыть»
     after = {"variant_unit_id": variant_id, "experiment_id": ex.lastrowid}
     text = (
         f"Запустили сравнение для «{unit['title']}»: {free_text}. "
@@ -453,6 +461,8 @@ def stop_all(conn: sqlite3.Connection, platform: Platform, biz: sqlite3.Row, tod
     for u in units:
         _pause(conn, platform, biz, u, today, "user_stop_all",
                f"Вы остановили всю рекламу: «{u['title']}» больше не показывается.", actor="user")
+    # Пока стоп-кран нажат, объявления, которые позже одобрит Яндекс или оплатит владелец, тоже не запускаются.
+    conn.execute("UPDATE businesses SET status = 'stopped' WHERE id = ?", (biz["id"],))
     conn.commit()
     return len(units)
 
@@ -465,4 +475,6 @@ def resume_all(conn: sqlite3.Connection, platform: Platform, biz: sqlite3.Row, t
     ).fetchall()
     for row in rows:
         rollback(conn, platform, biz, row["id"], today, force=True)
+    conn.execute("UPDATE businesses SET status = 'running' WHERE id = ?", (biz["id"],))
+    conn.commit()
     return len(rows)
