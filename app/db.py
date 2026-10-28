@@ -184,6 +184,7 @@ ADDED_COLUMNS = [
     ("ad_accounts", "expires_at", "TEXT NOT NULL DEFAULT ''"),
     ("ad_accounts", "refresh_token_enc", "TEXT NOT NULL DEFAULT ''"),
     ("businesses", "account_id", "INTEGER"),
+    ("businesses", "marking_confirmed", "INTEGER NOT NULL DEFAULT 0"),
     ("businesses", "metrika_counter_id", "TEXT NOT NULL DEFAULT ''"),
     ("businesses", "metrika_goal_id", "TEXT NOT NULL DEFAULT ''"),
     ("businesses", "last_sync_at", "TEXT NOT NULL DEFAULT ''"),

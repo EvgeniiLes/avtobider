@@ -497,6 +497,10 @@ async function openLaunch() {
   $("launch-variants").replaceChildren(...p.variants.map((v) =>
     el("li", {}, el("div", { className: "t", textContent: v.title }), el("div", { className: "hint", textContent: v.text }))));
   $("launch-warnings").replaceChildren(...p.warnings.map((w) => el("li", { textContent: w })));
+  $("marking-help").textContent = p.marking.help;
+  $("marking-ok").checked = p.marking.confirmed;
+  $("marking-box").hidden = p.marking.confirmed;
+  $("launch-go").disabled = !p.marking.confirmed;
   $("launch-card").hidden = false;
   $("launch-card").scrollIntoView({ block: "nearest" });
 }
@@ -505,7 +509,7 @@ async function confirmLaunch() {
   const button = $("launch-go");
   button.disabled = true;
   setStatus("stats-status", "Создаём рекламу в Яндекс Директе…");
-  const result = await api("POST", `/api/businesses/${currentBusiness.id}/launch`, {});
+  const result = await api("POST", `/api/businesses/${currentBusiness.id}/launch`, { marking_confirmed: $("marking-ok").checked });
   button.disabled = false;
   if (!result.ok) { setStatus("stats-status", errorText(result), "err"); return; }
   $("launch-card").hidden = true;
@@ -673,6 +677,7 @@ async function start() {
   $("m-counter").addEventListener("change", () => loadGoals(""));
   $("m-save").addEventListener("click", saveMetrika);
   $("m-clear").addEventListener("click", clearMetrika);
+  $("marking-ok").addEventListener("change", () => { $("launch-go").disabled = !$("marking-ok").checked; });
   $("launch-open").addEventListener("click", openLaunch);
   $("launch-go").addEventListener("click", confirmLaunch);
   $("launch-cancel").addEventListener("click", () => { $("launch-card").hidden = true; });

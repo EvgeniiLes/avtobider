@@ -1,4 +1,4 @@
-import sqlite3
+﻿import sqlite3
 from datetime import date
 
 import pytest
@@ -91,13 +91,13 @@ def test_launch_creates_campaigns_with_hard_budgets_and_sends_to_moderation(isol
     fake = FakeDirect()
     with TestClient(app) as http:
         bid = setup(http, fake, isolated)
-        r = http.post(f"/api/businesses/{bid}/launch", json={})
+        r = http.post(f"/api/businesses/{bid}/launch", json={"marking_confirmed": True})
         assert r.status_code == 200 and r.json()["created"] == 6
         assert len(fake.campaigns) == 6 and all(c["Status"] == "MODERATION" for c in fake.campaigns.values())
         assert sum(c["Limit"] for c in fake.campaigns.values()) <= BUDGET * MICRO * 0.9 * 0.7 + 6
         assert all(c["Limit"] >= 300 * MICRO for c in fake.campaigns.values())
         assert ("ads", "moderate") in fake.calls
-        again = http.post(f"/api/businesses/{bid}/launch", json={})
+        again = http.post(f"/api/businesses/{bid}/launch", json={"marking_confirmed": True})
         assert again.status_code == 400 and "уже создана" in again.json()["detail"]["message"]
         ov = http.get(f"/api/businesses/{bid}/overview").json()
         assert ov["real"] and not ov["example"] and len(ov["units"]) == 6
@@ -105,11 +105,25 @@ def test_launch_creates_campaigns_with_hard_budgets_and_sends_to_moderation(isol
         assert any("проверяет" in n for n in ov["notices"]) and any("Метрика" in n for n in ov["notices"])
 
 
+def test_launch_requires_advertiser_data_for_marking(isolated):
+    fake = FakeDirect()
+    with TestClient(app) as http:
+        bid = setup(http, fake, isolated)
+        plan = http.get(f"/api/businesses/{bid}/launch/preview").json()
+        assert plan["marking"]["confirmed"] is False and "Данные рекламодателя" in plan["marking"]["help"]
+        r = http.post(f"/api/businesses/{bid}/launch", json={})
+        assert r.status_code == 400 and "Данные рекламодателя" in r.json()["detail"]["message"]
+        assert fake.campaigns == {}  # без данных рекламодателя в Директе ничего не создаётся
+        assert http.post(f"/api/businesses/{bid}/launch", json={"marking_confirmed": True}).status_code == 200
+        steps = {s["key"]: s for s in http.get(f"/api/businesses/{bid}/overview").json()["checklist"]}
+        assert steps["marking"]["done"] is True  # запомнили: второй раз спрашивать не нужно
+
+
 def test_launch_cleans_up_when_direct_refuses(isolated):
     fake = FakeDirect(fail_add_after=3)  # на четвёртой кампании Директ откажет
     with TestClient(app) as http:
         bid = setup(http, fake, isolated)
-        r = http.post(f"/api/businesses/{bid}/launch", json={})
+        r = http.post(f"/api/businesses/{bid}/launch", json={"marking_confirmed": True})
         assert r.status_code == 400 and "лимит кампаний" in r.json()["detail"]["message"]
         assert fake.campaigns == {}, "уже созданные кампании должны быть удалены"
         assert rows(isolated, "SELECT COUNT(*) AS n FROM ad_units")[0]["n"] == 0
@@ -121,7 +135,7 @@ def test_launch_replaces_example_data(isolated):
         bid = setup(http, fake, isolated)
         http.post(f"/api/businesses/{bid}/sim/start")
         assert http.get(f"/api/businesses/{bid}/overview").json()["example"]
-        http.post(f"/api/businesses/{bid}/launch", json={})
+        http.post(f"/api/businesses/{bid}/launch", json={"marking_confirmed": True})
         ov = http.get(f"/api/businesses/{bid}/overview").json()
         assert ov["real"] and not ov["example"] and len(ov["units"]) == 6
 
@@ -130,7 +144,7 @@ def test_launch_replaces_example_data(isolated):
 
 def launched(http, fake, db_path):
     bid = setup(http, fake, db_path)
-    http.post(f"/api/businesses/{bid}/launch", json={})
+    http.post(f"/api/businesses/{bid}/launch", json={"marking_confirmed": True})
     return bid
 
 

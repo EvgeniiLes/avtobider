@@ -188,7 +188,11 @@
               <ul id="launch-variants" class="variants"></ul>
               <ul id="launch-warnings" class="notices"></ul>
               <p class="hint">Деньги спишутся только после того, как Яндекс одобрит объявления и вы пополните счёт. Больше недельного бюджета сервис не потратит.</p>
-              <button id="launch-go" class="small">Создать и отправить на проверку</button>
+              <div class="notice" id="marking-box">
+                <p id="marking-help" class="hint"></p>
+                <label class="check"><input type="checkbox" id="marking-ok"> Я внёс данные рекламодателя в Яндекс Директе</label>
+              </div>
+              <button id="launch-go" class="small" disabled>Создать и отправить на проверку</button>
               <button id="launch-cancel" class="small secondary">Отмена</button>
             </div>
             <div class="actions">

@@ -53,8 +53,9 @@ def _plan_for(conn, user, biz, account_id, factory):
     return account, token, login, plan_launch(biz, region, **kwargs)
 
 
-def _plan_json(plan, account) -> dict:
+def _plan_json(plan, account, marking_confirmed: bool = False) -> dict:
     return {
+        "marking": {"confirmed": marking_confirmed, "help": MARKING_HELP},
         "account": account["title"],
         "count": plan.count,
         "per_unit": round(plan.per_unit_micro / MICRO),
@@ -74,11 +75,19 @@ def preview(business_id: int, account_id: int | None = None, user: sqlite3.Row =
         account, _, _, plan = _plan_for(conn, user, biz, account_id, factory)
     except (EngineError, DirectError) as e:
         raise _fail(e)
-    return _plan_json(plan, account)
+    return _plan_json(plan, account, bool(biz["marking_confirmed"]))
+
+
+MARKING_HELP = (
+    "Закон требует маркировать интернет-рекламу. Директ делает это сам (создаёт метку erid и описание рекламы), "
+    "но ему нужны данные рекламодателя. Откройте Яндекс Директ, нажмите на свой логин, выберите «Данные рекламодателя», "
+    "укажите имя или название, ИНН и телефон, оставьте включённым «Я — конечный рекламодатель» и сохраните."
+)
 
 
 class LaunchIn(BaseModel):
     account_id: int | None = None
+    marking_confirmed: bool = False
 
 
 @router.post("/launch")
@@ -87,6 +96,8 @@ def start_launch(business_id: int, data: LaunchIn, user: sqlite3.Row = Depends(c
     biz = _own(conn, user, business_id)
     if conn.execute("SELECT 1 FROM campaigns WHERE business_id = ? AND source = 'direct'", (business_id,)).fetchone():
         raise HTTPException(400, detail={"message": "Реклама для этого бизнеса уже создана. Её состояние видно на вкладке «Статистика».", "code": "already"})
+    if not (data.marking_confirmed or biz["marking_confirmed"]):
+        raise HTTPException(400, detail={"message": "Сначала заполните «Данные рекламодателя» в Яндекс Директе: без них рекламу нельзя маркировать. " + MARKING_HELP, "code": "marking"})
     try:
         account, token, login, plan = _plan_for(conn, user, biz, data.account_id, factory)
         s = get_settings()
@@ -97,6 +108,7 @@ def start_launch(business_id: int, data: LaunchIn, user: sqlite3.Row = Depends(c
                 return await launch(client, conn, biz, account["id"], plan, today)
 
         unit_ids = asyncio.run(go())
+        conn.execute("UPDATE businesses SET marking_confirmed = 1 WHERE id = ?", (business_id,))
         reset_demo(conn, business_id)  # примерные данные заменяются настоящей рекламой
     except (EngineError, DirectError) as e:
         raise _fail(e)

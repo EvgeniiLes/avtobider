@@ -1,4 +1,4 @@
-import json
+﻿import json
 import sqlite3
 from datetime import date
 
@@ -100,7 +100,7 @@ def test_real_leads_flow_into_engine_decisions(isolated):
     fake = FakeDirect()
     with TestClient(app) as http:
         bid = setup(http, fake, isolated)
-        http.post(f"/api/businesses/{bid}/launch", json={})
+        http.post(f"/api/businesses/{bid}/launch", json={"marking_confirmed": True})
         metrika_stub()
         assert http.put(f"/api/businesses/{bid}/metrika", json={"counter_id": "555", "goal_id": "9001"}).status_code == 200
         conn = connect(isolated)
