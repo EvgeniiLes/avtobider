@@ -37,6 +37,9 @@ async def security_headers(request: Request, call_next):
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "same-origin")
+    if not request.url.path.startswith("/api/") and "Cache-Control" not in response.headers:
+        # Страницы и скрипты без версии в имени: браузер должен сверяться с сервером, иначе после обновления остаётся старая версия.
+        response.headers["Cache-Control"] = "no-cache"
     if request.url.scheme == "https":
         response.headers.setdefault("Strict-Transport-Security", "max-age=31536000")
     return response

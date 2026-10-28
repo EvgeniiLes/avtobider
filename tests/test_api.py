@@ -170,6 +170,12 @@ def test_security_headers_everywhere():
         assert "max-age" in http.get("https://testserver/").headers["strict-transport-security"]
 
 
+def test_pages_and_scripts_are_revalidated_by_the_browser():
+    with TestClient(app) as http:
+        for path in ("/", "/static/app.js", "/static/style.css"):
+            assert http.get(path).headers["cache-control"] == "no-cache"
+
+
 def test_page_has_no_inline_scripts_or_handlers():
     """CSP запрещает встроенные скрипты: страница должна жить только на подключённых файлах."""
     import re
