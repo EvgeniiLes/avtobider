@@ -47,6 +47,24 @@ def test_left_layout_gets_readable_white_text_on_dark_edge():
     assert im.getpixel((1100, 450)) == (255, 255, 255)  # справа фото нетронуто
 
 
+def test_five_templates_are_really_different():
+    from app.creative.compose import STYLES, style_for
+    assert len(STYLES) == 5 and [style_for(i) for i in range(6)] == list(STYLES) + [STYLES[0]]
+    photo = img(1200, 900, (200, 150, 120))
+    banners = [Image.open(BytesIO(make_banner(photo, "Маникюр в центре Москвы", "", None, "bottom", "Мята", "от 2 200 ₽",
+                                             "Записаться", style, "Запись онлайн. Работаем ежедневно"))).convert("RGB") for style in STYLES]
+    assert all(b.size == (1200, 900) for b in banners)
+    corners = {b.getpixel((12, 12)) for b in banners} | {b.getpixel((600, 880)) for b in banners}
+    assert len(corners) >= 4  # фоны разные: тёмный, пастельный, яркий, кремовый, фото
+    assert banners[1].getpixel((12, 12)) != banners[3].getpixel((12, 12))
+
+
+def test_price_badge_does_not_split_a_number():
+    from app.creative.compose import _price_lines
+    assert _price_lines("от 2 800 ₽") == ["от", "2 800 ₽"]
+    assert _price_lines("990 ₽") == ["990 ₽"]
+
+
 def test_price_is_taken_only_from_real_texts():
     from app.creative.compose import find_price
     assert find_price("Маникюр от 2 200 ₽") == "от 2 200 ₽"

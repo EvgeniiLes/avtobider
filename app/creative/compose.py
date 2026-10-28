@@ -92,11 +92,209 @@ def find_price(*texts: str) -> str:
     return ""
 
 
+STYLES = ("photo", "luxe", "pastel", "bold", "card")  # пять непохожих шаблонов: основа для сравнения вариантов (A/B)
+
+SERIF_CANDIDATES = [
+    "C:/Windows/Fonts/georgiab.ttf", "C:/Windows/Fonts/timesbd.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf", "/usr/share/fonts/dejavu/DejaVuSerif-Bold.ttf",
+    "/usr/share/fonts/truetype/liberation/LiberationSerif-Bold.ttf",
+]
+
+
+def style_for(index: int) -> str:
+    return STYLES[index % len(STYLES)]
+
+
+def _serif(size: int) -> ImageFont.ImageFont:
+    for path in SERIF_CANDIDATES:
+        if Path(path).is_file():
+            return ImageFont.truetype(path, size)
+    return _font(size)
+
+
+def _mix(a: tuple, b: tuple, t: float) -> tuple:
+    return tuple(int(a[i] * (1 - t) + b[i] * t) for i in range(3))
+
+
+def _fit(d: ImageDraw.ImageDraw, text: str, sizes, width: int, max_lines: int, font_fn=None):
+    """Самый крупный размер, при котором текст помещается в max_lines строк."""
+    font_fn = font_fn or _font
+    font, lines = font_fn(sizes[-1]), []
+    for size in sizes:
+        font = font_fn(size)
+        lines = _wrap(d, text, font, width)
+        if len(lines) <= max_lines:
+            break
+    return font, lines[:max_lines]
+
+
+def _text(d, xy, text, font, fill):
+    d.text(xy, text, font=font, fill=fill)
+
+
+def _lines(d, x, y, lines, font, fill, gap=1.2) -> int:
+    step = int(getattr(font, "size", 40) * gap)
+    for line in lines:
+        _text(d, (x, y), line, font, fill)
+        y += step
+    return y
+
+
+def _pill(d, x, y, text, font, bg, fg, pad_x=38, h=76, outline=None) -> int:
+    w = int(d.textlength(text, font=font)) + 2 * pad_x
+    d.rounded_rectangle((x, y, x + w, y + h), radius=h // 2, fill=bg, outline=outline, width=3 if outline else 0)
+    _text(d, (x + pad_x, y + (h - getattr(font, "size", 34)) // 2 - 3), text, font, fg)
+    return x + w
+
+
+def _shaped_photo(canvas: Image.Image, photo: Image.Image, box: tuple, shape: str, radius: int = 40) -> None:
+    x0, y0, x1, y1 = box
+    w, h = x1 - x0, y1 - y0
+    fitted = ImageOps.fit(photo, (w, h), Image.LANCZOS, centering=(0.5, 0.45)).convert("RGBA")
+    mask = Image.new("L", (w, h), 0)
+    md = ImageDraw.Draw(mask)
+    if shape == "circle":
+        md.ellipse((0, 0, w - 1, h - 1), fill=255)
+    elif shape == "arch":
+        md.ellipse((0, 0, w - 1, w - 1), fill=255)
+        md.rectangle((0, w // 2, w - 1, h - 1), fill=255)
+    else:
+        md.rounded_rectangle((0, 0, w - 1, h - 1), radius=radius, fill=255)
+    canvas.paste(fitted, (x0, y0), mask)
+
+
+def _logo_plate(logo: bytes | None, size=(190, 100)) -> Image.Image | None:
+    if not logo:
+        return None
+    mark = Image.open(BytesIO(logo)).convert("RGBA")
+    mark.thumbnail(size)
+    plate = Image.new("RGBA", (mark.width + 32, mark.height + 24), (0, 0, 0, 0))
+    ImageDraw.Draw(plate).rounded_rectangle((0, 0, plate.width - 1, plate.height - 1), radius=18, fill=(255, 255, 255, 240))
+    plate.alpha_composite(mark, (16, 12))
+    return plate
+
+
+def _price_lines(badge: str) -> list[str]:
+    return ["от", badge[3:]] if badge.startswith("от ") else [badge]
+
+
+def _check(d, x, y, bg, mark, size=34) -> None:
+    d.ellipse((x, y, x + size, y + size), fill=bg)
+    d.line((x + size * .27, y + size * .52, x + size * .44, y + size * .70, x + size * .74, y + size * .32), fill=mark, width=4)
+
+
+def _points(body: str) -> list[str]:
+    parts = [p.strip(" .") for p in re.split(r"[.!;]", body or "") if p.strip(" .")]
+    return parts[:2]
+
+
+def _banner_styled(style: str, photo: bytes, title: str, color_main: str, logo: bytes | None, brand: str, badge: str, cta: str, body: str) -> bytes:
+    pic = Image.open(BytesIO(prepare_for_direct(photo))).convert("RGB")
+    W, H = pic.size
+    d_default = {"luxe": (201, 164, 92), "pastel": (214, 120, 140), "bold": (214, 51, 132), "card": (46, 150, 120)}[style]
+    accent = _hex(color_main, d_default)
+    on_accent = (20, 20, 20) if sum(accent) / 3 > 165 else (255, 255, 255)
+    logo_plate = _logo_plate(logo)
+    logo_at = (W - 32 - (logo_plate.width if logo_plate else 0), 30)
+
+    if style == "luxe":
+        bg = (22, 22, 27)
+        canvas = Image.new("RGBA", (W, H), bg + (255,))
+        d = ImageDraw.Draw(canvas)
+        d.rectangle((22, 22, W - 23, H - 23), outline=accent + (255,), width=2)
+        _shaped_photo(canvas, pic, (640, 170, 1130, 660), "circle")
+        d.ellipse((628, 158, 1142, 672), outline=accent + (255,), width=3)
+        x, y = 80, 150
+        if brand:
+            _text(d, (x, y), brand.upper(), _font(28), accent + (255,))
+            y += 64
+        font, lines = _fit(d, title, (60, 54, 48, 42, 36), 500, 4, _serif)
+        y = _lines(d, x, y, lines, font, (245, 240, 228), 1.25) + 18
+        if badge:
+            _text(d, (x, y), badge.replace("\u00a0", " "), _serif(52), accent + (255,))
+            y += 80
+        _pill(d, x, y + 34, cta or "Записаться", _font(32), accent + (255,), on_accent + (255,))
+    elif style == "pastel":
+        bg = _mix(accent, (255, 255, 255), 0.86) if color_main else (253, 238, 232)
+        canvas = Image.new("RGBA", (W, H), bg + (255,))
+        d = ImageDraw.Draw(canvas)
+        _shaped_photo(canvas, pic, (660, 70, 1130, 830), "arch")
+        ink = (52, 38, 44)
+        x, y = 76, 190
+        if brand:
+            _text(d, (x, y), brand.upper(), _font(28), _mix(accent, (0, 0, 0), 0.25) + (255,))
+            y += 56
+        font, lines = _fit(d, title, (62, 56, 50, 44, 38), 520, 4)
+        y = _lines(d, x, y, lines, font, ink + (255,), 1.2) + 14
+        d.rounded_rectangle((x, y, x + 90, y + 6), radius=3, fill=accent + (255,))
+        _pill(d, x, 690, cta or "Записаться", _font(32), ink + (255,), (255, 255, 255, 255))
+        if badge:
+            parts = _price_lines(badge)
+            d.ellipse((520, 520, 730, 730), fill=accent + (255,))
+            fonts = [_font(30), _font(44)] if len(parts) == 2 else [_font(44)]
+            total = sum(int(getattr(f, "size", 30) * 1.25) for f in fonts)
+            ty = 625 - total // 2
+            for part, f in zip(parts, fonts):
+                tw = d.textlength(part.strip(), font=f)
+                _text(d, (625 - tw / 2, ty), part.strip(), f, on_accent + (255,))
+                ty += int(getattr(f, "size", 30) * 1.25)
+    elif style == "bold":
+        canvas = Image.new("RGBA", (W, H), accent + (255,))
+        d = ImageDraw.Draw(canvas)
+        _shaped_photo(canvas, pic, (590, 250, 1150, 810), "circle")
+        d.ellipse((580, 240, 1160, 820), outline=(255, 255, 255, 255), width=8)
+        x, y = 70, 190
+        if brand:
+            _text(d, (x, y - 60), brand.upper(), _font(28), on_accent + (210,))
+        font, lines = _fit(d, title.upper(), (60, 54, 48, 42, 36), 600, 4)
+        y = _lines(d, x, y, lines, font, on_accent + (255,), 1.18) + 22
+        for p in _points(body):
+            _check(d, x, y + 4, (255, 255, 255, 255), accent + (255,))
+            pf, pl = _fit(d, p, (34, 30, 27), 470, 2)
+            y = _lines(d, x + 52, y, pl, pf, on_accent + (255,), 1.2) + 10
+        _pill(d, x, 730, cta or "Записаться", _font(32), (255, 255, 255, 255), accent + (255,))
+        if badge:
+            parts = _price_lines(badge)
+            d.ellipse((880, 40, 1130, 290), fill=(255, 255, 255, 255))
+            fonts = [_font(32), _font(50)] if len(parts) == 2 else [_font(50)]
+            total = sum(int(getattr(f, "size", 30) * 1.25) for f in fonts)
+            ty = 165 - total // 2
+            for part, f in zip(parts, fonts):
+                tw = d.textlength(part.strip(), font=f)
+                _text(d, (1005 - tw / 2, ty), part.strip(), f, accent + (255,))
+                ty += int(getattr(f, "size", 30) * 1.25)
+        logo_at = (70, 40)
+    else:  # card: светлая карточка
+        canvas = Image.new("RGBA", (W, H), (250, 244, 235, 255))
+        d = ImageDraw.Draw(canvas)
+        _shaped_photo(canvas, pic, (44, 44, 1156, 520), "round", 40)
+        ink = (40, 36, 34)
+        x, y = 70, 560
+        if brand:
+            _text(d, (x, y), brand.upper(), _font(26), accent + (255,))
+            y += 46
+        font, lines = _fit(d, title, (50, 46, 42, 38, 34), 660, 3)
+        y = _lines(d, x, y, lines, font, ink + (255,), 1.2)
+        for p in _points(body)[:1]:
+            pf, pl = _fit(d, p, (30, 27, 24), 660, 2)
+            _lines(d, x, y + 8, pl, pf, (110, 100, 94, 255), 1.25)
+        right = 800
+        if badge:
+            _text(d, (right, 580), badge.replace("\u00a0", " "), _font(58), accent + (255,))
+        _pill(d, right, 720, cta or "Записаться", _font(32), accent + (255,), on_accent + (255,))
+    if logo_plate:
+        canvas.alpha_composite(logo_plate, logo_at)
+    out = BytesIO()
+    canvas.convert("RGB").save(out, "JPEG", quality=90, optimize=True)
+    return out.getvalue()
+
+
 def make_banner(photo: bytes, title: str, color_main: str = "", logo: bytes | None = None, layout: str = "bottom",
-                brand: str = "", badge: str = "", cta: str = "") -> bytes:
-    """Фото с предложением. layout: bottom (текст внизу) или left (слева).
-    Фото не закрываем плашкой: плавное затемнение под текстом, название бизнеса, крупный заголовок,
-    бейдж с ценой (если она есть) и кнопка-призыв, как в обычной рекламе салонов."""
+                brand: str = "", badge: str = "", cta: str = "", style: str = "photo", body: str = "") -> bytes:
+    """Баннер объявления. style: один из пяти шаблонов (photo, luxe, pastel, bold, card), они специально непохожи.
+    Шаблон photo: фото с плавным затемнением; layout: bottom (текст внизу) или left (слева)."""
+    if style in ("luxe", "pastel", "bold", "card"):
+        return _banner_styled(style, photo, title, color_main, logo, brand, badge, cta, body)
     base = Image.open(BytesIO(prepare_for_direct(photo))).convert("RGB")
     w, h = base.size
     accent = _hex(color_main, (255, 255, 255))

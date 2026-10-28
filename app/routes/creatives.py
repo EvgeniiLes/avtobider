@@ -269,7 +269,7 @@ def delete(business_id: int, creative_id: int, user: sqlite3.Row = Depends(curre
 
 
 class ImagesIn(BaseModel):
-    count: int = Field(default=2, ge=1, le=3)
+    count: int = Field(default=5, ge=1, le=5)
     idea: str = Field(default="", max_length=300)
 
 
@@ -286,9 +286,11 @@ def generate_images(business_id: int, data: ImagesIn, user: sqlite3.Row = Depend
     biz = _own(conn, user, business_id)
     key = _need_fal()
     s = get_settings()
-    prompt = fal.image_prompt(biz, data.idea)
-    for _ in range(data.count):
+    made = conn.execute("SELECT COUNT(*) FROM creatives WHERE business_id = ? AND kind = 'image' AND status != 'failed'",
+                        (business_id,)).fetchone()[0]
+    for i in range(data.count):
         _charge(conn, business_id, "image")
+        prompt = fal.image_prompt(biz, data.idea, made + i)  # каждая следующая картинка в другом стиле
         try:
             job = asyncio.run(fal.start_image(prompt, key, s.fal_image_model, transport))
         except fal.FalError as e:
