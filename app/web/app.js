@@ -293,6 +293,8 @@ async function deleteBusiness() {
 
 let creativeTimer = null;
 let creativeLimits = { title: 56, text: 81 };
+let creativePrices = { image: 0.08, video: 0.7 };
+const usd = (v) => `$${v.toFixed(2)}`;
 
 function counterEl(input, limit) {
   const span = el("span", { className: "counter" });
@@ -317,8 +319,9 @@ async function loadCreatives() {
   if (!has) return;
   const result = await creativeCall("GET", "");
   if (!result.ok) { setStatus("cr-texts-status", errorText(result), "err"); return; }
-  const { creatives, caps, spend, limits } = result.data;
+  const { creatives, caps, spend, limits, prices_usd } = result.data;
   creativeLimits = limits;
+  if (prices_usd) creativePrices = prices_usd;
 
   const note = $("cr-ai-note");
   note.hidden = caps.text_ai;
@@ -381,6 +384,7 @@ function renderMedia(grid, items, canMakeVideo) {
       if (canMakeVideo && c.kind === "image") {
         const video = el("button", { className: "secondary", textContent: "Сделать видео" });
         video.addEventListener("click", async () => {
+          if (!(await askConfirm("Сделать видео?", `Это платно: около ${usd(creativePrices.video)} с баланса генерации. Готовится 5–7 минут.`, "Сделать"))) return;
           const r = await creativeCall("POST", "/videos/generate", { image_creative_id: c.id });
           setStatus("cr-images-status", r.ok ? "Видео готовится, оно появится ниже." : errorText(r), r.ok ? "ok" : "err");
           await loadCreatives();
@@ -408,8 +412,10 @@ async function generateTexts() {
 
 async function generateImages() {
   const button = $("cr-gen-images");
+  const count = Number($("cr-image-count").value);
+  if (!(await askConfirm("Нарисовать картинки?", `Это платно: около ${usd(count * creativePrices.image)} за ${count} шт.`, "Нарисовать"))) return;
   button.disabled = true;
-  const r = await creativeCall("POST", "/images/generate", { count: Number($("cr-image-count").value), idea: $("cr-idea").value });
+  const r = await creativeCall("POST", "/images/generate", { count, idea: $("cr-idea").value });
   button.disabled = false;
   setStatus("cr-images-status", r.ok ? "Рисуем. Картинки появятся ниже сами." : errorText(r), r.ok ? "ok" : "err");
   await loadCreatives();

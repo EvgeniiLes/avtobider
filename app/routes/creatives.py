@@ -108,6 +108,7 @@ def list_creatives(business_id: int, user: sqlite3.Row = Depends(current_user), 
         "caps": _caps(),
         "spend": {"spent_usd": round(_spent_cents(conn, business_id) / 100, 2), "limit_usd": limit},
         "limits": {"title": TITLE_MAX, "text": TEXT_MAX},
+        "prices_usd": {"image": fal.COST_CENTS["image"] / 100, "video": fal.COST_CENTS["video"] / 100},
     }
 
 
