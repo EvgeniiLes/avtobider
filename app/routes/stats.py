@@ -6,8 +6,13 @@ from datetime import date
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+import asyncio
+
+from app.assets import PHOTO_TAGS
+from app.creative import fal
+from app.creative.texts_ai import analyze_results
 from app.db import get_db
-from app.deps import current_user
+from app.deps import creative_transport, current_user
 from app.engine.config import EngineConfig
 from app.engine.cycle import (
     CLASS_LABELS, approve, reject, resume_all, rollback, run_cycle, stop_all, target_cpa_micro, target_lead_micro, unit_stats,
@@ -230,9 +235,20 @@ def insights(business_id: int, user: sqlite3.Row = Depends(current_user), conn: 
             "cost_per_lead": _ratio(r["spend"], r["leads"]),
         })
     groups.sort(key=lambda g: list(STYLE_LABELS).index(g["style"]) if g["style"] in STYLE_LABELS else 99)
+    type_rows = conn.execute(
+        "SELECT u.photo_type AS kind, COUNT(DISTINCT u.id) AS units, COALESCE(SUM(s.impressions),0) AS imp, "
+        "COALESCE(SUM(s.clicks),0) AS clicks, COALESCE(SUM(s.spend_micro),0) AS spend, COALESCE(SUM(s.leads),0) AS leads "
+        "FROM ad_units u LEFT JOIN stats_daily s ON s.unit_id = u.id WHERE u.business_id = ? AND u.photo_type != '' GROUP BY u.photo_type",
+        (business_id,)).fetchall()
+    type_groups = [{
+        "style": r["kind"], "label": PHOTO_TAGS.get(r["kind"], r["kind"]), "units": r["units"], "impressions": r["imp"],
+        "clicks": r["clicks"], "spend": _rub(r["spend"]), "leads": r["leads"],
+        "ctr": round(r["clicks"] / r["imp"] * 100, 2) if r["imp"] else None, "cost_per_lead": _ratio(r["spend"], r["leads"]),
+    } for r in type_rows]
     conclusions: list[str] = []
     if len(groups) < 2:
-        return {"groups": groups, "conclusions": ["Сравнивать пока не с чем: нужны объявления как минимум двух разных стилей."]}
+        return {"groups": groups, "type_groups": type_groups,
+                "conclusions": ["Сравнивать пока не с чем: нужны объявления как минимум двух разных стилей."]}
     by_ctr = sorted((g for g in groups if g["impressions"] >= MIN_IMPRESSIONS and g["ctr"] is not None), key=lambda g: -g["ctr"])
     if len(by_ctr) >= 2 and by_ctr[0]["ctr"] >= 1.3 * by_ctr[1]["ctr"]:
         conclusions.append(f"Чаще всего кликают на стиль «{by_ctr[0]['label']}»: {by_ctr[0]['ctr']}% против {by_ctr[1]['ctr']}% у «{by_ctr[1]['label']}».")
@@ -246,7 +262,40 @@ def insights(business_id: int, user: sqlite3.Row = Depends(current_user), conn: 
             "Пока мало данных, чтобы назвать лучший стиль: разница может быть случайной. "
             + (f"Нужно хотя бы {MIN_IMPRESSIONS} показов на каждый стиль, не хватает у: {', '.join(lack)}." if lack
                else f"Нужно хотя бы {MIN_LEADS} обращений на стиль, чтобы сравнить цену обращения."))
-    return {"groups": groups, "conclusions": conclusions}
+    return {"groups": groups, "type_groups": type_groups, "conclusions": conclusions}
+
+
+@router.post("/insights/analyze")
+def analyze(business_id: int, user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connection = Depends(get_db),
+            transport=Depends(creative_transport)):
+    """Разбор результатов ИИ: простыми словами, что работает, что оставить, что остановить, что проверить дальше."""
+    biz = _own(conn, user, business_id)
+    s = get_settings()
+    if not s.fal_key:
+        raise HTTPException(503, detail={"message": "Разбор ИИ пока не подключён на сервере: нужен ключ сервиса генерации."})
+    sim_today = get_today(conn, business_id)
+    today = sim_today or date.today().isoformat()
+    rows = conn.execute("SELECT * FROM ad_units WHERE business_id = ? ORDER BY id", (business_id,)).fetchall()
+    if not rows:
+        raise HTTPException(400, detail={"message": "Пока нечего разбирать: объявлений ещё нет."})
+    lines = [f"Бизнес: {biz['kind']}, {biz['city']}. Недельный бюджет {_rub(biz['weekly_budget_micro'])} ₽, "
+             f"цель по цене клиента {_rub(biz['target_cpa_micro'])} ₽."]
+    total_imp = 0
+    for u in rows:
+        st = unit_stats(conn, u["id"], day_add(today, -29), today)
+        total_imp += st["impressions"]
+        cpl = _ratio(st["spend"], st["leads"])
+        lines.append(
+            f"- «{u['title']}»: стиль {STYLE_LABELS.get(u['style'], u['style'] or 'не указан')}, фото {PHOTO_TAGS.get(u['photo_type'], 'не указано')}, "
+            f"состояние {u['state']}, показы {st['impressions']}, клики {st['clicks']}, обращения {st['leads']}, "
+            f"расход {_rub(st['spend'])} ₽, цена обращения {cpl if cpl else 'нет данных'}.")
+    lines.append(f"Правило: меньше {MIN_IMPRESSIONS} показов на стиль или меньше {MIN_LEADS} обращений на стиль считается слишком малыми данными.")
+    text = asyncio.run(analyze_results("\n".join(lines), s.fal_key, s.fal_text_model, transport))
+    if not text:
+        raise HTTPException(502, detail={"message": "ИИ не ответил. Попробуйте ещё раз чуть позже."})
+    conn.execute("INSERT INTO generations (business_id, kind, cents) VALUES (?, 'check', ?)", (business_id, fal.COST_CENTS["check"]))
+    conn.commit()
+    return {"text": text, "enough": total_imp >= MIN_IMPRESSIONS}
 
 
 class ClientsIn(BaseModel):

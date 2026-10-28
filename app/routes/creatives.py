@@ -4,20 +4,23 @@ import base64
 import hashlib
 import json
 import sqlite3
+from io import BytesIO
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
+from PIL import Image
 from pydantic import BaseModel, Field
 
 from app.assets import AssetError, prepare_image, prepare_video
 from app.config import get_settings
 from app.creative import fal
-from app.creative.compose import find_price, prepare_for_direct, style_for
-from app.creative.texts_ai import generate_texts, missing_phrases, read_image_text
+from app.assets import PHOTO_TAGS
+from app.creative.compose import add_logo, find_price, prepare_for_direct, style_for
+from app.creative.texts_ai import check_photo, generate_texts, missing_phrases, read_image_text
 from app.db import get_db
 from app.deps import creative_transport, current_user
-from app.direct.launch import banner_layout, choose_variants, media_for, render_banner, start_split
+from app.direct.launch import banner_layout, choose_variants, logo_for, media_typed, photo_for, render_banner, start_split
 from app.direct.texts import TEXT_MAX, TITLE_MAX, check, draft_variants
 from app.routes.businesses import _asset_path, _own
 
@@ -186,11 +189,12 @@ def ads(business_id: int, user: sqlite3.Row = Depends(current_user), conn: sqlit
     """Готовые объявления: текст вместе с картинкой, как они уйдут в Директ."""
     biz = _own(conn, user, business_id)
     variants, count, pool = _ad_variants(conn, biz)
-    photos, _logo = media_for(conn, biz)
+    photos, _logo = media_typed(conn, biz)
     items = []
     for i, v in enumerate(variants):
         style = style_for(i)
         ai = None
+        photo_type = photo_for(photos, i)[0] if photos and style != "ai" else ""
         banner = f"/api/businesses/{business_id}/creatives/ads/{i}/banner.jpg" if photos else ""
         if style == "ai":
             row = _ai_row(conn, business_id, v)
@@ -198,7 +202,8 @@ def ads(business_id: int, user: sqlite3.Row = Depends(current_user), conn: sqlit
             ai = {"status": state, "error": row["error"] if row is not None and state == "failed" else ""}
             banner = f"/api/businesses/{business_id}/creatives/ads/{i}/banner.jpg" if state == "ready" else ""
         items.append({"index": i, "title": v["title"], "text": v["text"], "own": v["creative_id"] is not None,
-                      "creative_id": v["creative_id"], "style": style, "ai": ai, "banner_url": banner})
+                      "creative_id": v["creative_id"], "style": style, "ai": ai, "banner_url": banner,
+                      "photo_type": photo_type, "photo_label": PHOTO_TAGS.get(photo_type, "")})
     return {
         "ads": items,
         "count": count,
@@ -233,7 +238,7 @@ def make_ai_banner(business_id: int, index: int, user: sqlite3.Row = Depends(cur
     price = find_price(v["title"], v["text"], biz["description"])
     expected = [v["title"], biz["name"], "Записаться"] + ([price] if price else [])
     try:
-        job = asyncio.run(fal.start_image(fal.banner_prompt(biz, v["title"], price, "Записаться"), key, get_settings().fal_banner_model, transport))
+        job = asyncio.run(fal.start_image(fal.banner_prompt(biz, v["title"], price, "Записаться", logo_corner=logo_for(conn, biz) is not None), key, get_settings().fal_banner_model, transport))
     except fal.FalError as e:
         conn.rollback()
         raise HTTPException(502, detail={"message": e.message})
@@ -250,17 +255,17 @@ _BANNERS: dict[tuple, bytes] = {}  # готовые баннеры: сборка
 def ad_banner(business_id: int, index: int, user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connection = Depends(get_db)):
     biz = _own(conn, user, business_id)
     variants, _count, _pool = _ad_variants(conn, biz)
-    photos, logo = media_for(conn, biz)
+    photos, logo = media_typed(conn, biz)
     if 0 <= index < len(variants) and style_for(index) == "ai":
         row = _ai_row(conn, business_id, variants[index])
         asset = conn.execute("SELECT stored_name FROM business_assets WHERE id = ?", (row["asset_id"],)).fetchone() if row and row["asset_id"] else None
         if asset is None or row["status"] not in ("draft", "approved"):
             raise HTTPException(404, detail={"message": "ИИ-баннер ещё не готов."})
-        return Response(prepare_for_direct(_asset_path(business_id, asset["stored_name"]).read_bytes()), media_type="image/jpeg",
-                        headers={"Cache-Control": "private, max-age=60"})
+        return Response(add_logo(prepare_for_direct(_asset_path(business_id, asset["stored_name"]).read_bytes()), logo),
+                        media_type="image/jpeg", headers={"Cache-Control": "private, max-age=60"})
     if not photos or not 0 <= index < len(variants):
         raise HTTPException(404, detail={"message": "Для этого объявления нет картинки."})
-    photo = photos[index % len(photos)]
+    photo = photo_for(photos, index)[1]
     v = variants[index]
     key = (hashlib.sha1(photo).hexdigest(), v["title"], v["text"], biz["name"], biz["description"], biz["color_main"],
            banner_layout(index), hashlib.sha1(logo).hexdigest() if logo else "")
@@ -271,6 +276,50 @@ def ad_banner(business_id: int, index: int, user: sqlite3.Row = Depends(current_
             _BANNERS.pop(next(iter(_BANNERS)))
         _BANNERS[key] = banner
     return Response(banner, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=60"})
+
+
+def _data_url(path) -> str:
+    """Фото для модели со зрением: уменьшенное, чтобы запрос был быстрым и дешёвым."""
+    img = Image.open(path)
+    img.load()
+    img.thumbnail((1024, 1024))
+    if img.mode in ("RGBA", "LA", "P"):
+        img = img.convert("RGBA")
+        base = Image.new("RGB", img.size, (255, 255, 255))
+        base.paste(img, mask=img.split()[-1])
+        img = base
+    out = BytesIO()
+    img.convert("RGB").save(out, "JPEG", quality=85)
+    return "data:image/jpeg;base64," + base64.b64encode(out.getvalue()).decode()
+
+
+@router.post("/photos/check")
+def check_photos(business_id: int, force: bool = False, user: sqlite3.Row = Depends(current_user),
+                 conn: sqlite3.Connection = Depends(get_db), transport=Depends(creative_transport)):
+    """ИИ смотрит на загруженные фото и логотип: тип кадра, пригодность для рекламы, проблемы (чужие вывески, водяные знаки)."""
+    _own(conn, user, business_id)
+    key = _need_fal()
+    s = get_settings()
+    rows = conn.execute(
+        "SELECT * FROM business_assets WHERE business_id = ? AND kind IN ('photo', 'logo', 'generated') "
+        + ("" if force else "AND ai_score = 0 ") + "ORDER BY id LIMIT 10", (business_id,)).fetchall()
+    checked = failed = 0
+    for r in rows:
+        _charge(conn, business_id, "check")
+        try:
+            result = asyncio.run(check_photo(_data_url(_asset_path(business_id, r["stored_name"])), key, s.fal_text_model, transport,
+                                             logo=r["kind"] == "logo"))
+        except (OSError, ValueError):
+            result = None
+        if result is None:
+            conn.execute("DELETE FROM generations WHERE id = (SELECT MAX(id) FROM generations WHERE business_id = ? AND kind = 'check')", (business_id,))
+            failed += 1
+            continue
+        conn.execute("UPDATE business_assets SET ai_type = ?, ai_score = ?, ai_note = ? WHERE id = ?",
+                     (result["type"], result["score"], result["note"], r["id"]))
+        checked += 1
+    conn.commit()
+    return {"checked": checked, "failed": failed}
 
 
 class TextIn(BaseModel):

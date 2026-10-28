@@ -140,6 +140,33 @@ def test_insights_compare_styles_and_wait_for_enough_data():
         assert all(g["impressions"] > 0 and g["label"] for g in data["groups"]) and data["conclusions"]
 
 
+def test_ai_analysis_uses_the_numbers_and_needs_a_key(monkeypatch):
+    import json as _json
+    import httpx
+    from app.deps import creative_transport
+    with TestClient(app) as http:
+        register(http)
+        bid = make_business(http)
+        assert http.post(f"/api/businesses/{bid}/insights/analyze").status_code == 503      # без ключа
+        monkeypatch.setenv("FAL_KEY", "fal-test")
+        assert http.post(f"/api/businesses/{bid}/insights/analyze").status_code == 400      # объявлений ещё нет
+        http.post(f"/api/businesses/{bid}/sim/start")
+        http.post(f"/api/businesses/{bid}/sim/advance", json={"days": 10})
+        seen = []
+
+        def handler(request):
+            seen.append(_json.loads(request.content))
+            return httpx.Response(200, json={"choices": [{"message": {"content": "Данных пока мало, вывод предварительный."}}]})
+
+        app.dependency_overrides[creative_transport] = lambda: httpx.MockTransport(handler)
+        r = http.post(f"/api/businesses/{bid}/insights/analyze").json()
+        assert r["text"].startswith("Данных пока мало")
+        prompt = seen[0]["messages"][1]["content"]
+        assert "Тёмный люкс" in prompt and "Помещение" in prompt and "показы" in prompt   # цифры и подписи переданы
+        data = http.get(f"/api/businesses/{bid}/insights").json()
+        assert {g["label"] for g in data["type_groups"]} == {"Помещение", "Наши работы"}
+
+
 def test_checklist_follows_progress():
     with TestClient(app) as http:
         register(http)

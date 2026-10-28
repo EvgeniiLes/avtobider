@@ -174,6 +174,18 @@ def _logo_plate(logo: bytes | None, size=(190, 100)) -> Image.Image | None:
     return plate
 
 
+def add_logo(banner: bytes, logo: bytes | None) -> bytes:
+    """Ставит логотип в правый верхний угол готового баннера (например, нарисованного нейросетью)."""
+    plate = _logo_plate(logo)
+    if plate is None:
+        return banner
+    canvas = Image.open(BytesIO(banner)).convert("RGBA")
+    canvas.alpha_composite(plate, (canvas.width - plate.width - 32, 32))
+    out = BytesIO()
+    canvas.convert("RGB").save(out, "JPEG", quality=90, optimize=True)
+    return out.getvalue()
+
+
 def _price_lines(badge: str) -> list[str]:
     return ["от", badge[3:]] if badge.startswith("от ") else [badge]
 

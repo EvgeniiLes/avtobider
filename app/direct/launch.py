@@ -134,12 +134,12 @@ async def create_unit(client: DirectClient, plan: Plan, variant: dict, name: str
 
 
 def save_unit(conn: sqlite3.Connection, biz, account_id: int, campaign_row_id: int, variant: dict, ids: dict,
-              weekly_micro: int, today: str, variant_of: int | None = None, style: str = "") -> int:
+              weekly_micro: int, today: str, variant_of: int | None = None, style: str = "", photo_type: str = "") -> int:
     cur = conn.execute(
         "INSERT INTO ad_units (campaign_id, business_id, title, body, state, budget_micro, variant_of, last_changed_day, created_day, "
-        "external_campaign_id, external_group_id, external_ad_id, style) VALUES (?,?,?,?, 'moderation', ?,?,?,?,?,?,?,?)",
+        "external_campaign_id, external_group_id, external_ad_id, style, photo_type) VALUES (?,?,?,?, 'moderation', ?,?,?,?,?,?,?,?,?)",
         (campaign_row_id, biz["id"], variant["title"], variant["text"], weekly_micro, variant_of, today, today,
-         ids["campaign_id"], ids["group_id"], ids["ad_id"], style),
+         ids["campaign_id"], ids["group_id"], ids["ad_id"], style, photo_type),
     )
     return cur.lastrowid
 
@@ -147,6 +147,51 @@ def save_unit(conn: sqlite3.Connection, biz, account_id: int, campaign_row_id: i
 def _file(business_id: int, stored_name: str) -> bytes:
     from app.config import get_settings
     return (get_settings().uploads_dir / str(business_id) / stored_name).read_bytes()
+
+
+TYPE_ORDER = ("interior", "work", "product", "team", "other")  # порядок типов кадра: помещение, работы (руки), товар, люди, прочее
+
+
+def media_typed(conn: sqlite3.Connection, biz) -> tuple[list[tuple[str, bytes]], bytes | None]:
+    """Картинки для баннеров вместе с типом кадра (помещение, работы…). Тип: по оценке ИИ, иначе по выбору владельца."""
+    rows = conn.execute(
+        "SELECT a.stored_name, a.ai_type, a.tag FROM creatives c JOIN business_assets a ON a.id = c.asset_id "
+        "WHERE c.business_id = ? AND c.kind = 'image' AND c.status = 'approved' ORDER BY c.id", (biz["id"],)
+    ).fetchall()
+    if not rows:
+        rows = conn.execute(
+            "SELECT stored_name, ai_type, tag FROM business_assets WHERE business_id = ? AND kind = 'photo' ORDER BY id LIMIT 12", (biz["id"],)
+        ).fetchall()
+    photos = []
+    for r in rows:
+        try:
+            photos.append((r["ai_type"] or r["tag"] or "other", _file(biz["id"], r["stored_name"])))
+        except OSError:
+            continue
+    return photos, logo_for(conn, biz)
+
+
+def logo_for(conn: sqlite3.Connection, biz) -> bytes | None:
+    """Логотип для баннеров. Если ИИ-проверка нашла в нём серьёзные проблемы (оценка 1–2), на баннеры он не попадает."""
+    logo = conn.execute("SELECT stored_name, ai_score FROM business_assets WHERE business_id = ? AND kind = 'logo'", (biz["id"],)).fetchone()
+    if logo is None or 0 < logo["ai_score"] < 3:
+        return None
+    try:
+        return _file(biz["id"], logo["stored_name"])
+    except OSError:
+        return None
+
+
+def photo_for(typed: list[tuple[str, bytes]], index: int) -> tuple[str, bytes]:
+    """Фото для объявления номер index: типы кадра чередуются (помещение, руки, помещение, руки…), внутри типа фото по кругу.
+    Так в сравнении участвуют разные по сути варианты, по два на каждый тип."""
+    groups: dict[str, list[bytes]] = {}
+    for kind, data in typed:
+        groups.setdefault(kind if kind in TYPE_ORDER else "other", []).append(data)
+    kinds = [k for k in TYPE_ORDER if k in groups]
+    kind = kinds[index % len(kinds)]
+    pool = groups[kind]
+    return kind, pool[(index // len(kinds)) % len(pool)]
 
 
 def media_for(conn: sqlite3.Connection, biz) -> tuple[list[bytes], bytes | None]:
@@ -174,20 +219,21 @@ def media_for(conn: sqlite3.Connection, biz) -> tuple[list[bytes], bytes | None]
 
 def ai_banners_for(conn: sqlite3.Connection, biz) -> dict[tuple, bytes]:
     """Готовые ИИ-баннеры (стиль «ИИ-дизайн»), уже проверенные на ошибки в тексте: ключ (заголовок, текст)."""
-    from app.creative.compose import prepare_for_direct
+    from app.creative.compose import add_logo, prepare_for_direct
     found: dict[tuple, bytes] = {}
+    logo = logo_for(conn, biz)
     rows = conn.execute(
         "SELECT c.title, c.body, a.stored_name FROM creatives c JOIN business_assets a ON a.id = c.asset_id "
         "WHERE c.business_id = ? AND c.kind = 'ai_banner' AND c.status IN ('draft', 'approved') ORDER BY c.id", (biz["id"],)).fetchall()
     for r in rows:  # более поздний заказ перекрывает ранний
         try:
-            found[(r["title"], r["body"])] = prepare_for_direct(_file(biz["id"], r["stored_name"]))
+            found[(r["title"], r["body"])] = add_logo(prepare_for_direct(_file(biz["id"], r["stored_name"])), logo)
         except (OSError, ValueError):
             continue
     return found
 
 
-async def attach_banners(client: DirectClient, biz, created: list[dict], photos: list[bytes], logo: bytes | None,
+async def attach_banners(client: DirectClient, biz, created: list[dict], photos: list[tuple[str, bytes]], logo: bytes | None,
                          ai: dict[tuple, bytes] | None = None) -> list[str]:
     """Собирает баннер под каждое объявление и привязывает к нему. Если не вышло, объявление остаётся без картинки."""
     problems = []
@@ -197,7 +243,7 @@ async def attach_banners(client: DirectClient, biz, created: list[dict], photos:
             if ready is not None:
                 banner = ready  # ИИ-баннер целиком
             elif photos:
-                banner = render_banner(biz, c["variant"], photos[i % len(photos)], logo, i)
+                banner = render_banner(biz, c["variant"], photo_for(photos, i)[1], logo, i)
             else:
                 continue
             image_hash = await client.upload_image(banner, f"autobider-{biz['id']}-{i + 1}.jpg")
@@ -214,7 +260,7 @@ async def launch(client: DirectClient, conn: sqlite3.Connection, biz, account_id
     """Создаёт все варианты в кабинете, добавляет баннеры, отправляет объявления на проверку и записывает в базу."""
     start_date = day_add(today, 1)
     created: list[dict] = []
-    photos, logo = media_for(conn, biz)
+    photos, logo = media_typed(conn, biz)
     ai_banners = ai_banners_for(conn, biz)
     try:
         for i, variant in enumerate(plan.variants, start=1):
@@ -235,7 +281,8 @@ async def launch(client: DirectClient, conn: sqlite3.Connection, biz, account_id
         (biz["id"], account_id, f"Реклама: {biz['name']}"),
     )
     unit_ids = [
-        save_unit(conn, biz, account_id, row.lastrowid, c["variant"], c, plan.per_unit_micro, today, style=style_for(i))
+        save_unit(conn, biz, account_id, row.lastrowid, c["variant"], c, plan.per_unit_micro, today, style=style_for(i),
+                  photo_type=photo_for(photos, i)[0] if photos else "")
         for i, c in enumerate(created)
     ]
     if banner_problems:

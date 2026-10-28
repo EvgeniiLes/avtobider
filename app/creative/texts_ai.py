@@ -77,6 +77,74 @@ async def _ask_fal(http: httpx.AsyncClient, prompt: str, fal_key: str, model: st
     return r.json()["choices"][0]["message"]["content"] or ""
 
 
+PHOTO_CHECK_SYSTEM = (
+    "Ты помогаешь малому бизнесу выбирать фотографии для рекламы в Яндекс Директе. Оцени фото и верни только JSON-объект "
+    "{\"type\": \"interior|hands|people|product|other\", \"score\": число от 1 до 5, \"issues\": [\"...\"], \"summary\": \"одно предложение\"}. "
+    "type: interior (помещение, интерьер, витрина), hands (руки или результат работы крупным планом), people (мастер, команда, клиент), "
+    "product (товар, предметы), other. score: насколько фото подходит для рекламы (резкость, свет, композиция, свободное место для текста). "
+    "В issues перечисли реальные проблемы по-русски коротко: чужие читаемые вывески, бренды или логотипы, водяные знаки, посторонний текст, "
+    "узнаваемые лица людей (для рекламы нужно их согласие), беспорядок, тёмное или смазанное фото. Если проблем нет, issues пустой."
+)
+
+
+LOGO_CHECK_SYSTEM = (
+    "Ты помогаешь малому бизнесу решить, годится ли логотип для рекламного баннера. Верни только JSON-объект "
+    "{\"type\": \"other\", \"score\": число от 1 до 5, \"issues\": [\"...\"], \"summary\": \"одно предложение\"}. "
+    "score: насколько логотип чёткий, читаемый в маленьком размере и контрастный на светлой подложке. "
+    "В issues перечисли реальные проблемы по-русски коротко: мелкий нечитаемый текст, слишком сложный рисунок, низкое качество, "
+    "бледные цвета, лишние надписи (адреса, телефоны), логотип явно другой компании. Если проблем нет, issues пустой."
+)
+
+
+async def check_photo(image_data_url: str, fal_key: str, model: str, transport: httpx.AsyncBaseTransport | None = None,
+                      logo: bool = False) -> dict | None:
+    """Оценка фото (или логотипа) моделью со зрением: тип кадра, пригодность для рекламы, проблемы. None, если оценить не удалось."""
+    body = {"model": model, "max_tokens": 600, "image_urls": [image_data_url],
+            "messages": [{"role": "system", "content": LOGO_CHECK_SYSTEM if logo else PHOTO_CHECK_SYSTEM},
+                         {"role": "user", "content": "Оцени этот логотип." if logo else "Оцени это фото."}]}
+    try:
+        async with httpx.AsyncClient(timeout=90, transport=transport) as http:
+            r = await http.post(FAL_CHAT_URL, json=body, headers={"Authorization": f"Key {fal_key}", "Content-Type": "application/json"})
+        if r.status_code != 200:
+            return None
+        raw = r.json()["choices"][0]["message"]["content"] or ""
+        data = json.loads(raw[raw.find("{"):raw.rfind("}") + 1])
+    except (httpx.HTTPError, ValueError, KeyError, IndexError):
+        return None
+    kind = {"hands": "work", "people": "team"}.get(str(data.get("type")), str(data.get("type")))
+    if kind not in ("interior", "work", "team", "product", "other"):
+        kind = "other"
+    try:
+        score = max(1, min(5, int(data.get("score"))))
+    except (TypeError, ValueError):
+        score = 3
+    issues = [str(i)[:120] for i in (data.get("issues") or []) if i][:4]
+    note = (str(data.get("summary") or "")[:200] + (" Проблемы: " + "; ".join(issues) + "." if issues else "")).strip()
+    return {"type": kind, "score": score, "note": note}
+
+
+ANALYSIS_SYSTEM = (
+    "Ты аналитик рекламы малого бизнеса в Яндекс Директе. Тебе дают цифры по объявлениям (стиль баннера, тип фото, показы, клики, "
+    "обращения, расход). Напиши разбор по-русски простыми словами, без жаргона, не больше 8 предложений: что видно, какие объявления "
+    "и стили выглядят сильнее, что рекомендуешь сделать (оставить, остановить, усилить, что проверить дальше). "
+    "Опирайся только на данные из запроса. Не выдумывай цифры. Если данных мало (мало показов или обращений), прямо скажи, "
+    "что вывод предварительный, и не называй победителя. Не давай обещаний результата."
+)
+
+
+async def analyze_results(data_text: str, fal_key: str, model: str, transport: httpx.AsyncBaseTransport | None = None) -> str:
+    body = {"model": model, "max_tokens": 1200,
+            "messages": [{"role": "system", "content": ANALYSIS_SYSTEM}, {"role": "user", "content": data_text}]}
+    try:
+        async with httpx.AsyncClient(timeout=90, transport=transport) as http:
+            r = await http.post(FAL_CHAT_URL, json=body, headers={"Authorization": f"Key {fal_key}", "Content-Type": "application/json"})
+        if r.status_code != 200:
+            return ""
+        return (r.json()["choices"][0]["message"]["content"] or "").strip()
+    except (httpx.HTTPError, ValueError, KeyError, IndexError):
+        return ""
+
+
 async def read_image_text(image_url: str, fal_key: str, model: str,
                           transport: httpx.AsyncBaseTransport | None = None) -> list[str] | None:
     """Читает весь текст с готового баннера (модель со зрением через fal.ai). None, если прочитать не удалось."""

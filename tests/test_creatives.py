@@ -332,6 +332,68 @@ def test_ai_banner_with_typos_is_rejected(monkeypatch):
         assert http.get(f"{base}/ads/4/banner.jpg").status_code == 404
 
 
+def test_photo_check_tags_photos_and_rates_the_logo(monkeypatch):
+    monkeypatch.setenv("FAL_KEY", "fal-test")
+    Fakes(claude_text=json.dumps({"type": "hands", "score": 4, "issues": ["чужая вывеска"], "summary": "Руки с маникюром крупным планом."}, ensure_ascii=False))
+    with TestClient(app) as http:
+        bid = setup(http)
+        base = f"/api/businesses/{bid}"
+        http.post(f"{base}/assets", data={"kind": "photo", "tag": ""}, files={"file": ("a.png", png(), "image/png")})
+        http.post(f"{base}/assets", data={"kind": "logo", "tag": ""}, files={"file": ("l.png", png(), "image/png")})
+        assert http.post(f"{base}/creatives/photos/check").json() == {"checked": 2, "failed": 0}
+        assert http.post(f"{base}/creatives/photos/check").json() == {"checked": 0, "failed": 0}  # уже проверено, повторно не платим
+        photo = next(a for a in http.get(base).json()["assets"] if a["kind"] == "photo")
+        assert photo["ai_type"] == "work" and photo["ai_label"] == "Наши работы" and photo["ai_score"] == 4
+        assert "чужая вывеска" in photo["ai_note"]
+        assert http.get(f"{base}/creatives").json()["spend"]["spent_usd"] == 0.02
+
+
+def test_photo_check_failure_is_not_charged(monkeypatch):
+    monkeypatch.setenv("FAL_KEY", "fal-test")
+    Fakes(claude_text=None)  # модель не ответила
+    with TestClient(app) as http:
+        bid = setup(http)
+        base = f"/api/businesses/{bid}"
+        http.post(f"{base}/assets", data={"kind": "photo", "tag": ""}, files={"file": ("a.png", png(), "image/png")})
+        assert http.post(f"{base}/creatives/photos/check").json() == {"checked": 0, "failed": 1}
+        assert http.get(f"{base}/creatives").json()["spend"]["spent_usd"] == 0
+
+
+def test_photo_types_alternate_two_variants_per_type():
+    from app.direct.launch import photo_for
+    typed = [("interior", b"i1"), ("interior", b"i2"), ("work", b"w1"), ("work", b"w2")]
+    assert [photo_for(typed, i) for i in range(4)] == [("interior", b"i1"), ("work", b"w1"), ("interior", b"i2"), ("work", b"w2")]
+    assert photo_for([("other", b"x")], 3) == ("other", b"x")  # один тип: как раньше
+
+
+def test_logo_with_bad_rating_is_not_put_on_banners(isolated=None):
+    import sqlite3
+    from app.config import get_settings
+    from app.db import connect
+    from app.direct.launch import logo_for
+    with TestClient(app) as http:
+        bid = setup(http)
+        http.post(f"/api/businesses/{bid}/assets", data={"kind": "logo", "tag": ""}, files={"file": ("l.png", png(), "image/png")})
+        conn = connect(get_settings().db_path)
+        biz = conn.execute("SELECT * FROM businesses WHERE id = ?", (bid,)).fetchone()
+        assert logo_for(conn, biz) is not None                                   # не проверен: берём
+        conn.execute("UPDATE business_assets SET ai_score = 2 WHERE kind = 'logo'"); conn.commit()
+        assert logo_for(conn, biz) is None                                       # ИИ нашёл проблемы: не ставим
+        conn.execute("UPDATE business_assets SET ai_score = 4 WHERE kind = 'logo'"); conn.commit()
+        assert logo_for(conn, biz) is not None
+        conn.close()
+
+
+def test_ai_banner_gets_the_logo_corner(monkeypatch):
+    from app.creative.compose import add_logo
+    from PIL import Image as PILImage
+    base = BytesIO(); PILImage.new("RGB", (1200, 900), (30, 90, 60)).save(base, "JPEG")
+    logo = BytesIO(); PILImage.new("RGBA", (300, 120), (200, 20, 20, 255)).save(logo, "PNG")
+    out = PILImage.open(BytesIO(add_logo(base.getvalue(), logo.getvalue()))).convert("RGB")
+    assert out.getpixel((600, 450)) != (255, 255, 255) and out.getpixel((1000, 80)) != (30, 90, 60)  # в углу появился логотип
+    assert add_logo(base.getvalue(), None) == base.getvalue()
+
+
 def test_missing_phrases_ignore_case_quotes_and_spaces():
     from app.creative.texts_ai import missing_phrases
     read = ["МАНИКЮР  с покрытием", "от 2 200 ₽", "Студия «Мята»"]

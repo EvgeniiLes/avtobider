@@ -411,6 +411,7 @@ async function loadAds() {
     });
     const badge = el("span", { className: "badge " + (a.own ? "good" : ""), textContent: a.own ? "Ваш выбор" : "Подставит сервис" });
     const foot = el("div", { className: "ad-foot" }, badge, action);
+    if (a.photo_label) foot.prepend(el("span", { className: "badge", textContent: `Фото: ${a.photo_label}` }));
     if (a.ai && a.ai.status !== "working") {
       const draw = el("button", { className: "small secondary", textContent: a.ai.status === "ready" ? "Перерисовать ИИ" : "Нарисовать ИИ-баннер" });
       draw.addEventListener("click", async () => {
@@ -578,6 +579,7 @@ function renderFiles() {
     const remove = el("button", { type: "button", className: "small secondary", textContent: "Удалить логотип" });
     remove.addEventListener("click", () => removeAsset(logo.id));
     logoBox.append(remove);
+    if (logo.ai_score) logoBox.append(el("div", { className: "hint", textContent: `ИИ: оценка ${logo.ai_score}/5. ${logo.ai_note}${logo.ai_score <= 2 ? " Такой логотип на баннеры не ставим." : ""}` }));
   } else {
     logoBox.append(el("span", { className: "hint", textContent: "Логотип пока не загружен." }));
   }
@@ -593,7 +595,9 @@ function fillGrid(grid, items, makeMedia) {
   for (const a of items) {
     const remove = el("button", { type: "button", textContent: "Удалить", title: "Удалить файл" });
     remove.addEventListener("click", () => removeAsset(a.id));
-    grid.append(el("div", { className: "thumb" }, makeMedia(a), remove, el("div", { className: "cap", textContent: a.tag_label || a.name })));
+    const ai = a.ai_score ? `${a.ai_label || "Кадр"}, оценка ${a.ai_score}/5${a.ai_note ? ". " + a.ai_note : ""}` : "";
+    grid.append(el("div", { className: "thumb" }, makeMedia(a), remove, el("div", { className: "cap", textContent: a.tag_label || a.name }),
+      ai ? el("div", { className: "cap ai-note" + (a.ai_score <= 2 ? " bad" : ""), textContent: ai }) : ""));
   }
 }
 
@@ -765,6 +769,31 @@ function renderChart(days) {
   }
 }
 
+async function checkPhotos() {
+  const btn = $("photos-check");
+  btn.disabled = true;
+  $("photos-check-status").textContent = "ИИ смотрит файлы…";
+  const r = await creativeCall("POST", "/photos/check");
+  btn.disabled = false;
+  $("photos-check-status").textContent = "";
+  if (!r.ok) { say(errorText(r), "err"); return; }
+  say(r.data.checked ? `Проверено файлов: ${r.data.checked}.` : "Новых файлов для проверки нет.");
+  await refreshAssets();
+}
+
+async function analyzeResults() {
+  const btn = $("insights-ai");
+  btn.disabled = true;
+  btn.textContent = "ИИ разбирает…";
+  const r = await api("POST", `/api/businesses/${currentBusiness.id}/insights/analyze`);
+  btn.disabled = false;
+  btn.textContent = "Разобрать результаты ИИ";
+  if (!r.ok) { say(errorText(r), "err"); return; }
+  const box = $("insights-ai-text");
+  box.hidden = false;
+  box.textContent = r.data.text;
+}
+
 async function loadInsights() {
   const card = $("insights-card");
   const result = await api("GET", `/api/businesses/${currentBusiness.id}/insights`);
@@ -772,10 +801,11 @@ async function loadInsights() {
   card.hidden = !groups.length;
   if (!groups.length) return;
   $("insights-notes").replaceChildren(...result.data.conclusions.map((t) => el("li", { textContent: t })));
-  const body = $("insights-table").querySelector("tbody");
-  body.replaceChildren(...groups.map((g) => el("tr", {},
+  const row = (g) => el("tr", {},
     ...[g.label, String(g.units), String(g.impressions), String(g.clicks), g.ctr == null ? "—" : `${g.ctr}%`, String(g.leads), money(g.cost_per_lead)]
-      .map((v) => el("td", { textContent: v })))));
+      .map((v) => el("td", { textContent: v })));
+  $("insights-table").querySelector("tbody").replaceChildren(...groups.map(row));
+  $("insights-types").querySelector("tbody").replaceChildren(...(result.data.type_groups || []).map(row));
 }
 
 async function loadSeries() {
@@ -1128,6 +1158,8 @@ async function start() {
   $("nav-creatives").addEventListener("click", () => showPage("creatives"));
   $("ads-launch").addEventListener("click", () => { showPage("home"); openLaunch(); });
   $("cr-gen-texts").addEventListener("click", generateTexts);
+  $("photos-check").addEventListener("click", checkPhotos);
+  $("insights-ai").addEventListener("click", analyzeResults);
   $("cr-gen-images").addEventListener("click", generateImages);
   $("cr-add-own").addEventListener("click", addOwnText);
   $("cr-own-title-n").replaceWith(counterEl($("cr-own-title"), 56));

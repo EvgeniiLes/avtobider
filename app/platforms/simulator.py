@@ -46,8 +46,8 @@ class SimulatedPlatform:
         rng = random.Random(f"variant:{unit_id}:{day}")
         cur = self.conn.execute(
             "INSERT INTO ad_units (campaign_id, business_id, title, body, state, budget_micro, variant_of, "
-            "last_changed_day, created_day, style) VALUES (?,?,?,?, 'active', ?,?,?,?,?)",
-            (a["campaign_id"], a["business_id"], f"{a['title']} (вариант Б)", a["body"], a["budget_micro"], unit_id, day, day, a["style"]),
+            "last_changed_day, created_day, style, photo_type) VALUES (?,?,?,?, 'active', ?,?,?,?,?,?)",
+            (a["campaign_id"], a["business_id"], f"{a['title']} (вариант Б)", a["body"], a["budget_micro"], unit_id, day, day, a["style"], a["photo_type"]),
         )
         self.conn.execute(
             "INSERT INTO sim_units (unit_id, cpc_micro, cr) VALUES (?,?,?)",
@@ -92,12 +92,12 @@ def start_demo(conn: sqlite3.Connection, biz: sqlite3.Row, target_lead_micro: in
         cpc = int(rng.uniform(18, 45) * MICRO)
         cr = min(cpc / (rng.uniform(low, high) * target_lead_micro), 0.5)
         unit = conn.execute(
-            "INSERT INTO ad_units (campaign_id, business_id, title, state, budget_micro, last_changed_day, created_day, style) "
-            "VALUES (?,?,?, 'active', ?,?,?,?)",
+            "INSERT INTO ad_units (campaign_id, business_id, title, state, budget_micro, last_changed_day, created_day, style, photo_type) "
+            "VALUES (?,?,?, 'active', ?,?,?,?,?)",
             (
                 campaign_id, biz["id"],
                 title.format(name=biz["name"], kind=biz["kind"], city=biz["city"] or "вашем городе"),
-                budget, today, today, style_for(position),
+                budget, today, today, style_for(position), ("interior", "work")[position % 2],
             ),
         )
         conn.execute("INSERT INTO sim_units (unit_id, cpc_micro, cr) VALUES (?,?,?)", (unit.lastrowid, cpc, cr))
