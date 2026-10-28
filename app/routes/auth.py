@@ -23,6 +23,8 @@ EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 MIN_PASSWORD = 8
 MAX_FAILS, FAIL_WINDOW = 10, 600  # 10 неудачных входов за 10 минут
 _fails: dict[str, list[float]] = {}
+MAX_SIGNUPS, SIGNUP_WINDOW = 10, 3600  # не больше 10 регистраций в час с одного адреса
+_signups: dict[str, list[float]] = {}
 
 
 class Credentials(BaseModel):
@@ -51,6 +53,12 @@ def _too_many_fails(email: str) -> bool:
 @router.post("/register")
 def register(data: Credentials, request: Request, response: Response, conn: sqlite3.Connection = Depends(get_db)):
     email = data.email.strip().lower()
+    ip = request.client.host if request.client else "?"
+    now = time.time()
+    recent = [t for t in _signups.get(ip, []) if now - t < SIGNUP_WINDOW]
+    if len(recent) >= MAX_SIGNUPS:
+        raise HTTPException(429, detail={"message": "С вашего адреса слишком много регистраций. Попробуйте позже."})
+    _signups[ip] = recent
     if not EMAIL_RE.match(email):
         raise HTTPException(400, detail={"message": "Проверьте e-mail: он должен выглядеть как name@example.com."})
     if len(data.password) < MIN_PASSWORD:
@@ -60,6 +68,7 @@ def register(data: Credentials, request: Request, response: Response, conn: sqli
         conn.commit()
     except sqlite3.IntegrityError:
         raise HTTPException(409, detail={"message": "Этот e-mail уже зарегистрирован. Попробуйте войти."})
+    _signups[ip].append(now)
     _set_cookie(request, response, create_session(conn, cur.lastrowid))
     return {"email": email}
 

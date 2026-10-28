@@ -58,7 +58,9 @@ class DirectPlatform:
             if region is None:
                 raise EngineError(f"Не нашёл город «{biz['city']}» в Яндексе.", "no_region")
             from app.direct.launch import _maps_id
-            plan = Plan(1, a["budget_micro"], [variant], region, biz["city"], biz["site_url"], _maps_id(biz), [])
+            from app.direct.negatives import negatives_for
+            plan = Plan(1, a["budget_micro"], [variant], region, biz["city"], biz["site_url"], _maps_id(biz), [],
+                        negatives=negatives_for(biz["kind"]))
             ids = await create_unit(client, plan, variant, f"Автобидер: {biz['name']} (вариант)", a["budget_micro"], day_add(day, 1))
             await client.moderate_ads([ids["ad_id"]])
             return ids

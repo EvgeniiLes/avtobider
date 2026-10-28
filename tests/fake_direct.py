@@ -16,6 +16,8 @@ class FakeDirect:
         self.calls: list[tuple[str, str]] = []
         self.report_rows: list[tuple] = []  # (день, номер кампании, показы, клики, расход в микро[, обращения])
         self.report_requests: list[dict] = []
+        self.negatives: dict[int, list[str]] = {}
+        self.images: list[str] = []
         self._id = 1000
         self.transport = httpx.MockTransport(self._handle)
 
@@ -60,6 +62,7 @@ class FakeDirect:
                     return ok({"AddResults": [{"Errors": [{"Code": 4000, "Message": "Недельный бюджет меньше минимума"}]}]})
                 cid = self._next()
                 self.campaigns[cid] = {"Id": cid, "Name": item["Name"], "Limit": limit, "Status": "DRAFT", "State": "OFF", "StatusPayment": "ALLOWED"}
+                self.negatives[cid] = (item.get("NegativeKeywords") or {}).get("Items", [])
                 return ok({"AddResults": [{"Id": cid}]})
             if method == "get":
                 wanted = ids()
@@ -81,6 +84,10 @@ class FakeDirect:
                 for i in ids():
                     self.campaigns.pop(i, None)
                 return ok({"DeleteResults": [{"Id": i} for i in ids()]})
+        if service == "adimages":
+            item = params["AdImages"][0]
+            self.images.append(item["Name"])
+            return ok({"AddResults": [{"AdImageHash": f"hash{len(self.images)}"}]})
         if service == "adgroups":
             return ok({"AddResults": [{"Id": self._next()}]})
         if service == "ads":
@@ -89,6 +96,10 @@ class FakeDirect:
                 aid = self._next()
                 self.ads[aid] = {"group": item["AdGroupId"], "ad": item["TextAd"]}
                 return ok({"AddResults": [{"Id": aid}]})
+            if method == "update":
+                item = params["Ads"][0]
+                self.ads[item["Id"]]["ad"].update(item["TextAd"])
+                return ok({"UpdateResults": [{"Id": item["Id"]}]})
             if method == "moderate":
                 for c in self.campaigns.values():
                     if c["Status"] == "DRAFT":

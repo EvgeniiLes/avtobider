@@ -231,7 +231,7 @@ class DirectClient:
         return item
 
     async def create_text_campaign(self, name: str, weekly_limit_micro: int, start_date: str,
-                                   counter_ids: list[int] | None = None) -> int:
+                                   counter_ids: list[int] | None = None, negative_keywords: list[str] | None = None) -> int:
         """Кампания на поиске с автоматической стратегией и жёстким недельным бюджетом.
 
         Показы в сетях выключены (SERVING_OFF), чтобы бюджет шёл только на поиск."""
@@ -244,11 +244,10 @@ class DirectClient:
         }}
         if counter_ids:
             text_campaign["CounterIds"] = {"Items": counter_ids}
-        result = await self.call("campaigns", "add", {"Campaigns": [{
-            "Name": name,
-            "StartDate": start_date,
-            "TextCampaign": text_campaign,
-        }]})
+        item = {"Name": name, "StartDate": start_date, "TextCampaign": text_campaign}
+        if negative_keywords:
+            item["NegativeKeywords"] = {"Items": negative_keywords}
+        result = await self.call("campaigns", "add", {"Campaigns": [item]})
         return self._result_item(result, "AddResults")["Id"]
 
     async def create_ad_group(self, campaign_id: int, name: str, region_ids: list[int]) -> int:
@@ -272,6 +271,19 @@ class DirectClient:
             raise DirectError("Для объявления нужен сайт или профиль организации в Яндекс Картах.")
         result = await self.call("ads", "add", {"Ads": [{"AdGroupId": group_id, "TextAd": ad}]})
         return self._result_item(result, "AddResults")["Id"]
+
+    async def upload_image(self, data: bytes, name: str) -> str:
+        """Загружает картинку в библиотеку изображений кабинета и возвращает её хеш."""
+        import base64
+        result = await self.call("adimages", "add", {"AdImages": [{
+            "ImageData": base64.b64encode(data).decode(), "Name": name[:255], "Type": "AUTO",
+        }]})
+        return self._result_item(result, "AddResults")["AdImageHash"]
+
+    async def attach_image(self, ad_id: int, image_hash: str) -> None:
+        """Привязывает загруженную картинку к объявлению (у объявления может быть одна)."""
+        result = await self.call("ads", "update", {"Ads": [{"Id": ad_id, "TextAd": {"AdImageHash": image_hash}}]})
+        self._result_item(result, "UpdateResults")
 
     async def moderate_ads(self, ad_ids: list[int]) -> None:
         result = await self.call("ads", "moderate", {"SelectionCriteria": {"Ids": ad_ids}})

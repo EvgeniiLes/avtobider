@@ -1,0 +1,6 @@
+[Unit]
+Description=Автобидер: резервная копия базы и файлов
+
+[Service]
+Type=oneshot
+ExecStart=/opt/autobider/deploy/backup.sh

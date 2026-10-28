@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 
 from app.direct.client import DirectClient, DirectError
+from app.direct.negatives import negatives_for
 from app.direct.texts import alternative_variant, check, draft_variants
 from app.engine.util import EngineError, MICRO, day_add, rub
 
@@ -39,6 +40,7 @@ class Plan:
     warnings: list[str]
     counter_ids: list[int] | None = None
     own_count: int = 0
+    negatives: list[str] | None = None
 
 
 def _maps_id(biz) -> int | None:
@@ -84,7 +86,7 @@ def plan_launch(biz, region_id: int | None, min_weekly_micro: int = MIN_WEEKLY, 
     return Plan(
         count=count, per_unit_micro=start_pool // count, variants=variants, region_id=region_id,
         city=biz["city"], href=biz["site_url"], business_id=_maps_id(biz), warnings=warnings, counter_ids=counters,
-        own_count=own,
+        own_count=own, negatives=negatives_for(biz["kind"]),
     )
 
 
@@ -92,7 +94,8 @@ async def create_unit(client: DirectClient, plan: Plan, variant: dict, name: str
     """Создаёт кампанию, группу и объявление. Если что-то не вышло, удаляет уже созданное и пробрасывает ошибку."""
     campaign_id = group_id = ad_id = None
     try:
-        campaign_id = await client.create_text_campaign(name, weekly_micro, start_date, counter_ids=plan.counter_ids)
+        campaign_id = await client.create_text_campaign(
+            name, weekly_micro, start_date, counter_ids=plan.counter_ids, negative_keywords=plan.negatives)
         group_id = await client.create_ad_group(campaign_id, "Основная", [plan.region_id])
         ad_id = await client.create_text_ad(
             group_id, variant["title"], variant["text"], href=plan.href, business_id=plan.business_id,
@@ -118,14 +121,61 @@ def save_unit(conn: sqlite3.Connection, biz, account_id: int, campaign_row_id: i
     return cur.lastrowid
 
 
+def _file(business_id: int, stored_name: str) -> bytes:
+    from app.config import get_settings
+    return (get_settings().uploads_dir / str(business_id) / stored_name).read_bytes()
+
+
+def media_for(conn: sqlite3.Connection, biz) -> tuple[list[bytes], bytes | None]:
+    """Картинки для баннеров: сначала одобренные владельцем, иначе его загруженные фото. И логотип, если есть."""
+    rows = conn.execute(
+        "SELECT a.stored_name FROM creatives c JOIN business_assets a ON a.id = c.asset_id "
+        "WHERE c.business_id = ? AND c.kind = 'image' AND c.status = 'approved' ORDER BY c.id", (biz["id"],)
+    ).fetchall()
+    if not rows:
+        rows = conn.execute(
+            "SELECT stored_name FROM business_assets WHERE business_id = ? AND kind = 'photo' ORDER BY id LIMIT 6", (biz["id"],)
+        ).fetchall()
+    logo = conn.execute("SELECT stored_name FROM business_assets WHERE business_id = ? AND kind = 'logo'", (biz["id"],)).fetchone()
+    photos = []
+    for r in rows:
+        try:
+            photos.append(_file(biz["id"], r["stored_name"]))
+        except OSError:
+            continue
+    try:
+        return photos, (_file(biz["id"], logo["stored_name"]) if logo else None)
+    except OSError:
+        return photos, None
+
+
+async def attach_banners(client: DirectClient, biz, created: list[dict], photos: list[bytes], logo: bytes | None) -> list[str]:
+    """Собирает баннер под каждое объявление и привязывает к нему. Если не вышло, объявление остаётся без картинки."""
+    from app.creative.compose import make_banner
+    problems = []
+    for i, c in enumerate(created):
+        try:
+            banner = make_banner(photos[i % len(photos)], c["variant"]["title"], biz["color_main"], logo, "bottom" if i % 2 == 0 else "left")
+            image_hash = await client.upload_image(banner, f"autobider-{biz['id']}-{i + 1}.jpg")
+            await client.attach_image(c["ad_id"], image_hash)
+            c["image_hash"] = image_hash
+        except DirectError as e:
+            problems.append(f"«{c['variant']['title']}»: {e.message}")
+        except Exception:  # битая картинка не должна ломать запуск
+            problems.append(f"«{c['variant']['title']}»: не удалось подготовить картинку")
+    return problems
+
+
 async def launch(client: DirectClient, conn: sqlite3.Connection, biz, account_id: int, plan: Plan, today: str) -> list[int]:
-    """Создаёт все варианты в кабинете, отправляет объявления на проверку и записывает в базу."""
+    """Создаёт все варианты в кабинете, добавляет баннеры, отправляет объявления на проверку и записывает в базу."""
     start_date = day_add(today, 1)
     created: list[dict] = []
+    photos, logo = media_for(conn, biz)
     try:
         for i, variant in enumerate(plan.variants, start=1):
             ids = await create_unit(client, plan, variant, f"Автобидер: {biz['name']} #{i}", plan.per_unit_micro, start_date)
             created.append({**ids, "variant": variant})
+        banner_problems = await attach_banners(client, biz, created, photos, logo) if photos else []
         await client.moderate_ads([c["ad_id"] for c in created])
     except DirectError:
         for c in created:  # откат: не оставляем в кабинете недоделанные кампании
@@ -142,6 +192,8 @@ async def launch(client: DirectClient, conn: sqlite3.Connection, biz, account_id
     unit_ids = [
         save_unit(conn, biz, account_id, row.lastrowid, c["variant"], c, plan.per_unit_micro, today) for c in created
     ]
+    if banner_problems:
+        conn.execute("UPDATE ad_units SET status_note = ? WHERE id = ?", ("Картинки добавлены не ко всем объявлениям", unit_ids[0]))
     conn.execute("UPDATE businesses SET account_id = ?, status = 'running' WHERE id = ?", (account_id, biz["id"]))
     conn.commit()
     return unit_ids

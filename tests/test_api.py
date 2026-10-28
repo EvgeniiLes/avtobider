@@ -160,6 +160,26 @@ def test_unreadable_token_after_key_change(monkeypatch):
         assert r.status_code == 409
 
 
+def test_signup_rate_limit():
+    from app.routes import auth as auth_routes
+    auth_routes._signups.clear()
+    with TestClient(app) as http:
+        for i in range(auth_routes.MAX_SIGNUPS):
+            assert http.post("/api/auth/register", json={"email": f"u{i}@example.com", "password": "password123"}).status_code == 200
+        r = http.post("/api/auth/register", json={"email": "extra@example.com", "password": "password123"})
+        assert r.status_code == 429 and "слишком много регистраций" in r.json()["detail"]["message"]
+    auth_routes._signups.clear()
+
+
+def test_health_checks_the_database(monkeypatch):
+    with TestClient(app) as http:
+        assert http.get("/api/health").json() == {"ok": True}
+        def broken(_):
+            raise RuntimeError("нет базы")
+        monkeypatch.setattr("app.main.connect", broken)
+        assert http.get("/api/health").status_code == 503
+
+
 def test_pages_served():
     with TestClient(app) as http:
         assert http.get("/api/health").json() == {"ok": True}

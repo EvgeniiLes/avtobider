@@ -16,7 +16,7 @@ fi
 
 echo "==> Ставлю системные пакеты"
 apt-get update -y
-apt-get install -y python3 python3-venv nginx certbot python3-certbot-nginx
+apt-get install -y python3 python3-venv nginx certbot python3-certbot-nginx fonts-dejavu-core
 
 PY_OK=$(python3 -c 'import sys; print(1 if sys.version_info >= (3, 10) else 0)')
 if [ "$PY_OK" != "1" ]; then
@@ -44,8 +44,10 @@ chmod 640 "$APP_DIR/.env"
 echo "==> Включаю службу"
 cp "$APP_DIR/deploy/autobider.service" /etc/systemd/system/autobider.service
 cp "$APP_DIR/deploy/autobider-worker.service" /etc/systemd/system/autobider-worker.service
+cp "$APP_DIR/deploy/autobider-backup.service" "$APP_DIR/deploy/autobider-backup.timer" /etc/systemd/system/
+chmod +x "$APP_DIR/deploy/backup.sh"
 systemctl daemon-reload
-systemctl enable --now autobider autobider-worker
+systemctl enable --now autobider autobider-worker autobider-backup.timer
 
 echo "==> Настраиваю nginx для $DOMAIN"
 sed "s/__DOMAIN__/$DOMAIN/g" "$APP_DIR/deploy/nginx.conf" > /etc/nginx/sites-available/autobider

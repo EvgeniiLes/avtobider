@@ -4,7 +4,9 @@
 """
 import asyncio
 import sqlite3
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
+
+import httpx
 
 from app.config import get_settings
 from app.direct.client import DirectClient, DirectError
@@ -12,11 +14,42 @@ from app.direct.launch import sync_units
 from app.engine.cycle import run_cycle
 from app.engine.util import EngineError
 from app.platforms.direct import DirectPlatform
-from app.security import decrypt_token
+from app.security import decrypt_token, encrypt_token
+
+
+OAUTH_TRANSPORT: httpx.BaseTransport | None = None  # в тестах сюда подставляют заглушку Яндекса
+REFRESH_BEFORE = timedelta(days=14)
+
+
+def _refresh(conn: sqlite3.Connection, row: sqlite3.Row) -> str | None:
+    """Обновляет токен заранее, пока он не истёк. Возвращает новый токен или None, если обновить не вышло."""
+    s = get_settings()
+    refresh = decrypt_token(row["refresh_token_enc"], s.secret_key) if row["refresh_token_enc"] else None
+    if not (refresh and s.client_id and s.client_secret):
+        return None
+    try:
+        with httpx.Client(timeout=20, transport=OAUTH_TRANSPORT) as http:
+            r = http.post("https://oauth.yandex.ru/token", data={
+                "grant_type": "refresh_token", "refresh_token": refresh, "client_id": s.client_id, "client_secret": s.client_secret})
+            data = r.json()
+    except (httpx.HTTPError, ValueError):
+        return None
+    if r.status_code != 200 or not data.get("access_token"):
+        return None
+    expires = datetime.now(timezone.utc) + timedelta(seconds=int(data.get("expires_in") or 0))
+    conn.execute(
+        "UPDATE ad_accounts SET token_enc = ?, refresh_token_enc = ?, expires_at = ? WHERE id = ?",
+        (encrypt_token(data["access_token"], s.secret_key),
+         encrypt_token(data["refresh_token"], s.secret_key) if data.get("refresh_token") else row["refresh_token_enc"],
+         expires.isoformat(), row["id"]),
+    )
+    conn.commit()
+    return data["access_token"]
 
 
 def account_token(conn: sqlite3.Connection, account_id: int) -> tuple[str, str]:
-    """Расшифрованный токен кабинета и его логин. Понятная ошибка, если токен не читается или истёк."""
+    """Расшифрованный токен кабинета и его логин. За две недели до конца срока токен обновляется сам.
+    Понятная ошибка, если токен не читается или истёк и обновить не удалось."""
     row = conn.execute("SELECT * FROM ad_accounts WHERE id = ?", (account_id,)).fetchone()
     if row is None:
         raise EngineError("Рекламный кабинет не найден. Подключите его заново.", "no_account")
@@ -25,10 +58,15 @@ def account_token(conn: sqlite3.Connection, account_id: int) -> tuple[str, str]:
         raise EngineError("Не удалось прочитать сохранённый доступ к кабинету. Подключите кабинет заново.", "bad_token")
     if row["expires_at"]:
         try:
-            if datetime.fromisoformat(row["expires_at"]) < datetime.now(timezone.utc):
-                raise EngineError("Доступ к кабинету истёк. Подключите кабинет заново.", "expired")
+            expires = datetime.fromisoformat(row["expires_at"])
         except ValueError:
-            pass
+            expires = None
+        if expires and expires - datetime.now(timezone.utc) < REFRESH_BEFORE:
+            fresh = _refresh(conn, row)
+            if fresh:
+                return fresh, row["client_login"]
+            if expires < datetime.now(timezone.utc):
+                raise EngineError("Доступ к кабинету истёк. Подключите кабинет заново.", "expired")
     return token, row["client_login"]
 
 

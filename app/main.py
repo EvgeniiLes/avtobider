@@ -2,12 +2,12 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.config import get_settings, load_env
-from app.db import init_db
+from app.db import connect, init_db
 from app.routes import accounts, auth, businesses, creatives, direct_connect, launch, metrika, stats, yandex_login
 
 WEB_DIR = Path(__file__).resolve().parent / "web"
@@ -35,6 +35,15 @@ app.include_router(creatives.router)
 
 @app.get("/api/health")
 def health():
+    """Живость сервиса: заодно проверяет, что база открывается."""
+    try:
+        conn = connect(get_settings().db_path)
+        try:
+            conn.execute("SELECT 1").fetchone()
+        finally:
+            conn.close()
+    except Exception:
+        raise HTTPException(503, detail={"ok": False, "message": "База данных недоступна"})
     return {"ok": True}
 
 

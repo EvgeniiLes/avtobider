@@ -68,6 +68,7 @@ def _plan_json(plan, account, marking_confirmed: bool = False) -> dict:
         "link": plan.href or "Профиль организации в Яндекс Картах",
         "variants": plan.variants,
         "own_count": plan.own_count,
+        "negatives": plan.negatives or [],
         "warnings": plan.warnings,
     }
 

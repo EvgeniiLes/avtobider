@@ -97,12 +97,40 @@ def test_launch_creates_campaigns_with_hard_budgets_and_sends_to_moderation(isol
         assert sum(c["Limit"] for c in fake.campaigns.values()) <= BUDGET * MICRO * 0.9 * 0.7 + 6
         assert all(c["Limit"] >= 300 * MICRO for c in fake.campaigns.values())
         assert ("ads", "moderate") in fake.calls
+        assert all("обучение" in w and "бесплатно" in w and "лампа" in w for w in fake.negatives.values())  # минус-слова ниши «маникюр»
         again = http.post(f"/api/businesses/{bid}/launch", json={"marking_confirmed": True})
         assert again.status_code == 400 and "уже создана" in again.json()["detail"]["message"]
         ov = http.get(f"/api/businesses/{bid}/overview").json()
         assert ov["real"] and not ov["example"] and len(ov["units"]) == 6
         assert {u["verdict"] for u in ov["units"]} == {"На проверке в Яндексе"}
         assert any("проверяет" in n for n in ov["notices"]) and any("Метрика" in n for n in ov["notices"])
+
+
+def test_launch_adds_banners_from_uploaded_photos_and_logo(isolated):
+    from io import BytesIO
+    from PIL import Image
+    def png(color):
+        out = BytesIO()
+        Image.new("RGB", (900, 700), color).save(out, "PNG")
+        return out.getvalue()
+    fake = FakeDirect()
+    with TestClient(app) as http:
+        bid = setup(http, fake, isolated, color_main="#c2185b")
+        for kind, color in (("photo", (200, 100, 50)), ("photo", (50, 100, 200)), ("logo", (255, 255, 255))):
+            r = http.post(f"/api/businesses/{bid}/assets", data={"kind": kind, "tag": "work"}, files={"file": ("a.png", png(color), "image/png")})
+            assert r.status_code == 200, r.text
+        assert http.post(f"/api/businesses/{bid}/launch", json={"marking_confirmed": True}).status_code == 200
+        assert len(fake.images) == 6 and fake.images[0].startswith("autobider-")
+        attached = [a["ad"].get("AdImageHash") for a in fake.ads.values()]
+        assert all(h and h.startswith("hash") for h in attached) and len(set(attached)) == 6  # у каждого объявления свой баннер
+
+
+def test_launch_without_photos_has_no_banners(isolated):
+    fake = FakeDirect()
+    with TestClient(app) as http:
+        bid = setup(http, fake, isolated)
+        assert http.post(f"/api/businesses/{bid}/launch", json={"marking_confirmed": True}).status_code == 200
+        assert fake.images == []
 
 
 def test_launch_requires_advertiser_data_for_marking(isolated):
