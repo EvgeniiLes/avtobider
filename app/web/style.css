@@ -100,6 +100,8 @@ input[type=color] { width: 56px; height: 40px; padding: 2px; border: 1px solid v
 .status.err { color: var(--err); }
 .status.ok { color: var(--ok); }
 .notice { background: var(--warn-soft); border: 1px solid color-mix(in srgb, var(--warn) 30%, transparent); border-radius: var(--radius-sm); padding: 10px 14px; margin: 0 0 12px; font-size: 14px; }
+.notice-row { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.notice-row span { flex: 1 1 260px; }
 .notice.proposals { background: var(--info-soft); border-color: color-mix(in srgb, var(--info) 30%, transparent); }
 .notices { list-style: none; margin: 0 0 12px; padding: 0; }
 .notices li { background: var(--warn-soft); border: 1px solid color-mix(in srgb, var(--warn) 30%, transparent); border-radius: var(--radius-sm); padding: 9px 13px; margin-bottom: 6px; font-size: 14px; }

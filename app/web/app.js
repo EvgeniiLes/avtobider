@@ -127,13 +127,22 @@ async function showApp(email) {
   $("user-email").textContent = email;
   $("campaigns-card").hidden = true;
   await Promise.all([loadBusinesses(), loadAccounts()]);
-  showPage("home");
+  const page = pageFromHash();
+  if (location.hash !== `#/${page}`) history.replaceState(null, "", `#/${page}`);
+  showPage(page, false);
 }
 
 const PAGES = ["home", "business", "creatives", "stats", "history", "accounts"];
 let currentPage = "home";
 
-function showPage(name) {
+// Адрес страницы лежит в ссылке (#/business): перезагрузка остаётся на месте, «назад» и «вперёд» работают.
+function pageFromHash() {
+  const name = location.hash.replace(/^#\/?/, "");
+  return PAGES.includes(name) ? name : "home";
+}
+
+function showPage(name, push = true) {
+  if (push && location.hash !== `#/${name}`) history.pushState(null, "", `#/${name}`);
   currentPage = name;
   for (const page of PAGES) {
     $(`page-${page}`).hidden = page !== name;
@@ -1001,6 +1010,8 @@ async function start() {
   $("account-form").addEventListener("submit", submitAccount);
   $("logout").addEventListener("click", logout);
 
+  window.addEventListener("popstate", () => { if (!$("view-app").hidden) showPage(pageFromHash(), false); });
+  $("example-off").addEventListener("click", () => $("sim-reset").click());
   $("nav-home").addEventListener("click", () => showPage("home"));
   $("home-cta").addEventListener("click", () => { if (homeAction) homeAction(); });
   $("nav-business").addEventListener("click", () => showPage("business"));
@@ -1027,7 +1038,7 @@ async function start() {
   $("nav-history").addEventListener("click", () => showPage("history"));
   $("sim-start").addEventListener("click", () => simAction("start"));
   $("sim-reset").addEventListener("click", async () => {
-    if (await askConfirm("Сбросить пример?", "Вся примерная статистика и история изменений удалятся.", "Сбросить")) simAction("reset");
+    if (await askConfirm("Выключить пример?", "Примерная статистика и история примера удалятся. Вашей настоящей рекламы это не касается.", "Выключить")) simAction("reset");
   });
   for (const button of document.querySelectorAll("[data-advance]")) {
     button.addEventListener("click", () => simAction("advance", { days: Number(button.dataset.advance) }));
