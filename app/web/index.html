@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Автобидер</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <main>
+    <header class="top">
+      <h1>Автобидер</h1>
+      <div id="user" class="user" hidden>
+        <span id="user-email"></span>
+        <button id="logout" class="link">Выйти</button>
+      </div>
+    </header>
+
+    <!-- Вход и регистрация -->
+    <section id="view-auth" hidden>
+      <p class="lead">Сервис сам ведёт рекламу вашего бизнеса в Яндекс Директе. Войдите или создайте аккаунт.</p>
+      <div class="card">
+        <div class="tabs" role="tablist">
+          <button id="tab-login" class="tab active" role="tab">Вход</button>
+          <button id="tab-register" class="tab" role="tab">Регистрация</button>
+        </div>
+        <form id="auth-form">
+          <label for="email">E-mail</label>
+          <input type="email" id="email" autocomplete="email" required>
+          <label for="password">Пароль <span class="hint" id="password-hint"></span></label>
+          <input type="password" id="password" autocomplete="current-password" required>
+          <button type="submit" id="auth-submit">Войти</button>
+          <p id="auth-status" class="status" role="status"></p>
+        </form>
+      </div>
+    </section>
+
+    <!-- Кабинеты -->
+    <section id="view-app" hidden>
+      <div class="card">
+        <h2>Мои рекламные кабинеты</h2>
+        <p id="accounts-empty" class="hint" hidden>Пока нет ни одного кабинета. Подключите первый ниже.</p>
+        <ul id="accounts" class="list"></ul>
+      </div>
+
+      <div class="card" id="campaigns-card" hidden>
+        <h2 id="campaigns-title">Кампании</h2>
+        <p id="mode" class="hint"></p>
+        <p id="units" class="hint"></p>
+        <p id="campaigns-empty" hidden>В этом кабинете пока нет кампаний.</p>
+        <div class="table-wrap">
+          <table id="table" hidden>
+            <thead><tr><th>Название</th><th>Тип</th><th>Состояние</th><th>Проверка</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Подключить кабинет</h2>
+        <form id="account-form">
+          <label for="title">Название <span class="hint">(для себя, необязательно)</span></label>
+          <input type="text" id="title" placeholder="Например, Салон на Невском">
+
+          <label for="token">Токен Яндекса</label>
+          <input type="password" id="token" autocomplete="off" placeholder="Вставьте токен">
+          <p class="hint">Токен разрешает сервису работать с вашим кабинетом в Яндекс Директе. <a id="token-link" href="#" target="_blank" rel="noopener" hidden>Получить токен</a></p>
+
+          <label for="login">Логин рекламного кабинета <span class="hint">(необязательно)</span></label>
+          <input type="text" id="login" autocomplete="off" placeholder="Нужен, только если токен выдан на другой логин">
+
+          <label class="check">
+            <input type="checkbox" id="sandbox">
+            Тестовый режим (песочница): ничего не тратится и не меняется
+          </label>
+          <label class="check" id="dev-row" hidden>
+            <input type="checkbox" id="dev-token">
+            Взять токен с сервера (режим разработки)
+          </label>
+
+          <button type="submit" id="account-submit">Подключить</button>
+          <p id="account-status" class="status" role="status"></p>
+        </form>
+      </div>
+    </section>
+  </main>
+  <script src="/static/app.js"></script>
+</body>
+</html>
