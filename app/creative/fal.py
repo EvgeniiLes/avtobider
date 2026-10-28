@@ -31,7 +31,7 @@ def image_prompt(biz, idea: str = "") -> str:
     if idea.strip():
         base += f". {idea.strip()[:300]}"
     return (base + ". Тёплый естественный свет, аккуратная композиция, свободное место для заголовка. "
-            "Без текста, букв, логотипов и водяных знаков.")
+            "Без текста, букв, логотипов, узнаваемых брендов на упаковке и водяных знаков.")
 
 
 async def _submit(http: httpx.AsyncClient, model: str, key: str, payload: dict) -> dict:
