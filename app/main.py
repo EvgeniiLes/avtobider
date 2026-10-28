@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import get_settings, load_env
 from app.db import init_db
-from app.routes import accounts, auth, businesses, direct_connect, launch, metrika, stats, yandex_login
+from app.routes import accounts, auth, businesses, creatives, direct_connect, launch, metrika, stats, yandex_login
 
 WEB_DIR = Path(__file__).resolve().parent / "web"
 
@@ -30,6 +30,7 @@ app.include_router(businesses.router)
 app.include_router(stats.router)
 app.include_router(launch.router)
 app.include_router(metrika.router)
+app.include_router(creatives.router)
 
 
 @app.get("/api/health")

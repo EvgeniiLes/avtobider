@@ -42,6 +42,7 @@
     <section id="view-app" hidden>
       <nav class="tabs main-tabs">
         <button id="nav-business" class="tab active">Мой бизнес</button>
+        <button id="nav-creatives" class="tab">Креативы</button>
         <button id="nav-stats" class="tab">Статистика</button>
         <button id="nav-history" class="tab">История</button>
         <button id="nav-accounts" class="tab">Рекламные кабинеты</button>
@@ -168,6 +169,56 @@
             <p class="hint">MP4, MOV или WEBM до 100 МБ. Не больше 3 видео.</p>
             <p id="files-status" class="status" role="status"></p>
           </div>
+        </div>
+      </div>
+
+      <!-- Креативы -->
+      <div id="page-creatives" hidden>
+        <p id="cr-empty" class="hint" hidden>Сначала опишите бизнес на вкладке «Мой бизнес».</p>
+        <div id="cr-body" hidden>
+          <div class="card">
+            <h2>Тексты объявлений</h2>
+            <p class="hint">Одобренные варианты попадут в рекламу, остальные сервис добавит сам. Заголовок до 56 знаков, текст до 81. Лишних обещаний вроде скидок мы не придумываем.</p>
+            <p id="cr-ai-note" class="notice" hidden></p>
+            <div class="upload-row">
+              <input type="text" id="cr-hint" maxlength="300" placeholder="Пожелание (необязательно): например, подчеркнуть запись онлайн">
+              <button id="cr-gen-texts" class="small">Придумать тексты</button>
+            </div>
+            <p id="cr-texts-status" class="status" role="status"></p>
+            <ul id="cr-texts" class="creatives"></ul>
+            <details class="own-text">
+              <summary>Написать свой вариант</summary>
+              <label for="cr-own-title">Заголовок <span class="hint" id="cr-own-title-n"></span></label>
+              <input type="text" id="cr-own-title" maxlength="80">
+              <label for="cr-own-body">Текст <span class="hint" id="cr-own-body-n"></span></label>
+              <input type="text" id="cr-own-body" maxlength="120">
+              <button id="cr-add-own" class="small">Добавить</button>
+            </details>
+          </div>
+
+          <div class="card">
+            <h2>Картинки</h2>
+            <p id="cr-image-note" class="notice" hidden></p>
+            <div id="cr-image-form">
+              <div class="upload-row">
+                <input type="text" id="cr-idea" maxlength="300" placeholder="Что должно быть на картинке (необязательно)">
+                <select id="cr-image-count"><option value="1">1 картинка</option><option value="2" selected>2 картинки</option><option value="3">3 картинки</option></select>
+                <button id="cr-gen-images" class="small">Нарисовать</button>
+              </div>
+              <p class="hint">Картинки без текста на них: заголовок и логотип добавляются отдельно. Готовятся около минуты.</p>
+            </div>
+            <p id="cr-images-status" class="status" role="status"></p>
+            <div id="cr-images" class="grid creative-grid"></div>
+          </div>
+
+          <div class="card">
+            <h2>Видео</h2>
+            <p class="hint">Короткое видео делается из готовой картинки: нажмите «Сделать видео» под нужной картинкой. Готовится несколько минут.</p>
+            <div id="cr-videos" class="grid creative-grid"></div>
+            <p id="cr-videos-empty" class="hint">Видео пока нет.</p>
+            <p class="hint">Картинки и видео сохраняются в вашей библиотеке. Подключение их к объявлениям в Директе добавим следующим шагом.</p>
+          </div>
+          <p id="cr-spend" class="hint"></p>
         </div>
       </div>
 

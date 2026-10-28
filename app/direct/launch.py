@@ -38,6 +38,7 @@ class Plan:
     business_id: int | None
     warnings: list[str]
     counter_ids: list[int] | None = None
+    own_count: int = 0
 
 
 def _maps_id(biz) -> int | None:
@@ -46,7 +47,7 @@ def _maps_id(biz) -> int | None:
     return int(value) if value else None
 
 
-def plan_launch(biz, region_id: int | None, min_weekly_micro: int = MIN_WEEKLY) -> Plan:
+def plan_launch(biz, region_id: int | None, min_weekly_micro: int = MIN_WEEKLY, custom: list[dict] | None = None) -> Plan:
     """Считает, что будет создано. Если создавать нечего или нельзя, объясняет простыми словами."""
     if not (biz["site_url"] or _maps_id(biz)):
         raise EngineError("Укажите сайт или ссылку на ваш бизнес в Яндекс Картах: без них объявлению некуда вести.", "no_target_link")
@@ -64,16 +65,26 @@ def plan_launch(biz, region_id: int | None, min_weekly_micro: int = MIN_WEEKLY) 
         need = rub(min_weekly_micro / START_SHARE / (1 - RESERVE))
         raise EngineError(f"Бюджет слишком мал: на одну кампанию Яндекс требует минимум {rub(min_weekly_micro)} в неделю. Нужно хотя бы {need} в неделю.", "budget_too_small")
 
-    variants = draft_variants(biz, count)
+    # Сначала тексты, которые владелец одобрил; недостающие добираем из шаблонов без повторов.
+    variants = [{"title": c["title"], "text": c["text"]} for c in (custom or []) if not check(c["title"], c["text"])][:count]
+    own = len(variants)
+    for v in draft_variants(biz, MAX_VARIANTS):
+        if len(variants) >= count:
+            break
+        if v["title"].lower() not in {x["title"].lower() for x in variants}:
+            variants.append(v)
     warnings = []
     for v in variants:
         warnings += check(v["title"], v["text"])
+    if custom and own < min(count, 2):
+        warnings.append("Одобрено мало своих вариантов. Для сравнения лучше одобрить хотя бы 2–3 на вкладке «Креативы».")
     if count < MAX_VARIANTS:
         warnings.append(f"При таком бюджете хватает на {count} вариантов объявлений. Больше бюджет, больше вариантов для сравнения.")
     counters = [int(biz["metrika_counter_id"])] if biz["metrika_counter_id"] else None
     return Plan(
         count=count, per_unit_micro=start_pool // count, variants=variants, region_id=region_id,
         city=biz["city"], href=biz["site_url"], business_id=_maps_id(biz), warnings=warnings, counter_ids=counters,
+        own_count=own,
     )
 
 

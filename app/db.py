@@ -154,6 +154,32 @@ CREATE TABLE IF NOT EXISTS changes (
 );
 CREATE INDEX IF NOT EXISTS idx_changes_business ON changes (business_id, id DESC);
 
+-- Креативы: тексты, картинки и видео для объявлений. status: draft, approved, rejected, working, failed.
+CREATE TABLE IF NOT EXISTS creatives (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    business_id INTEGER NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+    kind        TEXT NOT NULL,                 -- text, image, video
+    title       TEXT NOT NULL DEFAULT '',
+    body        TEXT NOT NULL DEFAULT '',
+    asset_id    INTEGER,                       -- файл картинки или видео (business_assets)
+    prompt      TEXT NOT NULL DEFAULT '',
+    status      TEXT NOT NULL DEFAULT 'draft',
+    source      TEXT NOT NULL DEFAULT 'template',  -- template, claude, fal, user
+    external_id TEXT NOT NULL DEFAULT '',      -- задание у генератора, пока видео готовится
+    error       TEXT NOT NULL DEFAULT '',
+    created_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_creatives_business ON creatives (business_id, kind);
+
+-- Расходы на генерацию (в центах доллара), чтобы не выйти за лимит.
+CREATE TABLE IF NOT EXISTS generations (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    business_id INTEGER NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+    kind        TEXT NOT NULL,
+    cents       INTEGER NOT NULL,
+    created_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Ожидающие подтверждения подключения кабинета (вход по коду).
 CREATE TABLE IF NOT EXISTS oauth_pending (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -50,7 +50,11 @@ def _plan_for(conn, user, biz, account_id, factory):
 
     region, minimum = asyncio.run(go())
     kwargs = {"min_weekly_micro": minimum} if minimum else {}
-    return account, token, login, plan_launch(biz, region, **kwargs)
+    approved = conn.execute(
+        "SELECT title, body FROM creatives WHERE business_id = ? AND kind = 'text' AND status = 'approved' ORDER BY id", (biz["id"],)
+    ).fetchall()
+    custom = [{"title": r["title"], "text": r["body"]} for r in approved]
+    return account, token, login, plan_launch(biz, region, custom=custom, **kwargs)
 
 
 def _plan_json(plan, account, marking_confirmed: bool = False) -> dict:
@@ -63,6 +67,7 @@ def _plan_json(plan, account, marking_confirmed: bool = False) -> dict:
         "city": plan.city,
         "link": plan.href or "Профиль организации в Яндекс Картах",
         "variants": plan.variants,
+        "own_count": plan.own_count,
         "warnings": plan.warnings,
     }
 

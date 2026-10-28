@@ -14,6 +14,11 @@ def client_factory():
     return DirectClient
 
 
+def creative_transport():
+    """Транспорт для запросов к Claude и генератору картинок. В тестах подменяется заглушкой."""
+    return None
+
+
 def yandex_http():
     """HTTP-клиент для запросов к Яндекс ID. В тестах подменяется заглушкой."""
     return httpx.AsyncClient(timeout=15.0)

@@ -29,6 +29,12 @@ class Settings:
     client_secret: str
     login_client_id: str
     login_client_secret: str
+    anthropic_api_key: str
+    anthropic_model: str
+    fal_key: str
+    fal_image_model: str
+    fal_video_model: str
+    gen_limit_usd: float
     redirect_uri: str
     direct_api_version: str
     direct_client_login: str
@@ -64,6 +70,12 @@ def get_settings() -> Settings:
         dev_token=os.environ.get("YANDEX_DEV_TOKEN", "").strip(),
         client_id=os.environ.get("YANDEX_CLIENT_ID", "").strip(),
         client_secret=os.environ.get("YANDEX_CLIENT_SECRET", "").strip(),
+        anthropic_api_key=os.environ.get("ANTHROPIC_API_KEY", "").strip(),
+        anthropic_model=os.environ.get("ANTHROPIC_MODEL", "").strip() or "claude-sonnet-5-5",
+        fal_key=os.environ.get("FAL_KEY", "").strip(),
+        fal_image_model=os.environ.get("FAL_IMAGE_MODEL", "").strip() or "fal-ai/flux-pro/v1.1",
+        fal_video_model=os.environ.get("FAL_VIDEO_MODEL", "").strip() or "fal-ai/kling-video/v2.1/standard/image-to-video",
+        gen_limit_usd=float(os.environ.get("GEN_LIMIT_USD", "").strip() or 5),
         login_client_id=os.environ.get("YANDEX_LOGIN_CLIENT_ID", "").strip(),
         login_client_secret=os.environ.get("YANDEX_LOGIN_CLIENT_SECRET", "").strip(),
         redirect_uri=os.environ.get("YANDEX_REDIRECT_URI", "").strip(),

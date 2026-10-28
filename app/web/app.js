@@ -98,13 +98,15 @@ async function showApp(email) {
   await Promise.all([loadBusinesses(), loadAccounts()]);
 }
 
-const PAGES = ["business", "stats", "history", "accounts"];
+const PAGES = ["business", "creatives", "stats", "history", "accounts"];
 
 function showPage(name) {
   for (const page of PAGES) {
     $(`page-${page}`).hidden = page !== name;
     $(`nav-${page}`).classList.toggle("active", page === name);
   }
+  if (name !== "creatives") clearTimeout(creativeTimer);
+  if (name === "creatives") loadCreatives();
   if (name === "stats") loadStats();
   if (name === "history") { setStatus("history-status", ""); loadHistory(); }
 }
@@ -240,6 +242,141 @@ async function deleteBusiness() {
   await api("DELETE", `/api/businesses/${currentBusiness.id}`);
   currentBusiness = null;
   await loadBusinesses();
+}
+
+/* ---------- Креативы: тексты, картинки, видео ---------- */
+
+let creativeTimer = null;
+let creativeLimits = { title: 56, text: 81 };
+
+function counterEl(input, limit) {
+  const span = el("span", { className: "counter" });
+  const update = () => {
+    span.textContent = `${input.value.length} из ${limit}`;
+    span.classList.toggle("over", input.value.length > limit);
+  };
+  input.addEventListener("input", update);
+  update();
+  return span;
+}
+
+async function creativeCall(method, path, body) {
+  return api(method, `/api/businesses/${currentBusiness.id}/creatives${path}`, body);
+}
+
+async function loadCreatives() {
+  clearTimeout(creativeTimer);
+  const has = !!currentBusiness;
+  $("cr-empty").hidden = has;
+  $("cr-body").hidden = !has;
+  if (!has) return;
+  const result = await creativeCall("GET", "");
+  if (!result.ok) { setStatus("cr-texts-status", errorText(result), "err"); return; }
+  const { creatives, caps, spend, limits } = result.data;
+  creativeLimits = limits;
+
+  const note = $("cr-ai-note");
+  note.hidden = caps.text_ai;
+  note.textContent = "ИИ для текстов пока не подключён на сервере, поэтому варианты собираются по шаблону. Их можно править и писать свои.";
+  $("cr-image-note").hidden = caps.image_ai;
+  $("cr-image-note").textContent = "Создание картинок и видео пока не подключено на сервере. Свои фото можно загрузить на вкладке «Мой бизнес».";
+  $("cr-image-form").hidden = !caps.image_ai;
+  $("cr-spend").textContent = caps.image_ai || caps.text_ai
+    ? `Потрачено на создание: $${spend.spent_usd.toFixed(2)} из $${spend.limit_usd.toFixed(0)}. Больше лимита сервис не потратит.` : "";
+
+  renderTexts(creatives.filter((c) => c.kind === "text").reverse());  // старые сверху, новые снизу
+  const images = creatives.filter((c) => c.kind === "image");
+  const videos = creatives.filter((c) => c.kind === "video");
+  renderMedia($("cr-images"), images, caps.video_ai);
+  renderMedia($("cr-videos"), videos, false);
+  $("cr-videos-empty").hidden = videos.length > 0;
+  if (creatives.some((c) => c.status === "working")) creativeTimer = setTimeout(loadCreatives, 6000);
+}
+
+const SOURCE_LABEL = { claude: "ИИ", template: "шаблон", user: "ваш" };
+const STATUS_LABEL = { approved: "Одобрено", rejected: "Не используем", draft: "Ждёт решения" };
+
+function renderTexts(items) {
+  const list = $("cr-texts");
+  list.replaceChildren();
+  if (!items.length) list.append(el("li", { className: "hint", textContent: "Вариантов пока нет. Нажмите «Придумать тексты»." }));
+  for (const c of items) {
+    const title = el("input", { type: "text", value: c.title, maxLength: 80 });
+    const body = el("input", { type: "text", value: c.body, maxLength: 120 });
+    const meta = el("div", { className: "meta" }, counterEl(title, creativeLimits.title), counterEl(body, creativeLimits.text),
+      el("span", { className: "pill", textContent: `${STATUS_LABEL[c.status] || c.status}, ${SOURCE_LABEL[c.source] || c.source}` }));
+    const save = async (status) => {
+      const r = await creativeCall("PUT", `/${c.id}`, { title: title.value, body: body.value, status });
+      if (!r.ok) { setStatus("cr-texts-status", errorText(r), "err"); return; }
+      setStatus("cr-texts-status", "");
+      await loadCreatives();
+    };
+    const approve = el("button", { className: "small", textContent: c.status === "approved" ? "Сохранить" : "Использовать" });
+    approve.addEventListener("click", () => save("approved"));
+    const skip = el("button", { className: "small secondary", textContent: "Не использовать" });
+    skip.addEventListener("click", () => save("rejected"));
+    const del = el("button", { className: "small secondary", textContent: "Удалить" });
+    del.addEventListener("click", async () => { await creativeCall("DELETE", `/${c.id}`); await loadCreatives(); });
+    list.append(el("li", { className: c.status }, title, body, meta, el("div", { className: "btns" }, approve, skip, del)));
+  }
+}
+
+function renderMedia(grid, items, canMakeVideo) {
+  grid.replaceChildren();
+  for (const c of items) {
+    const tile = el("div", { className: `thumb ${c.status}` });
+    if (c.status === "working") tile.append(el("div", { className: "wait", textContent: c.kind === "video" ? "Готовим видео… это займёт несколько минут" : "Рисуем… около минуты" }));
+    else if (c.status === "failed") tile.append(el("div", { className: "wait", textContent: c.error || "Не получилось. Попробуйте ещё раз." }));
+    else tile.append(c.kind === "video" ? el("video", { src: c.url, controls: true, preload: "metadata" }) : el("img", { src: c.url, alt: "Картинка", loading: "lazy" }));
+    const acts = el("div", { className: "acts" });
+    if (c.status === "draft" || c.status === "approved") {
+      const like = el("button", { className: c.status === "approved" ? "" : "secondary", textContent: c.status === "approved" ? "Выбрана" : "Выбрать" });
+      like.addEventListener("click", async () => { await creativeCall("PUT", `/${c.id}`, { status: c.status === "approved" ? "draft" : "approved" }); await loadCreatives(); });
+      acts.append(like);
+      if (canMakeVideo && c.kind === "image") {
+        const video = el("button", { className: "secondary", textContent: "Сделать видео" });
+        video.addEventListener("click", async () => {
+          const r = await creativeCall("POST", "/videos/generate", { image_creative_id: c.id });
+          setStatus("cr-images-status", r.ok ? "Видео готовится, оно появится ниже." : errorText(r), r.ok ? "ok" : "err");
+          await loadCreatives();
+        });
+        acts.append(video);
+      }
+    }
+    const del = el("button", { className: "secondary", textContent: "Удалить" });
+    del.addEventListener("click", async () => { await creativeCall("DELETE", `/${c.id}`); await loadCreatives(); });
+    acts.append(del);
+    tile.append(acts);
+    grid.append(tile);
+  }
+}
+
+async function generateTexts() {
+  const button = $("cr-gen-texts");
+  button.disabled = true;
+  setStatus("cr-texts-status", "Придумываем…");
+  const r = await creativeCall("POST", "/texts/generate", { count: 6, hint: $("cr-hint").value });
+  button.disabled = false;
+  setStatus("cr-texts-status", r.ok ? r.data.message : errorText(r), r.ok ? "ok" : "err");
+  await loadCreatives();
+}
+
+async function generateImages() {
+  const button = $("cr-gen-images");
+  button.disabled = true;
+  const r = await creativeCall("POST", "/images/generate", { count: Number($("cr-image-count").value), idea: $("cr-idea").value });
+  button.disabled = false;
+  setStatus("cr-images-status", r.ok ? "Рисуем. Картинки появятся ниже сами." : errorText(r), r.ok ? "ok" : "err");
+  await loadCreatives();
+}
+
+async function addOwnText() {
+  const r = await creativeCall("POST", "/texts", { title: $("cr-own-title").value, body: $("cr-own-body").value });
+  if (!r.ok) { setStatus("cr-texts-status", errorText(r), "err"); return; }
+  $("cr-own-title").value = "";
+  $("cr-own-body").value = "";
+  setStatus("cr-texts-status", "Вариант добавлен. Нажмите «Использовать», чтобы он попал в рекламу.", "ok");
+  await loadCreatives();
 }
 
 /* ---------- Яндекс Метрика ---------- */
@@ -672,6 +809,12 @@ async function start() {
   $("nav-business").addEventListener("click", () => showPage("business"));
   $("nav-accounts").addEventListener("click", () => showPage("accounts"));
   $("nav-stats").addEventListener("click", () => showPage("stats"));
+  $("nav-creatives").addEventListener("click", () => showPage("creatives"));
+  $("cr-gen-texts").addEventListener("click", generateTexts);
+  $("cr-gen-images").addEventListener("click", generateImages);
+  $("cr-add-own").addEventListener("click", addOwnText);
+  $("cr-own-title-n").replaceWith(counterEl($("cr-own-title"), 56));
+  $("cr-own-body-n").replaceWith(counterEl($("cr-own-body"), 81));
   $("connect-direct").addEventListener("click", connectDirect);
   $("connect-cancel").addEventListener("click", stopConnect);
   $("m-counter").addEventListener("change", () => loadGoals(""));

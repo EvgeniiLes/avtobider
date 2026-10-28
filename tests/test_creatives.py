@@ -1,0 +1,262 @@
+import json
+import sqlite3
+from io import BytesIO
+
+import httpx
+import pytest
+from fastapi.testclient import TestClient
+from PIL import Image
+
+from app.creative.texts_ai import parse_variants
+from app.deps import client_factory, creative_transport
+from app.main import app
+from app.routes import auth
+from app.security import encrypt_token
+from tests.fake_direct import FakeDirect
+
+
+@pytest.fixture(autouse=True)
+def isolated(tmp_path, monkeypatch):
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "test.db"))
+    monkeypatch.setenv("SECRET_KEY", "test-secret-key")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("FAL_KEY", raising=False)
+    auth._fails.clear()
+    yield tmp_path / "test.db"
+    app.dependency_overrides.clear()
+
+
+def png() -> bytes:
+    out = BytesIO()
+    Image.new("RGB", (900, 900), (120, 80, 200)).save(out, "PNG")
+    return out.getvalue()
+
+
+class Fakes:
+    """Claude и генератор картинок: заглушки с памятью."""
+
+    def __init__(self, claude_text=None, fal_done=False, fal_status=200):
+        self.claude_text, self.fal_done, self.fal_status = claude_text, fal_done, fal_status
+        self.jobs = 0
+        self.requests = []
+        self.transport = httpx.MockTransport(self.handle)
+        app.dependency_overrides[creative_transport] = lambda: self.transport
+
+    def handle(self, request: httpx.Request):
+        host, path = request.url.host, request.url.path
+        self.requests.append((host, path, request.content[:2000]))
+        if host == "api.anthropic.com":
+            if self.claude_text is None:
+                return httpx.Response(500, json={})
+            return httpx.Response(200, json={"content": [{"type": "text", "text": self.claude_text}]})
+        if host == "queue.fal.run":
+            if self.fal_status != 200:
+                return httpx.Response(self.fal_status, json={})
+            self.jobs += 1
+            return httpx.Response(200, json={"request_id": f"r{self.jobs}", "status_url": f"https://fal.test/status/{self.jobs}",
+                                             "response_url": f"https://fal.test/result/{self.jobs}"})
+        if host == "fal.test" and "/status/" in path:
+            return httpx.Response(200, json={"status": "COMPLETED" if self.fal_done else "IN_PROGRESS"})
+        if host == "fal.test" and "/result/" in path:
+            video = self.jobs and "video" in self.requests[0][2].decode(errors="ignore")
+            return httpx.Response(200, json={"images": [{"url": "https://files.test/img.png"}]})
+        if host == "files.test":
+            return httpx.Response(200, content=png())
+        return httpx.Response(404)
+
+
+def setup(http, **business):
+    http.post("/api/auth/register", json={"email": "o@example.com", "password": "password123"})
+    body = {"name": "Лотос", "kind": "Маникюрный салон", "city": "Москва", "weekly_budget": 20000, "target_cpa": 800,
+            "description": "Маникюр и педикюр в центре города. Работаем ежедневно.", "site_url": "salon.ru", "mode": "auto"}
+    body.update(business)
+    return http.post("/api/businesses", json=body).json()["id"]
+
+
+GOOD = json.dumps([
+    {"title": "Маникюр в центре Москвы", "text": "Запишитесь онлайн на удобное время", "angle": "запись"},
+    {"title": "Педикюр рядом с метро", "text": "Салон «Лотос» работает ежедневно", "angle": "расположение"},
+    {"title": "Лучший салон города", "text": "Мы самые лучшие", "angle": "плохой"},          # превосходная степень
+    {"title": "Очень длинный заголовок " * 5, "text": "ок", "angle": "длинный"},              # обрежется и всё равно проверится
+    {"title": "Скидка 20% на маникюр", "text": "Акция только сейчас", "angle": "выдумка"},    # выдуманная скидка
+    {"title": "Запись!", "text": "Звоните", "angle": "восклицание"},
+])
+
+
+# ---------- разбор ответа модели ----------
+
+def test_ai_answer_is_filtered_by_rules_not_trust():
+    kept = parse_variants("Вот варианты:\n" + GOOD + "\nУдачи!")
+    assert [v["title"] for v in kept] == ["Маникюр в центре Москвы", "Педикюр рядом с метро"]
+    assert parse_variants("не json") == [] and parse_variants("[{]") == []
+
+
+# ---------- тексты ----------
+
+def test_texts_by_template_without_ai_key():
+    with TestClient(app) as http:
+        bid = setup(http)
+        r = http.post(f"/api/businesses/{bid}/creatives/texts/generate", json={"count": 4}).json()
+        assert r["added"] == 4 and r["used_ai"] is False and "по шаблону" in r["message"]
+        data = http.get(f"/api/businesses/{bid}/creatives").json()
+        assert data["caps"] == {"text_ai": False, "image_ai": False, "video_ai": False}
+        assert {c["source"] for c in data["creatives"]} == {"template"} and len(data["creatives"]) == 4
+        again = http.post(f"/api/businesses/{bid}/creatives/texts/generate", json={"count": 4}).json()
+        assert again["added"] == 2  # шаблонов всего шесть: повторов нет
+
+
+def test_texts_by_claude_when_key_is_set(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+    fakes = Fakes(claude_text=GOOD)
+    with TestClient(app) as http:
+        bid = setup(http)
+        r = http.post(f"/api/businesses/{bid}/creatives/texts/generate", json={"count": 4, "hint": "подчеркнуть запись онлайн"}).json()
+        assert r["used_ai"] is True and r["ai"] == 2 and r["added"] == 4 and "с помощью ИИ" in r["message"]
+        creatives = http.get(f"/api/businesses/{bid}/creatives").json()["creatives"]
+        assert sorted(c["source"] for c in creatives) == ["claude", "claude", "template", "template"]
+        host, path, body = fakes.requests[0]
+        assert host == "api.anthropic.com" and "подчеркнуть запись онлайн".encode() in body and b"sk-test" not in body
+        assert http.get(f"/api/businesses/{bid}/creatives").json()["spend"]["spent_usd"] == 0.01
+
+
+def test_thinking_blocks_and_big_token_budget(monkeypatch):
+    """Модель может «думать» перед ответом: блоки размышления пропускаем, а запас токенов делаем большим."""
+    import asyncio
+    from app.creative.texts_ai import generate_texts
+    seen = {}
+
+    def handler(request):
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"content": [
+            {"type": "thinking", "thinking": "", "signature": "x"},
+            {"type": "text", "text": GOOD},
+        ]})
+
+    biz = {"name": "Лотос", "kind": "Маникюр", "city": "Москва", "description": "", "tone": ""}
+    got = asyncio.run(generate_texts(biz, 4, "k", "claude-sonnet-5-5", "", httpx.MockTransport(handler)))
+    assert len(got) == 2 and seen["body"]["max_tokens"] >= 4000 and seen["body"]["model"] == "claude-sonnet-5-5"
+
+
+def test_claude_down_falls_back_to_template(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+    Fakes(claude_text=None)
+    with TestClient(app) as http:
+        bid = setup(http)
+        r = http.post(f"/api/businesses/{bid}/creatives/texts/generate", json={"count": 3}).json()
+        assert r["added"] == 3 and r["ai"] == 0 and "ИИ не ответил" in r["message"]
+
+
+def test_edit_approve_and_validation():
+    with TestClient(app) as http:
+        bid = setup(http)
+        http.post(f"/api/businesses/{bid}/creatives/texts/generate", json={"count": 2})
+        first = http.get(f"/api/businesses/{bid}/creatives").json()["creatives"][0]
+        ok = http.put(f"/api/businesses/{bid}/creatives/{first['id']}", json={"title": "Мой заголовок", "body": "Мой текст", "status": "approved"})
+        assert ok.status_code == 200 and ok.json()["status"] == "approved" and ok.json()["title"] == "Мой заголовок"
+        too_long = http.put(f"/api/businesses/{bid}/creatives/{first['id']}", json={"title": "а" * 70})
+        assert too_long.status_code == 400 and "длиннее 56" in too_long.json()["detail"]["message"]
+        added = http.post(f"/api/businesses/{bid}/creatives/texts", json={"title": "Свой вариант", "body": "Звоните и записывайтесь"})
+        assert added.status_code == 200 and added.json()["source"] == "user"
+        assert http.post(f"/api/businesses/{bid}/creatives/texts", json={"title": "", "body": ""}).status_code == 400
+        assert http.delete(f"/api/businesses/{bid}/creatives/{first['id']}").status_code == 200
+        assert http.put(f"/api/businesses/{bid}/creatives/{first['id']}", json={"status": "draft"}).status_code == 404
+
+
+def test_users_do_not_see_each_others_creatives():
+    with TestClient(app) as alice, TestClient(app) as bob:
+        alice.post("/api/auth/register", json={"email": "a@example.com", "password": "password123"})
+        bob.post("/api/auth/register", json={"email": "b@example.com", "password": "password123"})
+        bid = alice.post("/api/businesses", json={"name": "x", "kind": "y"}).json()["id"]
+        alice.post(f"/api/businesses/{bid}/creatives/texts/generate", json={"count": 2})
+        cid = alice.get(f"/api/businesses/{bid}/creatives").json()["creatives"][0]["id"]
+        assert bob.get(f"/api/businesses/{bid}/creatives").status_code == 404
+        assert bob.put(f"/api/businesses/{bid}/creatives/{cid}", json={"status": "approved"}).status_code == 404
+        assert bob.delete(f"/api/businesses/{bid}/creatives/{cid}").status_code == 404
+        assert bob.post(f"/api/businesses/{bid}/creatives/images/generate", json={}).status_code == 404
+
+
+# ---------- картинки и видео ----------
+
+def test_images_need_a_key():
+    with TestClient(app) as http:
+        bid = setup(http)
+        r = http.post(f"/api/businesses/{bid}/creatives/images/generate", json={})
+        assert r.status_code == 503 and "пока не подключено" in r.json()["detail"]["message"]
+
+
+def test_image_is_queued_then_collected_and_stored(monkeypatch):
+    monkeypatch.setenv("FAL_KEY", "fal-test")
+    fakes = Fakes(fal_done=False)
+    with TestClient(app) as http:
+        bid = setup(http)
+        assert http.post(f"/api/businesses/{bid}/creatives/images/generate", json={"count": 2, "idea": "светлый интерьер"}).json() == {"started": 2}
+        host, path, body = fakes.requests[0]
+        assert host == "queue.fal.run" and b"\\u0441\\u0432\\u0435\\u0442\\u043b\\u044b\\u0439" in body or "светлый интерьер".encode() in body
+        pending = http.get(f"/api/businesses/{bid}/creatives").json()["creatives"]
+        assert [c["status"] for c in pending] == ["working", "working"]
+
+        fakes.fal_done = True
+        done = http.get(f"/api/businesses/{bid}/creatives").json()["creatives"]
+        assert [c["status"] for c in done] == ["draft", "draft"] and all(c["url"] for c in done)
+        picture = http.get(done[0]["url"])
+        assert picture.status_code == 200 and Image.open(BytesIO(picture.content)).size == (900, 900)
+        assert http.get(f"/api/businesses/{bid}/creatives").json()["spend"]["spent_usd"] == 0.10
+
+
+def test_generation_spend_limit(monkeypatch):
+    monkeypatch.setenv("FAL_KEY", "fal-test")
+    monkeypatch.setenv("GEN_LIMIT_USD", "0.12")
+    Fakes()
+    with TestClient(app) as http:
+        bid = setup(http)
+        assert http.post(f"/api/businesses/{bid}/creatives/images/generate", json={"count": 2}).status_code == 200
+        r = http.post(f"/api/businesses/{bid}/creatives/images/generate", json={"count": 1})
+        assert r.status_code == 400 and "Лимит расходов" in r.json()["detail"]["message"]
+
+
+def test_fal_errors_are_plain(monkeypatch):
+    monkeypatch.setenv("FAL_KEY", "fal-bad")
+    Fakes(fal_status=403)
+    with TestClient(app) as http:
+        bid = setup(http)
+        r = http.post(f"/api/businesses/{bid}/creatives/images/generate", json={})
+        assert r.status_code == 502 and "FAL_KEY" in r.json()["detail"]["message"]
+        assert http.get(f"/api/businesses/{bid}/creatives").json()["creatives"] == []
+
+
+def test_video_from_ready_image_only(monkeypatch):
+    monkeypatch.setenv("FAL_KEY", "fal-test")
+    fakes = Fakes(fal_done=True)
+    with TestClient(app) as http:
+        bid = setup(http)
+        http.post(f"/api/businesses/{bid}/creatives/images/generate", json={"count": 1})
+        image = http.get(f"/api/businesses/{bid}/creatives").json()["creatives"][0]
+        r = http.post(f"/api/businesses/{bid}/creatives/videos/generate", json={"image_creative_id": image["id"]})
+        assert r.status_code == 200
+        host, path, body = fakes.requests[-1]
+        assert host == "queue.fal.run" and b"data:image/jpeg;base64," in body  # картинка передаётся самим файлом, наружу ссылок не даём
+        text = http.post(f"/api/businesses/{bid}/creatives/texts", json={"title": "Т", "body": "Т"}).json()
+        assert http.post(f"/api/businesses/{bid}/creatives/videos/generate", json={"image_creative_id": text["id"]}).status_code == 400
+
+
+# ---------- использование в запуске ----------
+
+def test_approved_texts_go_into_the_launch_plan(isolated):
+    fake = FakeDirect()
+    with TestClient(app) as http:
+        bid = setup(http)
+        app.dependency_overrides[client_factory] = fake.factory()
+        conn = sqlite3.connect(isolated)
+        conn.execute("INSERT INTO ad_accounts (user_id, title, token_enc) VALUES (1, 'fake-login', ?)", (encrypt_token("tok", "test-secret-key"),))
+        conn.commit()
+        conn.close()
+        a = http.post(f"/api/businesses/{bid}/creatives/texts", json={"title": "Мой первый заголовок", "body": "Мой первый текст"}).json()
+        b = http.post(f"/api/businesses/{bid}/creatives/texts", json={"title": "Мой второй заголовок", "body": "Мой второй текст"}).json()
+        rejected = http.post(f"/api/businesses/{bid}/creatives/texts", json={"title": "Отклонённый вариант", "body": "Не берём"}).json()
+        for c in (a, b):
+            http.put(f"/api/businesses/{bid}/creatives/{c['id']}", json={"status": "approved"})
+        http.put(f"/api/businesses/{bid}/creatives/{rejected['id']}", json={"status": "rejected"})
+        plan = http.get(f"/api/businesses/{bid}/launch/preview").json()
+        titles = [v["title"] for v in plan["variants"]]
+        assert titles[:2] == ["Мой первый заголовок", "Мой второй заголовок"] and "Отклонённый вариант" not in titles
+        assert plan["own_count"] == 2 and len(titles) == plan["count"] == len(set(titles))
