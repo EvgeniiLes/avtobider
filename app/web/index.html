@@ -38,6 +38,8 @@
     <section id="view-app" hidden>
       <nav class="tabs main-tabs">
         <button id="nav-business" class="tab active">Мой бизнес</button>
+        <button id="nav-stats" class="tab">Статистика</button>
+        <button id="nav-history" class="tab">История</button>
         <button id="nav-accounts" class="tab">Рекламные кабинеты</button>
       </nav>
 
@@ -97,6 +99,9 @@
             <input type="number" id="b-cpa" min="0" step="1" placeholder="Если не знаете, оставьте пустым">
             <label for="b-budget">Бюджет на рекламу в неделю, ₽</label>
             <input type="number" id="b-budget" min="0" step="1" placeholder="Больше этой суммы сервис не потратит">
+            <label for="b-share">Какая часть обращений становится клиентами, %</label>
+            <input type="number" id="b-share" min="1" max="100" step="1" placeholder="30">
+            <p class="hint">Например, из 10 звонков приходят 3 человека: это 30%. Если не знаете, оставьте 30.</p>
 
             <button type="submit" id="business-save">Сохранить</button>
             <button type="button" id="business-delete" class="secondary" hidden>Удалить бизнес</button>
@@ -129,6 +134,51 @@
             <p class="hint">MP4, MOV или WEBM до 100 МБ. Не больше 3 видео.</p>
             <p id="files-status" class="status" role="status"></p>
           </div>
+        </div>
+      </div>
+
+      <!-- Статистика -->
+      <div id="page-stats" hidden>
+        <div class="card">
+          <h2 id="stats-title">Статистика</h2>
+          <p id="stats-empty" class="hint" hidden>Сначала опишите бизнес на вкладке «Мой бизнес».</p>
+          <div id="stats-body" hidden>
+            <p class="notice" id="example-notice" hidden>Пример данных. Это учебная симуляция, а не ваша реальная реклама. Деньги не тратятся, но сервис принимает решения так же, как на настоящей рекламе.</p>
+            <p id="stats-needs" class="status err"></p>
+            <div class="actions">
+              <button id="sim-start" class="small">Запустить пример</button>
+              <button class="small secondary" data-advance="1">Прокрутить 1 день</button>
+              <button class="small secondary" data-advance="7">7 дней</button>
+              <button class="small secondary" data-advance="30">30 дней</button>
+              <button id="sim-reset" class="small secondary">Сбросить пример</button>
+            </div>
+            <p id="sim-day" class="hint"></p>
+            <p id="stats-status" class="status" role="status"></p>
+
+            <div id="tiles" class="tiles" hidden></div>
+            <div id="budget-box" hidden>
+              <p class="hint" id="budget-text"></p>
+              <div class="bar"><div id="budget-fill" class="fill"></div></div>
+            </div>
+            <div class="table-wrap">
+              <table id="units-table" hidden>
+                <thead><tr><th>Объявление</th><th>Оценка</th><th>Бюджет в неделю</th><th>Расход</th><th>Обращения</th><th>Клиенты</th><th>Цена клиента</th></tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+            <p class="hint" id="units-hint" hidden>Показаны последние 14 дней. «Пока неясно» значит, что данных мало или результат на грани окупаемости.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- История -->
+      <div id="page-history" hidden>
+        <div class="card">
+          <h2>История изменений</h2>
+          <p class="hint">Здесь всё, что сервис (или вы) менял в рекламе, и почему. Любое изменение можно отменить.</p>
+          <p id="history-empty" class="hint" hidden>Пока изменений нет.</p>
+          <ul id="history" class="list history"></ul>
+          <p id="history-status" class="status" role="status"></p>
         </div>
       </div>
 

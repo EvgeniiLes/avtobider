@@ -49,6 +49,7 @@ class BusinessIn(BaseModel):
     avg_check: float = Field(default=0, ge=0, le=100_000_000)
     target_cpa: float = Field(default=0, ge=0, le=100_000_000)
     weekly_budget: float = Field(default=0, ge=0, le=100_000_000)
+    client_share_percent: float = Field(default=30, ge=1, le=100)  # какая часть обращений становится клиентами
 
     @field_validator("name", "kind", "description", "city", "site_url")
     @classmethod
@@ -115,6 +116,7 @@ def _business(row: sqlite3.Row, assets: list[sqlite3.Row] | None = None) -> dict
         "avg_check": _rub(row["avg_check_micro"]),
         "target_cpa": _rub(row["target_cpa_micro"]),
         "weekly_budget": _rub(row["weekly_budget_micro"]),
+        "client_share_percent": round(row["client_share"] * 100, 1),
         "status": row["status"],
     }
     if assets is not None:
@@ -160,10 +162,11 @@ def create_business(data: BusinessIn, user: sqlite3.Row = Depends(current_user),
         raise HTTPException(400, detail={"message": f"Можно добавить не больше {MAX_BUSINESSES} бизнесов."})
     cur = conn.execute(
         "INSERT INTO businesses (user_id, name, kind, description, city, site_url, tone, color_main, color_extra, "
-        "avg_check_micro, target_cpa_micro, weekly_budget_micro) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        "avg_check_micro, target_cpa_micro, weekly_budget_micro, client_share) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (
             user["id"], data.name, data.kind, data.description, data.city, data.site_url, data.tone,
             data.color_main, data.color_extra, _micro(data.avg_check), _micro(data.target_cpa), _micro(data.weekly_budget),
+            data.client_share_percent / 100,
         ),
     )
     conn.commit()
@@ -186,10 +189,11 @@ def update_business(
     _own(conn, user, business_id)
     conn.execute(
         "UPDATE businesses SET name=?, kind=?, description=?, city=?, site_url=?, tone=?, color_main=?, color_extra=?, "
-        "avg_check_micro=?, target_cpa_micro=?, weekly_budget_micro=? WHERE id=?",
+        "avg_check_micro=?, target_cpa_micro=?, weekly_budget_micro=?, client_share=? WHERE id=?",
         (
             data.name, data.kind, data.description, data.city, data.site_url, data.tone, data.color_main,
-            data.color_extra, _micro(data.avg_check), _micro(data.target_cpa), _micro(data.weekly_budget), business_id,
+            data.color_extra, _micro(data.avg_check), _micro(data.target_cpa), _micro(data.weekly_budget),
+            data.client_share_percent / 100, business_id,
         ),
     )
     conn.commit()

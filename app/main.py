@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import get_settings, load_env
 from app.db import init_db
-from app.routes import accounts, auth, businesses
+from app.routes import accounts, auth, businesses, stats
 
 WEB_DIR = Path(__file__).resolve().parent / "web"
 
@@ -25,6 +25,7 @@ app = FastAPI(title="Автобидер", lifespan=lifespan)
 app.include_router(auth.router)
 app.include_router(accounts.router)
 app.include_router(businesses.router)
+app.include_router(stats.router)
 
 
 @app.get("/api/health")

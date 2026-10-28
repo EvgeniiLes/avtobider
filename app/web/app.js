@@ -77,6 +77,7 @@ async function logout() {
 }
 
 function showAuth() {
+  currentBusiness = null;
   $("view-auth").hidden = false;
   $("view-app").hidden = true;
   $("user").hidden = true;
@@ -84,6 +85,7 @@ function showAuth() {
 }
 
 async function showApp(email) {
+  currentBusiness = null; // не тащим бизнес предыдущего пользователя
   $("view-auth").hidden = true;
   $("view-app").hidden = false;
   $("user").hidden = false;
@@ -93,11 +95,15 @@ async function showApp(email) {
   await Promise.all([loadBusinesses(), loadAccounts()]);
 }
 
+const PAGES = ["business", "stats", "history", "accounts"];
+
 function showPage(name) {
-  $("page-business").hidden = name !== "business";
-  $("page-accounts").hidden = name !== "accounts";
-  $("nav-business").classList.toggle("active", name === "business");
-  $("nav-accounts").classList.toggle("active", name === "accounts");
+  for (const page of PAGES) {
+    $(`page-${page}`).hidden = page !== name;
+    $(`nav-${page}`).classList.toggle("active", page === name);
+  }
+  if (name === "stats") loadStats();
+  if (name === "history") { setStatus("history-status", ""); loadHistory(); }
 }
 
 /* ---------- Бизнес ---------- */
@@ -138,6 +144,7 @@ function fillForm(b) {
   $("b-check").value = b && b.avg_check ? b.avg_check : "";
   $("b-cpa").value = b && b.target_cpa ? b.target_cpa : "";
   $("b-budget").value = b && b.weekly_budget ? b.weekly_budget : "";
+  $("b-share").value = b ? b.client_share_percent : 30;
   $("business-title").textContent = b ? `Бизнес: ${b.name}` : "Расскажите о бизнесе";
   $("business-delete").hidden = !b;
   setStatus("business-status", "");
@@ -150,7 +157,8 @@ async function loadBusinesses(selectId) {
   const list = result.ok ? result.data.businesses : [];
   const box = $("business-list");
   box.replaceChildren();
-  const wanted = selectId ?? (currentBusiness ? currentBusiness.id : (list[0] ? list[0].id : null));
+  let wanted = selectId ?? (currentBusiness ? currentBusiness.id : null);
+  if (!list.some((b) => b.id === wanted)) wanted = list[0] ? list[0].id : null;
   for (const b of list) {
     const chip = el("button", { className: "chip" + (b.id === wanted ? " active" : ""), textContent: b.name });
     chip.addEventListener("click", () => selectBusiness(b.id));
@@ -193,6 +201,7 @@ function readForm() {
     avg_check: num("b-check"),
     target_cpa: num("b-cpa"),
     weekly_budget: num("b-budget"),
+    client_share_percent: num("b-share") || 30,
   };
 }
 
@@ -290,6 +299,113 @@ async function removeAsset(assetId) {
   await refreshAssets();
 }
 
+/* ---------- Статистика и пример данных ---------- */
+
+const money = (v) => (v == null ? "—" : `${Math.round(v).toLocaleString("ru-RU")} ₽`);
+
+function tile(num, label) {
+  return el("div", { className: "tile" }, el("div", { className: "num", textContent: num }), el("div", { className: "lbl", textContent: label }));
+}
+
+async function loadStats() {
+  const has = !!currentBusiness;
+  $("stats-empty").hidden = has;
+  $("stats-body").hidden = !has;
+  if (!has) return;
+  $("stats-title").textContent = `Статистика: ${currentBusiness.name}`;
+  const result = await api("GET", `/api/businesses/${currentBusiness.id}/overview`);
+  if (!result.ok) { setStatus("stats-status", errorText(result), "err"); return; }
+  const data = result.data;
+  $("example-notice").hidden = !data.example;
+  $("stats-needs").textContent = data.needs;
+  $("sim-start").hidden = data.example;
+  $("sim-reset").hidden = !data.example;
+  for (const b of document.querySelectorAll("[data-advance]")) b.hidden = !data.example;
+  $("sim-day").textContent = data.example ? `Сегодня в примере: ${data.today}` : "Пока нет данных. Нажмите «Запустить пример», чтобы увидеть, как работает сервис.";
+
+  const tiles = $("tiles");
+  tiles.hidden = !data.totals;
+  tiles.replaceChildren();
+  if (data.totals) {
+    const t = data.totals;
+    tiles.append(
+      tile(money(t.spend), `Расход за ${t.days} дней`),
+      tile(String(t.leads), "Обращения"),
+      tile(String(t.clients), "Клиенты"),
+      tile(money(t.cost_per_client), "Цена клиента"),
+    );
+  }
+  $("budget-box").hidden = !data.budget;
+  if (data.budget) {
+    const b = data.budget;
+    $("budget-text").textContent = `Бюджет недели: потрачено ${money(b.spent_week)} из ${money(b.weekly)} (${b.percent}%).`;
+    const fill = $("budget-fill");
+    fill.style.width = `${Math.min(b.percent, 100)}%`;
+    fill.className = "fill" + (b.percent >= 100 ? " full" : b.percent >= 90 ? " warn" : "");
+  }
+
+  const body = $("units-table").querySelector("tbody");
+  body.replaceChildren();
+  $("units-table").hidden = data.units.length === 0;
+  $("units-hint").hidden = data.units.length === 0;
+  for (const u of data.units) {
+    const name = el("td", { textContent: u.title });
+    if (u.in_test) name.append(el("span", { className: "sub", textContent: "Идёт сравнение двух вариантов" }));
+    else if (u.variant) name.append(el("span", { className: "sub", textContent: "Второй вариант для сравнения" }));
+    const cell = (v) => el("td", { textContent: v });
+    const badge = el("span", { className: `badge ${u.verdict_code}`, textContent: u.verdict });
+    const row = el("tr", { className: u.active ? "" : "off" }, name, el("td", {}, badge), cell(money(u.weekly_budget)),
+      cell(money(u.spend)), cell(String(u.leads)), cell(String(u.clients)), cell(money(u.cost_per_client)));
+    body.append(row);
+  }
+}
+
+async function simAction(path, body) {
+  if (!currentBusiness) return;
+  setStatus("stats-status", "Считаем…");
+  const result = await api("POST", `/api/businesses/${currentBusiness.id}/sim/${path}`, body);
+  if (!result.ok) { setStatus("stats-status", errorText(result), "err"); return; }
+  const made = result.data.changes_made;
+  setStatus("stats-status", made ? `Готово. Изменений за это время: ${made}. Подробности на вкладке «История».` : "Готово.", "ok");
+  await loadStats();
+}
+
+/* ---------- История изменений ---------- */
+
+async function loadHistory() {
+  const list = $("history");
+  list.replaceChildren();
+  if (!currentBusiness) { $("history-empty").hidden = false; return; }
+  const result = await api("GET", `/api/businesses/${currentBusiness.id}/changes`);
+  const items = result.ok ? result.data.changes : [];
+  $("history-empty").hidden = items.length > 0;
+  for (const c of items) {
+    const info = el("div", {},
+      el("div", { className: "when", textContent: `${c.day}, ${c.who}` }),
+      el("div", { className: "what", textContent: c.unit ? `${c.action}: ${c.unit}` : c.action }),
+      el("div", { className: "text", textContent: c.reason }),
+    );
+    let action;
+    if (c.reverted) action = el("span", { className: "hint", textContent: "Отменено" });
+    else if (c.can_rollback) {
+      action = el("button", { className: "small secondary", textContent: "Отменить" });
+      action.addEventListener("click", () => rollbackChange(c));
+    } else action = el("span");
+    list.append(el("li", {}, info, action));
+  }
+}
+
+async function rollbackChange(change, force = false) {
+  const result = await api("POST", `/api/businesses/${currentBusiness.id}/changes/${change.id}/rollback`, { force });
+  if (result.status === 409 && !force) {
+    if (confirm(errorText(result))) await rollbackChange(change, true);
+    return;
+  }
+  if (!result.ok) { setStatus("history-status", errorText(result), "err"); return; }
+  setStatus("history-status", "Изменение отменено.", "ok");
+  await loadHistory();
+}
+
 /* ---------- Кабинеты ---------- */
 
 async function loadAccounts() {
@@ -375,6 +491,15 @@ async function start() {
 
   $("nav-business").addEventListener("click", () => showPage("business"));
   $("nav-accounts").addEventListener("click", () => showPage("accounts"));
+  $("nav-stats").addEventListener("click", () => showPage("stats"));
+  $("nav-history").addEventListener("click", () => showPage("history"));
+  $("sim-start").addEventListener("click", () => simAction("start"));
+  $("sim-reset").addEventListener("click", () => {
+    if (confirm("Сбросить пример? Вся примерная статистика и история изменений удалятся.")) simAction("reset");
+  });
+  for (const button of document.querySelectorAll("[data-advance]")) {
+    button.addEventListener("click", () => simAction("advance", { days: Number(button.dataset.advance) }));
+  }
   $("business-form").addEventListener("submit", saveBusiness);
   $("business-new").addEventListener("click", newBusiness);
   $("business-delete").addEventListener("click", deleteBusiness);
