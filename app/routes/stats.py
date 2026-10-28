@@ -206,7 +206,7 @@ def series(business_id: int, days: int = 14, user: sqlite3.Row = Depends(current
     return {"days": out}
 
 
-STYLE_LABELS = {"photo": "Фото-герой", "luxe": "Тёмный люкс", "pastel": "Пастель", "bold": "Яркая типографика", "card": "Светлая карточка"}
+STYLE_LABELS = {"photo": "Фото-герой", "luxe": "Тёмный люкс", "pastel": "Пастель", "bold": "Яркая типографика", "card": "Светлая карточка", "ai": "ИИ-дизайн"}
 MIN_IMPRESSIONS = 1000  # меньше показов на стиль: разница в кликах может быть случайной
 MIN_LEADS = 3           # меньше обращений: цену обращения сравнивать рано
 

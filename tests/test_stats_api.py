@@ -133,7 +133,7 @@ def test_insights_compare_styles_and_wait_for_enough_data():
         assert http.get(f"/api/businesses/{bid}/insights").json()["groups"] == []
         http.post(f"/api/businesses/{bid}/sim/start")
         data = http.get(f"/api/businesses/{bid}/insights").json()
-        assert {g["style"] for g in data["groups"]} == {"photo", "luxe", "pastel", "bold", "card"} | {"photo"}  # шесть объявлений, пять стилей
+        assert {g["style"] for g in data["groups"]} == {"photo", "luxe", "pastel", "bold", "ai"}  # шесть объявлений, пять стилей
         assert "мало данных" in data["conclusions"][0] or "Нужно" in data["conclusions"][0]
         http.post(f"/api/businesses/{bid}/sim/advance", json={"days": 30})
         data = http.get(f"/api/businesses/{bid}/insights").json()

@@ -77,6 +77,38 @@ async def _ask_fal(http: httpx.AsyncClient, prompt: str, fal_key: str, model: st
     return r.json()["choices"][0]["message"]["content"] or ""
 
 
+async def read_image_text(image_url: str, fal_key: str, model: str,
+                          transport: httpx.AsyncBaseTransport | None = None) -> list[str] | None:
+    """Читает весь текст с готового баннера (модель со зрением через fal.ai). None, если прочитать не удалось."""
+    body = {
+        "model": model, "max_tokens": 1000, "image_urls": [image_url],
+        "messages": [{"role": "user", "content": (
+            "Прочитай весь текст на картинке и верни только JSON-массив строк, ровно как написано, "
+            "без исправлений ошибок и без пояснений. Если текста нет, верни [].")}],
+    }
+    try:
+        async with httpx.AsyncClient(timeout=90, transport=transport) as http:
+            r = await http.post(FAL_CHAT_URL, json=body, headers={"Authorization": f"Key {fal_key}", "Content-Type": "application/json"})
+        if r.status_code != 200:
+            return None
+        raw = r.json()["choices"][0]["message"]["content"] or ""
+        start, end = raw.find("["), raw.rfind("]")
+        items = json.loads(raw[start:end + 1]) if start != -1 and end > start else None
+    except (httpx.HTTPError, ValueError, KeyError, IndexError):
+        return None
+    return [str(x) for x in items] if isinstance(items, list) else None
+
+
+def _norm(text: str) -> str:
+    return re.sub(r"[^0-9a-zа-я]", "", (text or "").lower().replace("ё", "е"))
+
+
+def missing_phrases(expected: list[str], read: list[str]) -> list[str]:
+    """Какие нужные надписи не найдены на картинке (регистр, кавычки и пробелы не важны)."""
+    haystack = _norm(" ".join(read))
+    return [e for e in expected if _norm(e) and _norm(e) not in haystack]
+
+
 async def generate_texts(biz, count: int, api_key: str, model: str, hint: str = "",
                          transport: httpx.AsyncBaseTransport | None = None,
                          fal_key: str = "", fal_model: str = "") -> list[dict]:

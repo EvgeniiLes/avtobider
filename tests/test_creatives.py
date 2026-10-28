@@ -285,6 +285,60 @@ def test_ready_ads_pair_text_with_banner():
         assert other.get(f"{base}/ads").status_code == 404  # чужие объявления не видны
 
 
+def _ai_ad(http, bid):
+    ad = http.get(f"/api/businesses/{bid}/creatives/ads").json()["ads"][4]
+    assert ad["style"] == "ai"
+    return ad
+
+
+def test_ai_banner_is_ordered_checked_and_used(monkeypatch):
+    monkeypatch.setenv("FAL_KEY", "fal-test")
+    fakes = Fakes(fal_done=False)
+    with TestClient(app) as http:
+        bid = setup(http)
+        base = f"/api/businesses/{bid}/creatives"
+        ad = _ai_ad(http, bid)
+        assert ad["ai"]["status"] == "none" and ad["banner_url"] == ""
+        assert http.post(f"{base}/ads/0/ai-banner").status_code == 400      # у остальных стилей ИИ-баннера нет
+        assert http.post(f"{base}/ads/4/ai-banner").json() == {"started": True}
+        assert http.post(f"{base}/ads/4/ai-banner").status_code == 400      # второй раз, пока рисуется, нельзя
+        host, path, body = fakes.requests[0]
+        assert host == "queue.fal.run" and "nano-banana-pro" in path
+        http.get(base)
+        assert _ai_ad(http, bid)["ai"]["status"] == "working"
+
+        fakes.fal_done = True
+        fakes.claude_text = json.dumps([ad["title"], "Лотос", "ЗАПИСАТЬСЯ"], ensure_ascii=False)  # регистр и кавычки не важны
+        http.get(base)
+        ready = _ai_ad(http, bid)
+        assert ready["ai"]["status"] == "ready" and ready["banner_url"].endswith("/ads/4/banner.jpg")
+        banner = http.get(ready["banner_url"])
+        assert banner.status_code == 200 and banner.headers["content-type"] == "image/jpeg"
+        assert http.get(f"{base}/ads/4/banner.jpg").status_code == 200
+        assert http.get(base).json()["spend"]["spent_usd"] == 0.16
+
+
+def test_ai_banner_with_typos_is_rejected(monkeypatch):
+    monkeypatch.setenv("FAL_KEY", "fal-test")
+    fakes = Fakes(fal_done=True, claude_text=json.dumps(["Маникюр", "Запистаться", "Лотос"], ensure_ascii=False))
+    with TestClient(app) as http:
+        bid = setup(http)
+        base = f"/api/businesses/{bid}/creatives"
+        _ai_ad(http, bid)
+        http.post(f"{base}/ads/4/ai-banner")
+        http.get(base)
+        ad = _ai_ad(http, bid)
+        assert ad["ai"]["status"] == "failed" and "ошибки в тексте" in ad["ai"]["error"] and ad["banner_url"] == ""
+        assert http.get(f"{base}/ads/4/banner.jpg").status_code == 404
+
+
+def test_missing_phrases_ignore_case_quotes_and_spaces():
+    from app.creative.texts_ai import missing_phrases
+    read = ["МАНИКЮР  с покрытием", "от 2 200 ₽", "Студия «Мята»"]
+    assert missing_phrases(["Маникюр с покрытием", "от 2 200 ₽", "студия мята"], read) == []
+    assert missing_phrases(["Маникюр с покрытием", "Записаться"], read) == ["Записаться"]
+
+
 def test_video_from_ready_image_only(monkeypatch):
     monkeypatch.setenv("FAL_KEY", "fal-test")
     fakes = Fakes(fal_done=True)

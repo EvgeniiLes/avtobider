@@ -172,12 +172,34 @@ def media_for(conn: sqlite3.Connection, biz) -> tuple[list[bytes], bytes | None]
         return photos, None
 
 
-async def attach_banners(client: DirectClient, biz, created: list[dict], photos: list[bytes], logo: bytes | None) -> list[str]:
+def ai_banners_for(conn: sqlite3.Connection, biz) -> dict[tuple, bytes]:
+    """Готовые ИИ-баннеры (стиль «ИИ-дизайн»), уже проверенные на ошибки в тексте: ключ (заголовок, текст)."""
+    from app.creative.compose import prepare_for_direct
+    found: dict[tuple, bytes] = {}
+    rows = conn.execute(
+        "SELECT c.title, c.body, a.stored_name FROM creatives c JOIN business_assets a ON a.id = c.asset_id "
+        "WHERE c.business_id = ? AND c.kind = 'ai_banner' AND c.status IN ('draft', 'approved') ORDER BY c.id", (biz["id"],)).fetchall()
+    for r in rows:  # более поздний заказ перекрывает ранний
+        try:
+            found[(r["title"], r["body"])] = prepare_for_direct(_file(biz["id"], r["stored_name"]))
+        except (OSError, ValueError):
+            continue
+    return found
+
+
+async def attach_banners(client: DirectClient, biz, created: list[dict], photos: list[bytes], logo: bytes | None,
+                         ai: dict[tuple, bytes] | None = None) -> list[str]:
     """Собирает баннер под каждое объявление и привязывает к нему. Если не вышло, объявление остаётся без картинки."""
     problems = []
     for i, c in enumerate(created):
         try:
-            banner = render_banner(biz, c["variant"], photos[i % len(photos)], logo, i)
+            ready = (ai or {}).get((c["variant"]["title"], c["variant"]["text"]))
+            if ready is not None:
+                banner = ready  # ИИ-баннер целиком
+            elif photos:
+                banner = render_banner(biz, c["variant"], photos[i % len(photos)], logo, i)
+            else:
+                continue
             image_hash = await client.upload_image(banner, f"autobider-{biz['id']}-{i + 1}.jpg")
             await client.attach_image(c["ad_id"], image_hash)
             c["image_hash"] = image_hash
@@ -193,11 +215,12 @@ async def launch(client: DirectClient, conn: sqlite3.Connection, biz, account_id
     start_date = day_add(today, 1)
     created: list[dict] = []
     photos, logo = media_for(conn, biz)
+    ai_banners = ai_banners_for(conn, biz)
     try:
         for i, variant in enumerate(plan.variants, start=1):
             ids = await create_unit(client, plan, variant, f"Автобидер: {biz['name']} #{i}", plan.per_unit_micro, start_date)
             created.append({**ids, "variant": variant})
-        banner_problems = await attach_banners(client, biz, created, photos, logo) if photos else []
+        banner_problems = await attach_banners(client, biz, created, photos, logo, ai_banners) if (photos or ai_banners) else []
         await client.moderate_ads([c["ad_id"] for c in created])
     except DirectError:
         for c in created:  # откат: не оставляем в кабинете недоделанные кампании

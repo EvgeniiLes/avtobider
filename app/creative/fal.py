@@ -7,7 +7,7 @@ import httpx
 
 QUEUE = "https://queue.fal.run"
 # Примерная стоимость в центах доллара: нужна, чтобы не выйти за лимит расходов на генерацию.
-COST_CENTS = {"text": 1, "image": 8, "video": 70}
+COST_CENTS = {"text": 1, "image": 8, "video": 70, "ai_banner": 16}  # ai_banner: Nano Banana Pro 15 центов и проверка текста
 
 
 class FalError(Exception):
@@ -44,6 +44,19 @@ def image_prompt(biz, idea: str = "", style: int = 0) -> str:
     base += ". " + PHOTO_STYLES[style % len(PHOTO_STYLES)]
     return (base + ". Аккуратная композиция, объект сбоку, с одной стороны чистое место для текста. "
             "Без текста, букв, логотипов, узнаваемых брендов на упаковке и водяных знаков.")
+
+
+def banner_prompt(biz, title: str, price: str, cta: str) -> str:
+    """Запрос на баннер целиком: русский текст пишет сама модель, поэтому он короткий и в точных кавычках."""
+    first = (biz["description"] or "").strip().split(".")[0][:160]
+    parts = [f'headline "{title}"']
+    if price:
+        parts.append(f'price badge "{price.replace(chr(160), " ")}"')
+    parts += [f'button "{cta}"', f'small caption "{biz["name"]}"']
+    return (f"Advertising banner for a business: {biz['kind']}. {first}. Landscape 4:3, modern professional layout with a real-looking "
+            "photo relevant to the business on one side, harmonious soft palette, lots of clean space around the text. "
+            "Text in Russian, exactly as written, large and perfectly legible: " + ", ".join(parts) + ". "
+            "No other text, no extra letters, no third-party brand logos.")
 
 
 async def _submit(http: httpx.AsyncClient, model: str, key: str, payload: dict) -> dict:

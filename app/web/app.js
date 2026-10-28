@@ -382,9 +382,14 @@ async function loadAds() {
   note.textContent = "Картинок пока нет. Нарисуйте и выберите их ниже или загрузите свои фото на странице «Бизнес»: баннеры соберутся сами.";
   const stamp = Date.now();
   $("ads").replaceChildren(...ads.map((a) => {
+    const aiText = a.ai && {
+      none: "ИИ-дизайн: баннер с текстом рисует нейросеть. Нажмите «Нарисовать».",
+      working: "Рисуем баннер… около минуты",
+      failed: a.ai.error || "Не получилось. Нажмите «Нарисовать» ещё раз.",
+    }[a.ai.status];
     const pic = a.banner_url
       ? el("img", { src: `${a.banner_url}?t=${stamp}`, alt: a.title, loading: "lazy" })
-      : el("div", { className: "no-pic", textContent: "Без картинки" });
+      : el("div", { className: "no-pic", textContent: aiText || "Без картинки" });
     const host = (site || (has_maps ? "yandex.ru/maps" : "ваш-сайт.ru")).replace(/^https?:\/\//, "").replace(/\/.*$/, "");
     const body = el("div", { className: "ad-body" },
       el("div", { className: "ad-title", textContent: a.title }),
@@ -405,7 +410,18 @@ async function loadAds() {
       await loadCreatives();
     });
     const badge = el("span", { className: "badge " + (a.own ? "good" : ""), textContent: a.own ? "Ваш выбор" : "Подставит сервис" });
-    return el("div", { className: "ad" }, pic, body, el("div", { className: "ad-foot" }, badge, action));
+    const foot = el("div", { className: "ad-foot" }, badge, action);
+    if (a.ai && a.ai.status !== "working") {
+      const draw = el("button", { className: "small secondary", textContent: a.ai.status === "ready" ? "Перерисовать ИИ" : "Нарисовать ИИ-баннер" });
+      draw.addEventListener("click", async () => {
+        if (!(await askConfirm("Нарисовать ИИ-баннер?", `Это платно: около ${usd(creativePrices.ai_banner || 0.16)}. Нейросеть рисует баннер целиком, текст на нём сервис проверит сам. Готовится около минуты.`, "Нарисовать"))) return;
+        const r = await creativeCall("POST", `/ads/${a.index}/ai-banner`);
+        if (!r.ok) { say(errorText(r), "err"); return; }
+        await loadCreatives();
+      });
+      foot.append(draw);
+    }
+    return el("div", { className: "ad" }, pic, body, foot);
   }));
 }
 

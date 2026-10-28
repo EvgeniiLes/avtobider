@@ -92,7 +92,7 @@ def find_price(*texts: str) -> str:
     return ""
 
 
-STYLES = ("photo", "luxe", "pastel", "bold", "card")  # пять непохожих шаблонов: основа для сравнения вариантов (A/B)
+STYLES = ("photo", "luxe", "pastel", "bold", "ai")  # пять непохожих шаблонов: основа для сравнения вариантов (A/B)
 
 SERIF_CANDIDATES = [
     "C:/Windows/Fonts/georgiab.ttf", "C:/Windows/Fonts/timesbd.ttf",
@@ -293,6 +293,8 @@ def make_banner(photo: bytes, title: str, color_main: str = "", logo: bytes | No
                 brand: str = "", badge: str = "", cta: str = "", style: str = "photo", body: str = "") -> bytes:
     """Баннер объявления. style: один из пяти шаблонов (photo, luxe, pastel, bold, card), они специально непохожи.
     Шаблон photo: фото с плавным затемнением; layout: bottom (текст внизу) или left (слева)."""
+    if style == "ai":  # настоящий ИИ-баннер подставляется отдельно; без него остаётся светлая карточка
+        style = "card"
     if style in ("luxe", "pastel", "bold", "card"):
         return _banner_styled(style, photo, title, color_main, logo, brand, badge, cta, body)
     base = Image.open(BytesIO(prepare_for_direct(photo))).convert("RGB")

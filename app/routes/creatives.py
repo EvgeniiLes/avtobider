@@ -13,7 +13,8 @@ from pydantic import BaseModel, Field
 from app.assets import AssetError, prepare_image, prepare_video
 from app.config import get_settings
 from app.creative import fal
-from app.creative.texts_ai import generate_texts
+from app.creative.compose import find_price, prepare_for_direct, style_for
+from app.creative.texts_ai import generate_texts, missing_phrases, read_image_text
 from app.db import get_db
 from app.deps import creative_transport, current_user
 from app.direct.launch import banner_layout, choose_variants, media_for, render_banner, start_split
@@ -90,9 +91,18 @@ def _refresh_working(conn, business_id: int, transport) -> None:
         if state == "failed":
             conn.execute("UPDATE creatives SET status = 'failed', error = ? WHERE id = ?", (value, r["id"]))
             continue
+        if r["kind"] == "ai_banner":  # нейросеть могла ошибиться в буквах: сверяем надписи с нужными, ошибочную не принимаем
+            expected = json.loads(r["prompt"] or "{}").get("expect", [])
+            s = get_settings()
+            read = asyncio.run(read_image_text(value, key, s.fal_text_model, transport))
+            wrong = missing_phrases(expected, read) if read is not None else []
+            if wrong:
+                conn.execute("UPDATE creatives SET status = 'failed', error = ? WHERE id = ?",
+                             (f"На картинке ошибки в тексте: {', '.join(wrong)}. Нажмите «Нарисовать» ещё раз.", r["id"]))
+                continue
         try:
             data = asyncio.run(fal.download(value, transport))
-            asset_id = _save_asset(conn, business_id, r["kind"], data, f"creative-{r['id']}")
+            asset_id = _save_asset(conn, business_id, "image" if r["kind"] == "ai_banner" else r["kind"], data, f"creative-{r['id']}")
             conn.execute("UPDATE creatives SET status = 'draft', asset_id = ?, external_id = '' WHERE id = ?", (asset_id, r["id"]))
         except (fal.FalError, AssetError) as e:
             conn.execute("UPDATE creatives SET status = 'failed', error = ? WHERE id = ?", (e.message if hasattr(e, "message") else str(e), r["id"]))
@@ -111,7 +121,8 @@ def list_creatives(business_id: int, user: sqlite3.Row = Depends(current_user), 
         "caps": _caps(),
         "spend": {"spent_usd": round(_spent_cents(conn, business_id) / 100, 2), "limit_usd": limit},
         "limits": {"title": TITLE_MAX, "text": TEXT_MAX},
-        "prices_usd": {"image": fal.COST_CENTS["image"] / 100, "video": fal.COST_CENTS["video"] / 100},
+        "prices_usd": {"image": fal.COST_CENTS["image"] / 100, "video": fal.COST_CENTS["video"] / 100,
+                       "ai_banner": fal.COST_CENTS["ai_banner"] / 100},
     }
 
 
@@ -176,17 +187,60 @@ def ads(business_id: int, user: sqlite3.Row = Depends(current_user), conn: sqlit
     biz = _own(conn, user, business_id)
     variants, count, pool = _ad_variants(conn, biz)
     photos, _logo = media_for(conn, biz)
+    items = []
+    for i, v in enumerate(variants):
+        style = style_for(i)
+        ai = None
+        banner = f"/api/businesses/{business_id}/creatives/ads/{i}/banner.jpg" if photos else ""
+        if style == "ai":
+            row = _ai_row(conn, business_id, v)
+            state = "none" if row is None else "working" if row["status"] == "working" else "failed" if row["status"] == "failed" else "ready"
+            ai = {"status": state, "error": row["error"] if row is not None and state == "failed" else ""}
+            banner = f"/api/businesses/{business_id}/creatives/ads/{i}/banner.jpg" if state == "ready" else ""
+        items.append({"index": i, "title": v["title"], "text": v["text"], "own": v["creative_id"] is not None,
+                      "creative_id": v["creative_id"], "style": style, "ai": ai, "banner_url": banner})
     return {
-        "ads": [{"index": i, "title": v["title"], "text": v["text"], "own": v["creative_id"] is not None,
-                 "creative_id": v["creative_id"],
-                 "banner_url": f"/api/businesses/{business_id}/creatives/ads/{i}/banner.jpg" if photos else ""}
-                for i, v in enumerate(variants)],
+        "ads": items,
         "count": count,
         "per_unit": round(pool / count / 1_000_000) if count else 0,
         "site": biz["site_url"] or "",
         "has_maps": bool(biz["maps_url"]),
         "has_images": bool(photos),
     }
+
+
+def _ai_row(conn, business_id: int, variant: dict):
+    """Последний заказ ИИ-баннера под этот вариант объявления (по заголовку и тексту)."""
+    return conn.execute(
+        "SELECT * FROM creatives WHERE business_id = ? AND kind = 'ai_banner' AND title = ? AND body = ? ORDER BY id DESC LIMIT 1",
+        (business_id, variant["title"], variant["text"])).fetchone()
+
+
+@router.post("/ads/{index}/ai-banner")
+def make_ai_banner(business_id: int, index: int, user: sqlite3.Row = Depends(current_user),
+                   conn: sqlite3.Connection = Depends(get_db), transport=Depends(creative_transport)):
+    """Заказывает баннер целиком у нейросети (стиль «ИИ-дизайн»). Платно: цену показывает сайт перед запуском."""
+    biz = _own(conn, user, business_id)
+    key = _need_fal()
+    variants, _count, _pool = _ad_variants(conn, biz)
+    if not 0 <= index < len(variants) or style_for(index) != "ai":
+        raise HTTPException(400, detail={"message": "Для этого объявления ИИ-баннер не предусмотрен."})
+    v = variants[index]
+    old = _ai_row(conn, business_id, v)
+    if old is not None and old["status"] == "working":
+        raise HTTPException(400, detail={"message": "Этот баннер уже рисуется. Подождите минуту."})
+    _charge(conn, business_id, "ai_banner")
+    price = find_price(v["title"], v["text"], biz["description"])
+    expected = [v["title"], biz["name"], "Записаться"] + ([price] if price else [])
+    try:
+        job = asyncio.run(fal.start_image(fal.banner_prompt(biz, v["title"], price, "Записаться"), key, get_settings().fal_banner_model, transport))
+    except fal.FalError as e:
+        conn.rollback()
+        raise HTTPException(502, detail={"message": e.message})
+    conn.execute("INSERT INTO creatives (business_id, kind, title, body, prompt, status, source, external_id) VALUES (?, 'ai_banner', ?, ?, ?, 'working', 'fal', ?)",
+                 (business_id, v["title"], v["text"], json.dumps({"expect": expected}, ensure_ascii=False), json.dumps(job)))
+    conn.commit()
+    return {"started": True}
 
 
 _BANNERS: dict[tuple, bytes] = {}  # готовые баннеры: сборка занимает около секунды, а страницу открывают часто
@@ -197,6 +251,13 @@ def ad_banner(business_id: int, index: int, user: sqlite3.Row = Depends(current_
     biz = _own(conn, user, business_id)
     variants, _count, _pool = _ad_variants(conn, biz)
     photos, logo = media_for(conn, biz)
+    if 0 <= index < len(variants) and style_for(index) == "ai":
+        row = _ai_row(conn, business_id, variants[index])
+        asset = conn.execute("SELECT stored_name FROM business_assets WHERE id = ?", (row["asset_id"],)).fetchone() if row and row["asset_id"] else None
+        if asset is None or row["status"] not in ("draft", "approved"):
+            raise HTTPException(404, detail={"message": "ИИ-баннер ещё не готов."})
+        return Response(prepare_for_direct(_asset_path(business_id, asset["stored_name"]).read_bytes()), media_type="image/jpeg",
+                        headers={"Cache-Control": "private, max-age=60"})
     if not photos or not 0 <= index < len(variants):
         raise HTTPException(404, detail={"message": "Для этого объявления нет картинки."})
     photo = photos[index % len(photos)]
