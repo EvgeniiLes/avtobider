@@ -40,7 +40,7 @@ def _charge(conn, business_id: int, kind: str) -> None:
 
 def _caps() -> dict:
     s = get_settings()
-    return {"text_ai": bool(s.anthropic_api_key), "image_ai": bool(s.fal_key), "video_ai": bool(s.fal_key)}
+    return {"text_ai": bool(s.anthropic_api_key or s.fal_key), "image_ai": bool(s.fal_key), "video_ai": bool(s.fal_key)}
 
 
 def _row(r: sqlite3.Row, business_id: int) -> dict:
@@ -125,9 +125,10 @@ def generate(business_id: int, data: TextsIn, user: sqlite3.Row = Depends(curren
     s = get_settings()
     existing = {r["title"].lower() for r in conn.execute("SELECT title FROM creatives WHERE business_id = ? AND kind = 'text'", (business_id,))}
     made: list[tuple[dict, str]] = []
-    if s.anthropic_api_key:
+    if s.anthropic_api_key or s.fal_key:
         _charge(conn, business_id, "text")
-        for v in asyncio.run(generate_texts(biz, data.count, s.anthropic_api_key, s.anthropic_model, data.hint, transport)):
+        for v in asyncio.run(generate_texts(biz, data.count, s.anthropic_api_key, s.anthropic_model, data.hint, transport,
+                                            s.fal_key, s.fal_text_model)):
             if v["title"].lower() not in existing:
                 made.append((v, "claude"))
     ai_count = len(made)
@@ -143,9 +144,10 @@ def generate(business_id: int, data: TextsIn, user: sqlite3.Row = Depends(curren
                      (business_id, v["title"], v["text"], source))
         added += 1
     conn.commit()
-    return {"added": added, "ai": ai_count, "used_ai": bool(s.anthropic_api_key),
+    has_ai = bool(s.anthropic_api_key or s.fal_key)
+    return {"added": added, "ai": ai_count, "used_ai": has_ai,
             "message": ("Придумали варианты с помощью ИИ." if ai_count else
-                        "Варианты собраны по шаблону: ИИ для текстов пока не подключён." if not s.anthropic_api_key else
+                        "Варианты собраны по шаблону: ИИ для текстов пока не подключён." if not has_ai else
                         "ИИ не ответил, поэтому варианты собраны по шаблону. Попробуйте ещё раз позже.") if added else
                        "Новых вариантов не нашлось: такие заголовки уже есть."}
 

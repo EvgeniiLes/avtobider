@@ -49,6 +49,10 @@ class Fakes:
             if self.claude_text is None:
                 return httpx.Response(500, json={})
             return httpx.Response(200, json={"content": [{"type": "text", "text": self.claude_text}]})
+        if host == "fal.run" and "chat/completions" in path:  # Claude через fal.ai
+            if self.claude_text is None:
+                return httpx.Response(500, json={})
+            return httpx.Response(200, json={"choices": [{"message": {"content": self.claude_text}}]})
         if host == "queue.fal.run":
             if self.fal_status != 200:
                 return httpx.Response(self.fal_status, json={})
@@ -117,6 +121,27 @@ def test_texts_by_claude_when_key_is_set(monkeypatch):
         host, path, body = fakes.requests[0]
         assert host == "api.anthropic.com" and "подчеркнуть запись онлайн".encode() in body and b"sk-test" not in body
         assert http.get(f"/api/businesses/{bid}/creatives").json()["spend"]["spent_usd"] == 0.01
+
+
+def test_texts_fall_back_to_claude_through_fal(monkeypatch):
+    """Anthropic не отвечает с российских серверов: тексты должны прийти через fal.ai."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+    monkeypatch.setenv("FAL_KEY", "fal-test")
+    real = Fakes.handle
+
+    def anthropic_blocked(self, request):
+        if request.url.host == "api.anthropic.com":
+            self.requests.append((request.url.host, request.url.path, b""))
+            return httpx.Response(403, json={"error": {"message": "Request not allowed"}})
+        return real(self, request)
+
+    monkeypatch.setattr(Fakes, "handle", anthropic_blocked)
+    fakes = Fakes(claude_text=GOOD)
+    with TestClient(app) as http:
+        bid = setup(http)
+        r = http.post(f"/api/businesses/{bid}/creatives/texts/generate", json={"count": 2}).json()
+        assert r["ai"] == 2 and "с помощью ИИ" in r["message"]
+        assert [h for h, _, _ in fakes.requests] == ["api.anthropic.com", "fal.run"]
 
 
 def test_thinking_blocks_and_big_token_budget(monkeypatch):

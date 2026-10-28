@@ -54,24 +54,44 @@ def parse_variants(raw: str) -> list[dict]:
     return good
 
 
-async def generate_texts(biz, count: int, api_key: str, model: str, hint: str = "",
-                         transport: httpx.AsyncBaseTransport | None = None) -> list[dict]:
-    """Просит у Claude варианты. Возвращает только годные; пустой список, если сервис недоступен или все отбракованы."""
-    body = {
-        # Запас большой: модель может «подумать» перед ответом, и мысли тоже считаются в лимит.
-        "model": model, "max_tokens": 8000, "system": SYSTEM,
-        "messages": [{"role": "user", "content": build_prompt(biz, count, hint)}],
-    }
-    async with httpx.AsyncClient(timeout=60, transport=transport) as http:
-        try:
-            r = await http.post(API_URL, json=body, headers={
-                "x-api-key": api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"})
-        except httpx.HTTPError:
-            return []
+FAL_CHAT_URL = "https://fal.run/openrouter/router/openai/v1/chat/completions"
+
+
+async def _ask_anthropic(http: httpx.AsyncClient, prompt: str, api_key: str, model: str) -> str:
+    # Запас большой: модель может «подумать» перед ответом, и мысли тоже считаются в лимит.
+    body = {"model": model, "max_tokens": 8000, "system": SYSTEM, "messages": [{"role": "user", "content": prompt}]}
+    r = await http.post(API_URL, json=body, headers={
+        "x-api-key": api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"})
     if r.status_code != 200:
-        return []
-    try:
-        raw = "".join(block.get("text", "") for block in r.json().get("content", []))
-    except ValueError:
-        return []
-    return parse_variants(raw)
+        return ""
+    return "".join(block.get("text", "") for block in r.json().get("content", []))
+
+
+async def _ask_fal(http: httpx.AsyncClient, prompt: str, fal_key: str, model: str) -> str:
+    """Тот же Claude, но через fal.ai: Anthropic не принимает запросы с российских серверов, fal принимает."""
+    body = {"model": model, "max_tokens": 8000,
+            "messages": [{"role": "system", "content": SYSTEM}, {"role": "user", "content": prompt}]}
+    r = await http.post(FAL_CHAT_URL, json=body, headers={"Authorization": f"Key {fal_key}", "Content-Type": "application/json"})
+    if r.status_code != 200:
+        return ""
+    return r.json()["choices"][0]["message"]["content"] or ""
+
+
+async def generate_texts(biz, count: int, api_key: str, model: str, hint: str = "",
+                         transport: httpx.AsyncBaseTransport | None = None,
+                         fal_key: str = "", fal_model: str = "") -> list[dict]:
+    """Просит у Claude варианты: сначала напрямую, при отказе (или без ключа Anthropic) через fal.ai.
+    Возвращает только годные; пустой список, если сервис недоступен или все отбракованы."""
+    prompt = build_prompt(biz, count, hint)
+    raw = ""
+    async with httpx.AsyncClient(timeout=90, transport=transport) as http:
+        for ask, key, name in ((_ask_anthropic, api_key, model), (_ask_fal, fal_key, fal_model)):
+            if not key:
+                continue
+            try:
+                raw = await ask(http, prompt, key, name)
+            except (httpx.HTTPError, ValueError, KeyError, IndexError):
+                raw = ""
+            if raw:
+                break
+    return parse_variants(raw) if raw else []
