@@ -44,6 +44,7 @@ def start(request: Request):
         "client_id": s.login_client_id,
         "redirect_uri": _redirect_uri(request),
         "state": state,
+        "force_confirm": "yes",  # Яндекс покажет выбор аккаунта, а не войдёт сразу под тем, что открыт в браузере
     })
     response = RedirectResponse(f"{AUTHORIZE_URL}?{query}", status_code=303)
     response.set_cookie(
