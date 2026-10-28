@@ -200,12 +200,23 @@ def test_image_is_queued_then_collected_and_stored(monkeypatch):
         assert [c["status"] for c in done] == ["draft", "draft"] and all(c["url"] for c in done)
         picture = http.get(done[0]["url"])
         assert picture.status_code == 200 and Image.open(BytesIO(picture.content)).size == (900, 900)
-        assert http.get(f"/api/businesses/{bid}/creatives").json()["spend"]["spent_usd"] == 0.10
+        assert http.get(f"/api/businesses/{bid}/creatives").json()["spend"]["spent_usd"] == 0.16
+
+
+def test_fal_payloads_follow_each_models_schema():
+    from app.creative import fal
+    nb = fal.image_payload("fal-ai/nano-banana-2", "п")
+    assert nb["aspect_ratio"] == "4:3" and "image_size" not in nb
+    assert "image_size" in fal.image_payload("fal-ai/flux-pro/v1.1", "п")
+    kling = fal.video_payload("fal-ai/kling-video/v3/pro/image-to-video", "u", "п")
+    assert kling["start_image_url"] == "u" and kling["generate_audio"] is False and "image_url" not in kling
+    assert fal.video_payload("xai/grok-imagine-video/image-to-video", "u", "п")["duration"] == 6
+    assert fal.video_payload("fal-ai/kling-video/v2.1/standard/image-to-video", "u", "п")["image_url"] == "u"
 
 
 def test_generation_spend_limit(monkeypatch):
     monkeypatch.setenv("FAL_KEY", "fal-test")
-    monkeypatch.setenv("GEN_LIMIT_USD", "0.12")
+    monkeypatch.setenv("GEN_LIMIT_USD", "0.20")
     Fakes()
     with TestClient(app) as http:
         bid = setup(http)

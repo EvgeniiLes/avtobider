@@ -7,7 +7,7 @@ import httpx
 
 QUEUE = "https://queue.fal.run"
 # Примерная стоимость в центах доллара: нужна, чтобы не выйти за лимит расходов на генерацию.
-COST_CENTS = {"text": 1, "image": 5, "video": 70}
+COST_CENTS = {"text": 1, "image": 8, "video": 70}
 
 
 class FalError(Exception):
@@ -48,14 +48,29 @@ async def _submit(http: httpx.AsyncClient, model: str, key: str, payload: dict) 
     return r.json()
 
 
+def image_payload(model: str, prompt: str) -> dict:
+    """Параметры у моделей разные (схемы сверены по каталогу fal): подбираем под выбранную."""
+    if "nano-banana" in model:
+        return {"prompt": prompt, "aspect_ratio": "4:3", "resolution": "1K", "num_images": 1, "output_format": "jpeg"}
+    return {"prompt": prompt, "image_size": "square_hd", "num_images": 1}  # FLUX и похожие
+
+
+def video_payload(model: str, image_url: str, prompt: str) -> dict:
+    if "kling-video/v3" in model or "kling-video/o3" in model:
+        return {"start_image_url": image_url, "prompt": prompt, "duration": "5", "generate_audio": False}  # звук дороже и в Директе не нужен
+    if "grok-imagine-video" in model:
+        return {"image_url": image_url, "prompt": prompt, "duration": 6, "resolution": "720p", "aspect_ratio": "auto"}
+    return {"image_url": image_url, "prompt": prompt, "duration": "5"}
+
+
 async def start_image(prompt: str, key: str, model: str, transport=None) -> dict:
     async with httpx.AsyncClient(timeout=60, transport=transport) as http:
-        return await _submit(http, model, key, {"prompt": prompt, "image_size": "square_hd", "num_images": 1})
+        return await _submit(http, model, key, image_payload(model, prompt))
 
 
 async def start_video(image_url: str, prompt: str, key: str, model: str, transport=None) -> dict:
     async with httpx.AsyncClient(timeout=60, transport=transport) as http:
-        return await _submit(http, model, key, {"image_url": image_url, "prompt": prompt, "duration": "5"})
+        return await _submit(http, model, key, video_payload(model, image_url, prompt))
 
 
 async def poll(job: dict, key: str, transport=None) -> tuple[str, str]:

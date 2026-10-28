@@ -46,7 +46,7 @@ certbot --nginx -d ваш-домен.ru
 | `YANDEX_LOGIN_CLIENT_ID`, `YANDEX_LOGIN_CLIENT_SECRET`, `YANDEX_REDIRECT_URI` | Приложение для входа через Яндекс ID (тип «Для авторизации пользователей», права `login:email`, `login:info`). Redirect URI: `https://ваш-домен.ru/auth/yandex/callback` |
 | `WORKER_INTERVAL_MINUTES` | Как часто фоновый процесс обновляет данные из Директа и принимает решения (по умолчанию 30) |
 | `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` | Ключ Claude: придумывает тексты объявлений. Без ключа тексты собираются по шаблону |
-| `FAL_KEY`, `FAL_IMAGE_MODEL`, `FAL_VIDEO_MODEL` | Ключ fal.ai: картинки и видео для объявлений. Без ключа эта часть выключена. Названия моделей можно менять без правки кода (модели по умолчанию не проверены вживую, сверьте их в каталоге fal.ai) |
+| `FAL_KEY`, `FAL_IMAGE_MODEL`, `FAL_VIDEO_MODEL` | Ключ fal.ai: картинки и видео для объявлений. Без ключа эта часть выключена. По умолчанию: картинки `fal-ai/nano-banana-2`, видео `fal-ai/kling-video/v3/pro/image-to-video`. Параметры запроса для них, Nano Banana Pro и Grok Imagine Video сверены со схемами каталога fal.ai; для других моделей используется общий набор параметров и его нужно проверить |
 | `GEN_LIMIT_USD` | Предел расходов на создание текстов, картинок и видео на один бизнес (по умолчанию 5 долларов) |
 
 Свои приложения вы подставляете только здесь, код менять не нужно. Ключи удобно записать скриптами `deploy/set-direct-keys.ps1`, `deploy/set-login-keys.ps1` и `deploy/set-ai-keys.ps1` (запускаются на вашем компьютере, секрет вводится скрытно).
