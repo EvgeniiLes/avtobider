@@ -260,6 +260,31 @@ def test_fal_errors_are_plain(monkeypatch):
         assert http.get(f"/api/businesses/{bid}/creatives").json()["creatives"] == []
 
 
+def test_ready_ads_pair_text_with_banner():
+    with TestClient(app) as http:
+        bid = setup(http)
+        base = f"/api/businesses/{bid}/creatives"
+        data = http.get(f"{base}/ads").json()
+        assert data["count"] == 6 and len(data["ads"]) == 6 and data["has_images"] is False
+        assert all(a["banner_url"] == "" and not a["own"] for a in data["ads"])  # без картинок и своих текстов
+        assert http.get(f"{base}/ads/0/banner.jpg").status_code == 404
+
+        text = http.post(f"{base}/texts", json={"title": "Маникюр в центре Москвы", "body": "Запишитесь онлайн на удобное время"}).json()
+        http.put(f"{base}/{text['id']}", json={"status": "approved"})
+        http.post(f"/api/businesses/{bid}/assets", data={"kind": "photo", "tag": ""}, files={"file": ("a.png", png(), "image/png")})
+        data = http.get(f"{base}/ads").json()
+        first = data["ads"][0]
+        assert first["title"] == "Маникюр в центре Москвы" and first["own"] is True and first["creative_id"] == text["id"]
+        assert data["has_images"] is True and first["banner_url"].endswith("/ads/0/banner.jpg")
+        banner = http.get(first["banner_url"])
+        assert banner.status_code == 200 and banner.headers["content-type"] == "image/jpeg"
+        assert Image.open(BytesIO(banner.content)).size[0] > 300
+        assert http.get(f"{base}/ads/99/banner.jpg").status_code == 404
+    with TestClient(app) as other:
+        other.post("/api/auth/register", json={"email": "x@example.com", "password": "password123"})
+        assert other.get(f"{base}/ads").status_code == 404  # чужие объявления не видны
+
+
 def test_video_from_ready_image_only(monkeypatch):
     monkeypatch.setenv("FAL_KEY", "fal-test")
     fakes = Fakes(fal_done=True)

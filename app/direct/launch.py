@@ -49,6 +49,28 @@ def _maps_id(biz) -> int | None:
     return int(value) if value else None
 
 
+def start_split(biz, min_weekly_micro: int = MIN_WEEKLY) -> tuple[int, int]:
+    """Сколько денег раздаём сразу и на сколько объявлений их хватает."""
+    start_pool = int(int(biz["weekly_budget_micro"] * (1 - RESERVE)) * START_SHARE)
+    return start_pool, min(MAX_VARIANTS, start_pool // min_weekly_micro)
+
+
+def choose_variants(biz, custom: list[dict] | None, count: int) -> tuple[list[dict], int]:
+    """Сначала тексты, которые владелец одобрил; недостающие добираем из шаблонов без повторов. Второе число: сколько своих."""
+    variants = [{"title": c["title"], "text": c["text"]} for c in (custom or []) if not check(c["title"], c["text"])][:count]
+    own = len(variants)
+    for v in draft_variants(biz, MAX_VARIANTS):
+        if len(variants) >= count:
+            break
+        if v["title"].lower() not in {x["title"].lower() for x in variants}:
+            variants.append(v)
+    return variants, own
+
+
+def banner_layout(index: int) -> str:
+    return "bottom" if index % 2 == 0 else "left"
+
+
 def plan_launch(biz, region_id: int | None, min_weekly_micro: int = MIN_WEEKLY, custom: list[dict] | None = None) -> Plan:
     """Считает, что будет создано. Если создавать нечего или нельзя, объясняет простыми словами."""
     if not (biz["site_url"] or _maps_id(biz)):
@@ -60,21 +82,12 @@ def plan_launch(biz, region_id: int | None, min_weekly_micro: int = MIN_WEEKLY, 
     if biz["weekly_budget_micro"] <= 0:
         raise EngineError("Укажите бюджет на неделю.", "no_budget")
 
-    available = int(biz["weekly_budget_micro"] * (1 - RESERVE))
-    start_pool = int(available * START_SHARE)
-    count = min(MAX_VARIANTS, start_pool // min_weekly_micro)
+    start_pool, count = start_split(biz, min_weekly_micro)
     if count < 1:
         need = rub(min_weekly_micro / START_SHARE / (1 - RESERVE))
         raise EngineError(f"Бюджет слишком мал: на одну кампанию Яндекс требует минимум {rub(min_weekly_micro)} в неделю. Нужно хотя бы {need} в неделю.", "budget_too_small")
 
-    # Сначала тексты, которые владелец одобрил; недостающие добираем из шаблонов без повторов.
-    variants = [{"title": c["title"], "text": c["text"]} for c in (custom or []) if not check(c["title"], c["text"])][:count]
-    own = len(variants)
-    for v in draft_variants(biz, MAX_VARIANTS):
-        if len(variants) >= count:
-            break
-        if v["title"].lower() not in {x["title"].lower() for x in variants}:
-            variants.append(v)
+    variants, own = choose_variants(biz, custom, count)
     warnings = []
     for v in variants:
         warnings += check(v["title"], v["text"])
@@ -155,7 +168,7 @@ async def attach_banners(client: DirectClient, biz, created: list[dict], photos:
     problems = []
     for i, c in enumerate(created):
         try:
-            banner = make_banner(photos[i % len(photos)], c["variant"]["title"], biz["color_main"], logo, "bottom" if i % 2 == 0 else "left")
+            banner = make_banner(photos[i % len(photos)], c["variant"]["title"], biz["color_main"], logo, banner_layout(i))
             image_hash = await client.upload_image(banner, f"autobider-{biz['id']}-{i + 1}.jpg")
             await client.attach_image(c["ad_id"], image_hash)
             c["image_hash"] = image_hash

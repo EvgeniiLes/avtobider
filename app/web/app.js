@@ -338,7 +338,51 @@ async function loadCreatives() {
   renderMedia($("cr-images"), images, caps.video_ai);
   renderMedia($("cr-videos"), videos, false);
   $("cr-videos-empty").hidden = videos.length > 0;
+  loadAds();
   if (creatives.some((c) => c.status === "working")) creativeTimer = setTimeout(loadCreatives, 6000);
+}
+
+// Готовые объявления: текст вместе с картинкой, как они уйдут в Директ.
+async function loadAds() {
+  const result = await creativeCall("GET", "/ads");
+  if (!result.ok) return;
+  const { ads, count, per_unit, site, has_maps, has_images } = result.data;
+  const target = site || (has_maps ? "вашу страницу в Яндекс Картах" : "");
+  $("ads-summary").textContent = !count
+    ? "Бюджет слишком мал для запуска: увеличьте его на странице «Бизнес». Так будут выглядеть объявления."
+    : target
+      ? `При запуске будет создано объявлений: ${count}, по ${per_unit} ₽ в неделю каждое. Каждое ведёт на ${target}.`
+      : `При запуске будет создано объявлений: ${count}, по ${per_unit} ₽ в неделю каждое. Чтобы запустить, укажите сайт или ссылку на Яндекс Карты на странице «Бизнес»: объявлению нужно куда вести.`;
+  const note = $("ads-note");
+  note.hidden = has_images;
+  note.textContent = "Картинок пока нет. Нарисуйте и выберите их ниже или загрузите свои фото на странице «Бизнес»: баннеры соберутся сами.";
+  const stamp = Date.now();
+  $("ads").replaceChildren(...ads.map((a) => {
+    const pic = a.banner_url
+      ? el("img", { src: `${a.banner_url}?t=${stamp}`, alt: a.title, loading: "lazy" })
+      : el("div", { className: "no-pic", textContent: "Без картинки" });
+    const host = (site || (has_maps ? "yandex.ru/maps" : "ваш-сайт.ru")).replace(/^https?:\/\//, "").replace(/\/.*$/, "");
+    const body = el("div", { className: "ad-body" },
+      el("div", { className: "ad-title", textContent: a.title }),
+      el("div", { className: "ad-text", textContent: a.text }),
+      el("div", { className: "ad-site" }, el("b", { textContent: "Реклама" }), host));
+    const action = a.own
+      ? el("button", { className: "small secondary", textContent: "Не использовать" })
+      : el("button", { className: "small", textContent: "Использовать этот" });
+    action.addEventListener("click", async () => {
+      let id = a.creative_id;
+      if (!a.own) {
+        const added = await creativeCall("POST", "/texts", { title: a.title, body: a.text });
+        if (!added.ok) { say(errorText(added), "err"); return; }
+        id = added.data.id;
+      }
+      const r = await creativeCall("PUT", `/${id}`, { status: a.own ? "rejected" : "approved" });
+      if (!r.ok) { say(errorText(r), "err"); return; }
+      await loadCreatives();
+    });
+    const badge = el("span", { className: "badge " + (a.own ? "good" : ""), textContent: a.own ? "Ваш выбор" : "Подставит сервис" });
+    return el("div", { className: "ad" }, pic, body, el("div", { className: "ad-foot" }, badge, action));
+  }));
 }
 
 const SOURCE_LABEL = { claude: "ИИ", template: "шаблон", user: "ваш" };
@@ -1024,6 +1068,7 @@ async function start() {
   $("nav-accounts").addEventListener("click", () => showPage("accounts"));
   $("nav-stats").addEventListener("click", () => showPage("stats"));
   $("nav-creatives").addEventListener("click", () => showPage("creatives"));
+  $("ads-launch").addEventListener("click", () => { showPage("home"); openLaunch(); });
   $("cr-gen-texts").addEventListener("click", generateTexts);
   $("cr-gen-images").addEventListener("click", generateImages);
   $("cr-add-own").addEventListener("click", addOwnText);

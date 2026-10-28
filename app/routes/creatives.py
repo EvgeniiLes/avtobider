@@ -1,11 +1,13 @@
 """Креативы: тексты, картинки и видео для объявлений."""
 import asyncio
 import base64
+import hashlib
 import json
 import sqlite3
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from app.assets import AssetError, prepare_image, prepare_video
@@ -14,6 +16,8 @@ from app.creative import fal
 from app.creative.texts_ai import generate_texts
 from app.db import get_db
 from app.deps import creative_transport, current_user
+from app.creative.compose import make_banner
+from app.direct.launch import banner_layout, choose_variants, media_for, start_split
 from app.direct.texts import TEXT_MAX, TITLE_MAX, check, draft_variants
 from app.routes.businesses import _asset_path, _own
 
@@ -151,6 +155,61 @@ def generate(business_id: int, data: TextsIn, user: sqlite3.Row = Depends(curren
                         "Варианты собраны по шаблону: ИИ для текстов пока не подключён." if not has_ai else
                         "ИИ не ответил, поэтому варианты собраны по шаблону. Попробуйте ещё раз позже.") if added else
                        "Новых вариантов не нашлось: такие заголовки уже есть."}
+
+
+def _ad_variants(conn, biz) -> tuple[list[dict], int, int]:
+    """Объявления, которые будут созданы при запуске: те же тексты и то же число, что в плане запуска."""
+    approved = conn.execute(
+        "SELECT id, title, body FROM creatives WHERE business_id = ? AND kind = 'text' AND status = 'approved' ORDER BY id",
+        (biz["id"],)).fetchall()
+    pool, count = start_split(biz)
+    shown = count or 3  # бюджет слишком мал для запуска: всё равно показываем, как будет выглядеть
+    variants, _ = choose_variants(biz, [{"title": r["title"], "text": r["body"]} for r in approved], shown)
+    ids = {r["title"].lower(): r["id"] for r in approved}
+    for v in variants:
+        v["creative_id"] = ids.get(v["title"].lower())
+    return variants, count, pool
+
+
+@router.get("/ads")
+def ads(business_id: int, user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connection = Depends(get_db)):
+    """Готовые объявления: текст вместе с картинкой, как они уйдут в Директ."""
+    biz = _own(conn, user, business_id)
+    variants, count, pool = _ad_variants(conn, biz)
+    photos, _logo = media_for(conn, biz)
+    return {
+        "ads": [{"index": i, "title": v["title"], "text": v["text"], "own": v["creative_id"] is not None,
+                 "creative_id": v["creative_id"],
+                 "banner_url": f"/api/businesses/{business_id}/creatives/ads/{i}/banner.jpg" if photos else ""}
+                for i, v in enumerate(variants)],
+        "count": count,
+        "per_unit": round(pool / count / 1_000_000) if count else 0,
+        "site": biz["site_url"] or "",
+        "has_maps": bool(biz["maps_url"]),
+        "has_images": bool(photos),
+    }
+
+
+_BANNERS: dict[tuple, bytes] = {}  # готовые баннеры: сборка занимает около секунды, а страницу открывают часто
+
+
+@router.get("/ads/{index}/banner.jpg")
+def ad_banner(business_id: int, index: int, user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connection = Depends(get_db)):
+    biz = _own(conn, user, business_id)
+    variants, _count, _pool = _ad_variants(conn, biz)
+    photos, logo = media_for(conn, biz)
+    if not photos or not 0 <= index < len(variants):
+        raise HTTPException(404, detail={"message": "Для этого объявления нет картинки."})
+    photo = photos[index % len(photos)]
+    key = (hashlib.sha1(photo).hexdigest(), variants[index]["title"], biz["color_main"], banner_layout(index),
+           hashlib.sha1(logo).hexdigest() if logo else "")
+    banner = _BANNERS.get(key)
+    if banner is None:
+        banner = make_banner(photo, variants[index]["title"], biz["color_main"], logo, banner_layout(index))
+        if len(_BANNERS) >= 48:
+            _BANNERS.pop(next(iter(_BANNERS)))
+        _BANNERS[key] = banner
+    return Response(banner, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=60"})
 
 
 class TextIn(BaseModel):
