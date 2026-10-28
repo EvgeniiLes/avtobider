@@ -154,6 +154,15 @@ CREATE TABLE IF NOT EXISTS changes (
 );
 CREATE INDEX IF NOT EXISTS idx_changes_business ON changes (business_id, id DESC);
 
+-- Ожидающие подтверждения подключения кабинета (вход по коду).
+CREATE TABLE IF NOT EXISTS oauth_pending (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    device_code TEXT NOT NULL,
+    user_code   TEXT NOT NULL,
+    expires_at  TEXT NOT NULL
+);
+
 -- Примерные данные: «текущий день» симуляции и скрытые свойства объявлений.
 CREATE TABLE IF NOT EXISTS sim_state (
     business_id INTEGER PRIMARY KEY REFERENCES businesses(id) ON DELETE CASCADE,

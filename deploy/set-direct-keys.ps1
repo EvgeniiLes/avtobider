@@ -12,7 +12,7 @@ $secure = Read-Host "Paste Client secret of that app (input is hidden)" -AsSecur
 $secret = [System.Net.NetworkCredential]::new("", $secure).Password
 if (-not $id -or -not $secret) { Write-Host "Empty value, nothing changed."; exit 1 }
 
-$text = "YANDEX_CLIENT_ID=$id`nYANDEX_CLIENT_SECRET=$secret`nDIRECT_REDIRECT_URI=https://$Domain/auth/direct/callback`n"
+$text = "YANDEX_CLIENT_ID=$id`nYANDEX_CLIENT_SECRET=$secret`n"
 $tmp = [System.IO.Path]::GetTempFileName()
 [System.IO.File]::WriteAllText($tmp, $text, (New-Object System.Text.UTF8Encoding($false)))
 try {

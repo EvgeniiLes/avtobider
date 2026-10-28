@@ -252,9 +252,18 @@
 
         <div class="card">
           <h2>Подключить кабинет</h2>
-          <p>Нажмите кнопку, войдите в Яндекс и разрешите Автобидеру вести рекламу в вашем кабинете Директа. Пароль и токен вводить не нужно.</p>
+          <p>Нажмите кнопку и разрешите Автобидеру вести рекламу в вашем кабинете Директа. Пароль и токен вводить не нужно: Яндекс покажет короткий код, его нужно ввести на странице Яндекса.</p>
           <p id="connect-status" class="status" role="status"></p>
-          <a id="connect-direct" class="btn-yandex btn-direct" href="/auth/direct/start">Подключить Яндекс Директ</a>
+          <button id="connect-direct" class="btn-direct">Подключить Яндекс Директ</button>
+          <div id="connect-panel" class="launch" hidden>
+            <ol class="steps">
+              <li>Откройте <a id="connect-url" target="_blank" rel="noopener">страницу Яндекса</a> (откроется в новой вкладке).</li>
+              <li>Войдите в аккаунт, где находится ваш рекламный кабинет, и введите код: <strong id="connect-code" class="code"></strong></li>
+              <li>Нажмите «Разрешить» и вернитесь сюда. Страница сама увидит подтверждение.</li>
+            </ol>
+            <p class="hint" id="connect-wait">Ждём подтверждения от Яндекса…</p>
+            <button id="connect-cancel" class="small secondary">Отмена</button>
+          </div>
           <p id="connect-off" class="hint" hidden>Подключение кабинетов ещё не настроено на сервере: нужны ключи приложения Яндекса.</p>
         </div>
 

@@ -668,6 +668,8 @@ async function start() {
   $("nav-business").addEventListener("click", () => showPage("business"));
   $("nav-accounts").addEventListener("click", () => showPage("accounts"));
   $("nav-stats").addEventListener("click", () => showPage("stats"));
+  $("connect-direct").addEventListener("click", connectDirect);
+  $("connect-cancel").addEventListener("click", stopConnect);
   $("m-counter").addEventListener("change", () => loadGoals(""));
   $("m-save").addEventListener("click", saveMetrika);
   $("m-clear").addEventListener("click", clearMetrika);
@@ -714,7 +716,6 @@ async function start() {
   const me = await api("GET", "/api/auth/me");
   if (me.ok) await showApp(me.data.email); else showAuth();
   showLoginError();
-  if (me.ok) showConnectResult();
 }
 
 const LOGIN_ERRORS = {
@@ -724,22 +725,42 @@ const LOGIN_ERRORS = {
   not_configured: "Вход через Яндекс пока не настроен. Войдите по e-mail и паролю.",
 };
 
-const CONNECT_RESULTS = {
-  ok: ["Кабинет подключён.", "ok"],
-  denied: ["Вы не разрешили доступ в Яндексе. Нажмите «Подключить» ещё раз и выберите «Разрешить».", "err"],
-  state: ["Подключение не удалось: страница устарела. Нажмите «Подключить» ещё раз.", "err"],
-  failed: ["Яндекс не подтвердил подключение. Попробуйте ещё раз чуть позже.", "err"],
-  no_direct: ["У этого аккаунта нет доступа к Яндекс Директу. Выберите аккаунт, в котором есть рекламный кабинет.", "err"],
-  not_configured: ["Подключение кабинетов ещё не настроено на сервере.", "err"],
-};
+/* ---------- Подключение Директа по коду ---------- */
 
-function showConnectResult() {
-  const code = new URLSearchParams(location.search).get("connect");
-  if (!code) return;
-  history.replaceState(null, "", "/");
-  showPage("accounts");
-  const [text, kind] = CONNECT_RESULTS[code] || ["Не получилось подключить кабинет. Попробуйте ещё раз.", "err"];
-  setStatus("connect-status", text, kind);
+let connectTimer = null;
+
+function stopConnect() {
+  clearTimeout(connectTimer);
+  connectTimer = null;
+  $("connect-panel").hidden = true;
+  $("connect-direct").disabled = false;
+}
+
+async function connectDirect() {
+  setStatus("connect-status", "");
+  $("connect-direct").disabled = true;
+  const started = await api("POST", "/api/direct/connect/start");
+  if (!started.ok) { setStatus("connect-status", errorText(started), "err"); $("connect-direct").disabled = false; return; }
+  const { pending_id, user_code, url, interval } = started.data;
+  $("connect-code").textContent = user_code;
+  $("connect-url").href = url;
+  $("connect-url").textContent = url.replace(/^https?:\/\//, "");
+  $("connect-panel").hidden = false;
+
+  const poll = async () => {
+    const result = await api("POST", "/api/direct/connect/poll", { pending_id });
+    if (!result.ok) { stopConnect(); setStatus("connect-status", errorText(result), "err"); return; }
+    if (result.data.status === "ok") {
+      stopConnect();
+      setStatus("connect-status", `Кабинет «${result.data.login}» подключён.`, "ok");
+      await loadAccounts();
+      loadMetrika();
+      return;
+    }
+    if (result.data.status === "failed") { stopConnect(); setStatus("connect-status", result.data.message, "err"); return; }
+    connectTimer = setTimeout(poll, Math.max(interval, 3) * 1000);
+  };
+  connectTimer = setTimeout(poll, Math.max(interval, 3) * 1000);
 }
 
 function showLoginError() {

@@ -27,7 +27,6 @@ class Settings:
     dev_token: str
     client_id: str
     client_secret: str
-    direct_redirect_uri: str
     login_client_id: str
     login_client_secret: str
     redirect_uri: str
@@ -65,7 +64,6 @@ def get_settings() -> Settings:
         dev_token=os.environ.get("YANDEX_DEV_TOKEN", "").strip(),
         client_id=os.environ.get("YANDEX_CLIENT_ID", "").strip(),
         client_secret=os.environ.get("YANDEX_CLIENT_SECRET", "").strip(),
-        direct_redirect_uri=os.environ.get("DIRECT_REDIRECT_URI", "").strip(),
         login_client_id=os.environ.get("YANDEX_LOGIN_CLIENT_ID", "").strip(),
         login_client_secret=os.environ.get("YANDEX_LOGIN_CLIENT_SECRET", "").strip(),
         redirect_uri=os.environ.get("YANDEX_REDIRECT_URI", "").strip(),
