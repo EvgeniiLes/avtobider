@@ -16,8 +16,7 @@ from app.creative import fal
 from app.creative.texts_ai import generate_texts
 from app.db import get_db
 from app.deps import creative_transport, current_user
-from app.creative.compose import make_banner
-from app.direct.launch import banner_layout, choose_variants, media_for, start_split
+from app.direct.launch import banner_layout, choose_variants, media_for, render_banner, start_split
 from app.direct.texts import TEXT_MAX, TITLE_MAX, check, draft_variants
 from app.routes.businesses import _asset_path, _own
 
@@ -201,11 +200,12 @@ def ad_banner(business_id: int, index: int, user: sqlite3.Row = Depends(current_
     if not photos or not 0 <= index < len(variants):
         raise HTTPException(404, detail={"message": "Для этого объявления нет картинки."})
     photo = photos[index % len(photos)]
-    key = (hashlib.sha1(photo).hexdigest(), variants[index]["title"], biz["color_main"], banner_layout(index),
-           hashlib.sha1(logo).hexdigest() if logo else "")
+    v = variants[index]
+    key = (hashlib.sha1(photo).hexdigest(), v["title"], v["text"], biz["name"], biz["description"], biz["color_main"],
+           banner_layout(index), hashlib.sha1(logo).hexdigest() if logo else "")
     banner = _BANNERS.get(key)
     if banner is None:
-        banner = make_banner(photo, variants[index]["title"], biz["color_main"], logo, banner_layout(index))
+        banner = render_banner(biz, v, photo, logo, index)
         if len(_BANNERS) >= 48:
             _BANNERS.pop(next(iter(_BANNERS)))
         _BANNERS[key] = banner

@@ -71,6 +71,14 @@ def banner_layout(index: int) -> str:
     return "bottom" if index % 2 == 0 else "left"
 
 
+def render_banner(biz, variant: dict, photo: bytes, logo: bytes | None, index: int) -> bytes:
+    """Баннер объявления: предложение, название бизнеса, цена (только названная владельцем) и кнопка «Записаться»."""
+    from app.creative.compose import find_price, make_banner
+    price = find_price(variant["title"], variant["text"], biz["description"])
+    return make_banner(photo, variant["title"], biz["color_main"], logo, banner_layout(index),
+                       brand=biz["name"], badge=price, cta="Записаться")
+
+
 def plan_launch(biz, region_id: int | None, min_weekly_micro: int = MIN_WEEKLY, custom: list[dict] | None = None) -> Plan:
     """Считает, что будет создано. Если создавать нечего или нельзя, объясняет простыми словами."""
     if not (biz["site_url"] or _maps_id(biz)):
@@ -164,11 +172,10 @@ def media_for(conn: sqlite3.Connection, biz) -> tuple[list[bytes], bytes | None]
 
 async def attach_banners(client: DirectClient, biz, created: list[dict], photos: list[bytes], logo: bytes | None) -> list[str]:
     """Собирает баннер под каждое объявление и привязывает к нему. Если не вышло, объявление остаётся без картинки."""
-    from app.creative.compose import make_banner
     problems = []
     for i, c in enumerate(created):
         try:
-            banner = make_banner(photos[i % len(photos)], c["variant"]["title"], biz["color_main"], logo, banner_layout(i))
+            banner = render_banner(biz, c["variant"], photos[i % len(photos)], logo, i)
             image_hash = await client.upload_image(banner, f"autobider-{biz['id']}-{i + 1}.jpg")
             await client.attach_image(c["ad_id"], image_hash)
             c["image_hash"] = image_hash
