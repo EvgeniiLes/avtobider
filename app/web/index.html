@@ -45,7 +45,6 @@
 
       <div class="card" id="campaigns-card" hidden>
         <h2 id="campaigns-title">Кампании</h2>
-        <p id="mode" class="hint"></p>
         <p id="units" class="hint"></p>
         <p id="campaigns-empty" hidden>В этом кабинете пока нет кампаний.</p>
         <div class="table-wrap">
@@ -69,10 +68,6 @@
           <label for="login">Логин рекламного кабинета <span class="hint">(необязательно)</span></label>
           <input type="text" id="login" autocomplete="off" placeholder="Нужен, только если токен выдан на другой логин">
 
-          <label class="check">
-            <input type="checkbox" id="sandbox">
-            Тестовый режим (песочница): ничего не тратится и не меняется
-          </label>
           <label class="check" id="dev-row" hidden>
             <input type="checkbox" id="dev-token">
             Взять токен с сервера (режим разработки)

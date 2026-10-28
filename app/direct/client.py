@@ -9,8 +9,7 @@ from dataclasses import dataclass
 
 import httpx
 
-PROD_HOST = "https://api.direct.yandex.com"
-SANDBOX_HOST = "https://api-sandbox.direct.yandex.com"
+HOST = "https://api.direct.yandex.com"
 MAX_PARALLEL = 5
 RETRIES = 2
 PAGE_SIZE = 1000
@@ -60,16 +59,14 @@ class DirectClient:
         self,
         token: str,
         *,
-        sandbox: bool = True,
-        api_version: str = "v5",
+        api_version: str = "v501",
         login: str = "",
         transport: httpx.AsyncBaseTransport | None = None,
         timeout: float = 30.0,
     ):
         if not token:
             raise DirectError("Не указан токен Яндекса.")
-        self.sandbox = sandbox
-        self.base_url = f"{SANDBOX_HOST if sandbox else PROD_HOST}/json/{api_version}"
+        self.base_url = f"{HOST}/json/{api_version}"
         self.last_units: Units | None = None
         self._headers = {
             "Authorization": f"Bearer {token}",
@@ -108,13 +105,8 @@ class DirectClient:
             request_id = response.headers.get("RequestId", "")
 
             if response.status_code >= 500:
-                message = (
-                    "Песочница Директа сейчас не отвечает. Попробуйте позже или переключитесь на свой кабинет."
-                    if self.sandbox
-                    else ERROR_HINTS[52]
-                )
                 last_error = DirectError(
-                    message, code=52, detail=f"HTTP {response.status_code}", request_id=request_id
+                    ERROR_HINTS[52], code=52, detail=f"HTTP {response.status_code}", request_id=request_id
                 )
                 await asyncio.sleep(0.5 * (attempt + 1))
                 continue

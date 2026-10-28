@@ -18,7 +18,6 @@ class NewAccount(BaseModel):
     title: str = ""
     token: str = ""
     login: str = ""
-    sandbox: bool = False
     use_dev_token: bool = False  # только при APP_ENV=development: взять токен из .env
 
 
@@ -29,7 +28,6 @@ def _public(row: sqlite3.Row) -> dict:
         "title": row["title"],
         "platform": "Яндекс Директ",
         "login": row["client_login"],
-        "sandbox": bool(row["sandbox"]),
     }
 
 
@@ -75,16 +73,16 @@ async def add_account(
 
     # Сохраняем кабинет только после успешной проверки связи.
     try:
-        async with factory(token, sandbox=data.sandbox, api_version=s.direct_api_version, login=login) as client:
+        async with factory(token, api_version=s.direct_api_version, login=login) as client:
             campaigns = await client.list_campaigns()
             units = _units(client)
     except DirectError as e:
         raise _direct_error(e)
 
-    title = data.title.strip() or ("Тестовая песочница" if data.sandbox else "Мой кабинет")
+    title = data.title.strip() or "Мой кабинет"
     cur = conn.execute(
-        "INSERT INTO ad_accounts (user_id, title, token_enc, client_login, sandbox) VALUES (?, ?, ?, ?, ?)",
-        (user["id"], title, encrypt_token(token, s.secret_key), login, int(data.sandbox)),
+        "INSERT INTO ad_accounts (user_id, title, token_enc, client_login) VALUES (?, ?, ?, ?)",
+        (user["id"], title, encrypt_token(token, s.secret_key), login),
     )
     conn.commit()
     row = conn.execute("SELECT * FROM ad_accounts WHERE id = ?", (cur.lastrowid,)).fetchone()
@@ -115,7 +113,7 @@ async def account_campaigns(
             detail={"message": "Не удалось прочитать сохранённый токен. Удалите кабинет и подключите его заново."},
         )
     try:
-        async with factory(token, sandbox=bool(row["sandbox"]), api_version=s.direct_api_version, login=row["client_login"]) as client:
+        async with factory(token, api_version=s.direct_api_version, login=row["client_login"]) as client:
             items = await client.list_campaigns()
             units = _units(client)
     except DirectError as e:

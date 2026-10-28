@@ -21,19 +21,11 @@ def load_env(path: Path | None = None) -> None:
         os.environ.setdefault(key.strip(), value)
 
 
-def _flag(name: str, default: bool) -> bool:
-    raw = os.environ.get(name)
-    if raw is None or raw.strip() == "":
-        return default
-    return raw.strip().lower() in ("1", "true", "yes", "да")
-
-
 @dataclass(frozen=True)
 class Settings:
     dev_mode: bool
     dev_token: str
     client_id: str
-    direct_sandbox: bool
     direct_api_version: str
     direct_client_login: str
     db_path: Path
@@ -62,8 +54,7 @@ def get_settings() -> Settings:
         dev_mode=os.environ.get("APP_ENV", "").strip().lower() == "development",
         dev_token=os.environ.get("YANDEX_DEV_TOKEN", "").strip(),
         client_id=os.environ.get("YANDEX_CLIENT_ID", "").strip(),
-        direct_sandbox=_flag("DIRECT_SANDBOX", True),
-        direct_api_version=os.environ.get("DIRECT_API_VERSION", "").strip() or "v5",
+        direct_api_version=os.environ.get("DIRECT_API_VERSION", "").strip() or "v501",
         direct_client_login=os.environ.get("DIRECT_CLIENT_LOGIN", "").strip(),
         db_path=db_path,
         secret_key=_secret_key(db_path),

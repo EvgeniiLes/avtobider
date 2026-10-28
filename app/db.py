@@ -34,7 +34,6 @@ CREATE TABLE IF NOT EXISTS ad_accounts (
     platform     TEXT NOT NULL DEFAULT 'yandex_direct',
     token_enc    TEXT NOT NULL,
     client_login TEXT NOT NULL DEFAULT '',
-    sandbox      INTEGER NOT NULL DEFAULT 0,
     created_at   TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 """

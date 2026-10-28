@@ -100,7 +100,7 @@ async function loadAccounts() {
     name.textContent = account.title;
     const meta = document.createElement("span");
     meta.className = "hint";
-    meta.textContent = ` ${account.platform}${account.sandbox ? ", тестовый режим" : ""}`;
+    meta.textContent = ` ${account.platform}`;
     info.append(name, meta);
 
     const actions = document.createElement("div");
@@ -124,19 +124,15 @@ async function showCampaigns(id) {
   card.hidden = false;
   $("table").hidden = true;
   $("campaigns-empty").hidden = true;
-  $("units").textContent = "";
-  $("mode").textContent = "Загружаем…";
+  $("units").textContent = "Загружаем…";
   const result = await api("GET", `/api/accounts/${id}/campaigns`);
   if (!result.ok) {
     $("campaigns-title").textContent = "Кампании";
-    $("mode").textContent = errorText(result);
+    $("units").textContent = errorText(result);
     return;
   }
   const data = result.data;
   $("campaigns-title").textContent = `Кампании: ${data.account.title}`;
-  $("mode").textContent = data.account.sandbox
-    ? "Тестовый режим: данные из песочницы, не из вашего реального кабинета."
-    : "Это ваш реальный кабинет.";
   $("units").textContent = data.units
     ? `Баллы Директа на сегодня: осталось ${data.units.remaining} из ${data.units.daily_limit}.`
     : "";
@@ -172,7 +168,6 @@ async function submitAccount(event) {
     title: $("title").value,
     token: $("token").value,
     login: $("login").value,
-    sandbox: $("sandbox").checked,
     use_dev_token: $("dev-token").checked,
   });
   button.disabled = false;

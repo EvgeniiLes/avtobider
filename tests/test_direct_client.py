@@ -22,9 +22,9 @@ def test_parse_units():
     assert parse_units("мусор") is None
 
 
-def test_sandbox_and_prod_urls():
-    assert make_client(lambda r: ok({}), sandbox=True).base_url == "https://api-sandbox.direct.yandex.com/json/v5"
-    assert make_client(lambda r: ok({}), sandbox=False).base_url == "https://api.direct.yandex.com/json/v5"
+def test_base_url_and_version():
+    assert make_client(lambda r: ok({})).base_url == "https://api.direct.yandex.com/json/v501"
+    assert make_client(lambda r: ok({}), api_version="v5").base_url == "https://api.direct.yandex.com/json/v5"
 
 
 def test_request_shape_and_units():
@@ -42,7 +42,7 @@ def test_request_shape_and_units():
             return await client.list_campaigns(), client.last_units
 
     campaigns, units = asyncio.run(run())
-    assert seen["url"] == "https://api-sandbox.direct.yandex.com/json/v5/campaigns"
+    assert seen["url"] == "https://api.direct.yandex.com/json/v501/campaigns"
     assert seen["auth"] == "Bearer secret-token"
     assert seen["login"] == "salon"
     assert seen["body"]["method"] == "get"
@@ -132,23 +132,20 @@ def test_gives_up_after_retries(monkeypatch):
         asyncio.run(run())
 
 
-def test_sandbox_down_says_so(monkeypatch):
+def test_server_error_keeps_http_status_in_detail(monkeypatch):
     async def no_sleep(_):
         pass
 
     monkeypatch.setattr("app.direct.client.asyncio.sleep", no_sleep)
 
-    async def run(sandbox):
-        async with make_client(lambda r: httpx.Response(504), sandbox=sandbox) as client:
+    async def run():
+        async with make_client(lambda r: httpx.Response(504)) as client:
             await client.list_campaigns()
 
     with pytest.raises(DirectError) as exc:
-        asyncio.run(run(True))
-    assert "Песочница" in exc.value.message
+        asyncio.run(run())
+    assert exc.value.code == 52
     assert exc.value.detail == "HTTP 504"
-    with pytest.raises(DirectError) as exc:
-        asyncio.run(run(False))
-    assert "Песочница" not in exc.value.message
 
 
 def test_empty_token_rejected():
