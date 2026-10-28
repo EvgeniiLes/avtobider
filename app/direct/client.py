@@ -54,6 +54,23 @@ def parse_units(header: str | None) -> Units | None:
     return Units(spent, remaining, limit)
 
 
+def _to_int(value: str) -> int:
+    """В отчётах пустые значения записаны как «--»."""
+    value = (value or "").strip()
+    if value in ("", "--"):
+        return 0
+    return int(float(value))
+
+
+def parse_tsv(text: str) -> list[dict]:
+    """Разбор TSV-отчёта: первая строка названия колонок, дальше данные."""
+    lines = [line for line in text.splitlines() if line.strip()]
+    if not lines:
+        return []
+    columns = lines[0].split("\t")
+    return [dict(zip(columns, line.split("\t"))) for line in lines[1:]]
+
+
 class DirectClient:
     def __init__(
         self,
@@ -131,6 +148,176 @@ class DirectClient:
             return data.get("result", {})
         assert last_error is not None
         raise last_error
+
+    async def report(
+        self,
+        report_type: str,
+        fields: list[str],
+        date_from: str,
+        date_to: str,
+        name: str = "autobider",
+        *,
+        poll_seconds: float = 5.0,
+        max_polls: int = 24,
+    ) -> list[dict]:
+        """Отчёт Директа (TSV) за период в виде списка строк.
+
+        Деньги приходят целыми числами в микрорублях (заголовок returnMoneyInMicros не ставим).
+        Если отчёт строится офлайн (коды 201 и 202), ждём и спрашиваем повторно.
+        """
+        body = {"params": {
+            "SelectionCriteria": {"DateFrom": date_from, "DateTo": date_to},
+            "FieldNames": fields,
+            "ReportName": f"{name} {date_from} {date_to}",
+            "ReportType": report_type,
+            "DateRangeType": "CUSTOM_DATE",
+            "Format": "TSV",
+            "IncludeVAT": "YES",
+            "IncludeDiscount": "NO",
+        }}
+        headers = {
+            **self._headers,
+            "processingMode": "auto",
+            "skipReportHeader": "true",
+            "skipReportSummary": "true",
+        }
+        url = f"{self.base_url}/reports"
+        for _ in range(max_polls + 1):
+            try:
+                async with self._slots:
+                    response = await self._http.post(url, json=body, headers=headers)
+            except httpx.TransportError:
+                raise DirectError("Не удалось связаться с Яндекс Директом. Проверьте интернет и попробуйте снова.")
+            self.last_units = parse_units(response.headers.get("Units")) or self.last_units
+            if response.status_code in (201, 202):
+                await asyncio.sleep(float(response.headers.get("retryIn", poll_seconds)))
+                continue
+            if response.status_code == 200:
+                return parse_tsv(response.text)
+            try:
+                err = response.json().get("error", {})
+            except ValueError:
+                err = {}
+            code = err.get("error_code")
+            raise DirectError(
+                ERROR_HINTS.get(code) or err.get("error_string") or "Не получилось получить отчёт из Яндекс Директа.",
+                code=code,
+                detail=err.get("error_detail", f"HTTP {response.status_code}"),
+                request_id=err.get("request_id") or response.headers.get("RequestId", ""),
+            )
+        raise DirectError("Яндекс Директ долго собирает отчёт. Попробуйте ещё раз чуть позже.")
+
+    # ---------- создание и управление (запись в кабинет) ----------
+
+    @staticmethod
+    def _result_item(result: dict, key: str, index: int = 0) -> dict:
+        """Результат одной операции пакета. Если Директ вернул ошибку, поднимает DirectError."""
+        item = result.get(key, [{}])[index]
+        errors = item.get("Errors") or []
+        if errors:
+            first = errors[0]
+            raise DirectError(
+                first.get("Message") or "Яндекс Директ не принял данные.",
+                code=first.get("Code"),
+                detail=first.get("Details", ""),
+            )
+        return item
+
+    async def create_text_campaign(self, name: str, weekly_limit_micro: int, start_date: str) -> int:
+        """Кампания на поиске с автоматической стратегией и жёстким недельным бюджетом.
+
+        Показы в сетях выключены (SERVING_OFF), чтобы бюджет шёл только на поиск."""
+        result = await self.call("campaigns", "add", {"Campaigns": [{
+            "Name": name,
+            "StartDate": start_date,
+            "TextCampaign": {"BiddingStrategy": {
+                "Search": {
+                    "BiddingStrategyType": "WB_MAXIMUM_CLICKS",
+                    "WbMaximumClicks": {"WeeklySpendLimit": weekly_limit_micro},
+                },
+                "Network": {"BiddingStrategyType": "SERVING_OFF"},
+            }},
+        }]})
+        return self._result_item(result, "AddResults")["Id"]
+
+    async def create_ad_group(self, campaign_id: int, name: str, region_ids: list[int]) -> int:
+        """Группа объявлений. Автотаргетинг на поиске включается сам: ключевые фразы не нужны."""
+        result = await self.call("adgroups", "add", {"AdGroups": [{
+            "Name": name, "CampaignId": campaign_id, "RegionIds": region_ids,
+        }]})
+        return self._result_item(result, "AddResults")["Id"]
+
+    async def create_text_ad(
+        self, group_id: int, title: str, text: str, *, title2: str = "", href: str = "", business_id: int | None = None,
+    ) -> int:
+        ad = {"Title": title, "Text": text, "Mobile": "NO"}
+        if title2:
+            ad["Title2"] = title2
+        if href:
+            ad["Href"] = href
+        if business_id:
+            ad["BusinessId"] = business_id
+        if not (href or business_id):
+            raise DirectError("Для объявления нужен сайт или профиль организации в Яндекс Картах.")
+        result = await self.call("ads", "add", {"Ads": [{"AdGroupId": group_id, "TextAd": ad}]})
+        return self._result_item(result, "AddResults")["Id"]
+
+    async def moderate_ads(self, ad_ids: list[int]) -> None:
+        result = await self.call("ads", "moderate", {"SelectionCriteria": {"Ids": ad_ids}})
+        for i in range(len(ad_ids)):
+            self._result_item(result, "ModerateResults", i)
+
+    async def set_campaigns_state(self, campaign_ids: list[int], active: bool) -> None:
+        """Остановить или возобновить показы кампаний."""
+        method = "resume" if active else "suspend"
+        result = await self.call("campaigns", method, {"SelectionCriteria": {"Ids": campaign_ids}})
+        for i in range(len(campaign_ids)):
+            self._result_item(result, "ResumeResults" if active else "SuspendResults", i)
+
+    async def set_ads_state(self, ad_ids: list[int], active: bool) -> None:
+        method = "resume" if active else "suspend"
+        result = await self.call("ads", method, {"SelectionCriteria": {"Ids": ad_ids}})
+        for i in range(len(ad_ids)):
+            self._result_item(result, "ResumeResults" if active else "SuspendResults", i)
+
+    async def find_region_id(self, city: str) -> int | None:
+        """Номер региона Директа по названию города (Москва = 213). None, если не нашли."""
+        result = await self.call("dictionaries", "get", {"DictionaryNames": ["GeoRegions"]})
+        wanted = city.strip().lower()
+        for region in result.get("GeoRegions", []):
+            if region.get("GeoRegionName", "").strip().lower() == wanted and region.get("GeoRegionType") in ("City", "Town", "Village", "Region"):
+                return int(region["GeoRegionId"])
+        return None
+
+    async def min_weekly_budget(self, currency: str = "RUB") -> int | None:
+        """Минимальный недельный бюджет кампании в микрорублях из справочника валют."""
+        result = await self.call("dictionaries", "get", {"DictionaryNames": ["Currencies"]})
+        for cur in result.get("Currencies", []):
+            if cur.get("Currency") == currency:
+                for prop in cur.get("Properties", []):
+                    if prop.get("Name") == "MinimumWeeklySpendLimit":
+                        return int(prop["Value"])
+        return None
+
+    async def ad_stats(self, date_from: str, date_to: str) -> list[dict]:
+        """Статистика по объявлениям и дням: показы, клики, расход (микрорубли)."""
+        rows = await self.report(
+            "AD_PERFORMANCE_REPORT",
+            ["Date", "CampaignId", "AdId", "Impressions", "Clicks", "Cost"],
+            date_from,
+            date_to,
+        )
+        return [
+            {
+                "day": r["Date"],
+                "campaign_id": r["CampaignId"],
+                "ad_id": r["AdId"],
+                "impressions": _to_int(r["Impressions"]),
+                "clicks": _to_int(r["Clicks"]),
+                "spend_micro": _to_int(r["Cost"]),
+            }
+            for r in rows
+        ]
 
     async def list_campaigns(self) -> list[dict]:
         """Все кампании кабинета (постранично)."""

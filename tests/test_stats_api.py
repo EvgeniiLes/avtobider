@@ -17,7 +17,7 @@ def register(http, email="owner@example.com"):
 
 
 def make_business(http, **extra):
-    body = {"name": "Лотос", "kind": "Маникюр", "city": "Москва", "weekly_budget": 20000, "target_cpa": 800}
+    body = {"name": "Лотос", "kind": "Маникюр", "city": "Москва", "weekly_budget": 20000, "target_cpa": 800, "mode": "auto"}
     body.update(extra)
     return http.post("/api/businesses", json=body).json()["id"]
 
@@ -86,6 +86,60 @@ def test_full_flow_overview_history_rollback():
         assert http.get(f"/api/businesses/{bid}/changes").json()["changes"] == []
 
 
+def test_default_mode_is_ask_and_proposals_can_be_decided():
+    with TestClient(app) as http:
+        register(http)
+        bid = make_business(http, mode="ask")
+        assert http.get(f"/api/businesses/{bid}").json()["mode"] == "ask"
+        http.post(f"/api/businesses/{bid}/sim/start")
+        http.post(f"/api/businesses/{bid}/sim/advance", json={"days": 30})
+        ov = http.get(f"/api/businesses/{bid}/overview").json()
+        assert ov["mode"] == "ask" and ov["proposals"] > 0
+        assert all(u["active"] for u in ov["units"])  # ничего не изменено без подтверждения
+
+        items = http.get(f"/api/businesses/{bid}/changes").json()["changes"]
+        proposal = next(c for c in items if c["can_decide"])
+        assert proposal["status"] == "proposed" and proposal["reason"].startswith("Предлагаем") and not proposal["can_rollback"]
+
+        assert http.post(f"/api/businesses/{bid}/changes/{proposal['id']}/approve").status_code == 200
+        done = next(c for c in http.get(f"/api/businesses/{bid}/changes").json()["changes"] if c["id"] == proposal["id"])
+        assert done["status"] == "applied" and done["can_rollback"] and not done["reason"].startswith("Предлагаем")
+        assert http.post(f"/api/businesses/{bid}/changes/{proposal['id']}/approve").status_code == 400
+
+        other = next(c for c in http.get(f"/api/businesses/{bid}/changes").json()["changes"] if c["can_decide"])
+        assert http.post(f"/api/businesses/{bid}/changes/{other['id']}/reject").status_code == 200
+        after = {c["id"]: c for c in http.get(f"/api/businesses/{bid}/changes").json()["changes"]}
+        assert after[other["id"]]["status"] == "rejected" and not after[other["id"]]["can_decide"]
+
+
+def test_stop_all_and_resume_all_api():
+    with TestClient(app) as http:
+        register(http)
+        bid = make_business(http)
+        http.post(f"/api/businesses/{bid}/sim/start")
+        http.post(f"/api/businesses/{bid}/sim/advance", json={"days": 3})
+        assert http.post(f"/api/businesses/{bid}/stop-all").json()["stopped"] == 6
+        ov = http.get(f"/api/businesses/{bid}/overview").json()
+        assert ov["stopped"] is True and not any(u["active"] for u in ov["units"])
+        assert http.post(f"/api/businesses/{bid}/resume-all").json()["resumed"] == 6
+        ov = http.get(f"/api/businesses/{bid}/overview").json()
+        assert ov["stopped"] is False and all(u["active"] for u in ov["units"])
+
+
+def test_checklist_follows_progress():
+    with TestClient(app) as http:
+        register(http)
+        bid = make_business(http, description="", weekly_budget=0, target_cpa=0)
+        steps = {s["key"]: s for s in http.get(f"/api/businesses/{bid}/overview").json()["checklist"]}
+        assert not steps["described"]["done"] and not steps["money"]["done"] and not steps["cabinet"]["done"] and not steps["ads"]["done"]
+        assert steps["metrika"]["soon"] is True
+        http.put(f"/api/businesses/{bid}", json={"name": "Лотос", "kind": "Маникюр", "city": "Москва", "description": "Маникюр",
+                                                   "weekly_budget": 20000, "target_cpa": 800})
+        http.post(f"/api/businesses/{bid}/sim/start")
+        steps = {s["key"]: s for s in http.get(f"/api/businesses/{bid}/overview").json()["checklist"]}
+        assert steps["described"]["done"] and steps["money"]["done"] and steps["ads"]["done"]
+
+
 def test_users_are_isolated():
     with TestClient(app) as alice, TestClient(app) as bob:
         register(alice, "alice@example.com")
@@ -100,6 +154,10 @@ def test_users_are_isolated():
             ("post", "sim/advance", {"days": 1}),
             ("post", "sim/reset", None),
             ("post", "changes/1/rollback", {}),
+            ("post", "changes/1/approve", None),
+            ("post", "changes/1/reject", None),
+            ("post", "stop-all", None),
+            ("post", "resume-all", None),
         ]:
             r = getattr(bob, method)(f"/api/businesses/{bid}/{path}", **({"json": body} if body is not None else {}))
             assert r.status_code == 404, path

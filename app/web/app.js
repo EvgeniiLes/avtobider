@@ -22,7 +22,10 @@ async function api(method, url, body) {
 function errorText(result) {
   const d = result.data && result.data.detail;
   if (d && d.message) return d.message;
-  if (Array.isArray(d)) return "Проверьте, что все поля заполнены правильно.";
+  if (Array.isArray(d)) {
+    const own = d.map((e) => e.msg || "").find((m) => m.startsWith("Value error, "));
+    return own ? own.replace("Value error, ", "") : "Проверьте, что все поля заполнены правильно.";
+  }
   return "Что-то пошло не так. Попробуйте ещё раз.";
 }
 
@@ -138,6 +141,7 @@ function fillForm(b) {
   $("b-description").value = b ? b.description : "";
   $("b-city").value = b ? b.city : "";
   $("b-site").value = b ? b.site_url : "";
+  $("b-maps").value = b ? b.maps_url : "";
   $("b-tone").value = b ? b.tone : "";
   setColor("b-color-main", b ? b.color_main : "");
   setColor("b-color-extra", b ? b.color_extra : "");
@@ -145,6 +149,7 @@ function fillForm(b) {
   $("b-cpa").value = b && b.target_cpa ? b.target_cpa : "";
   $("b-budget").value = b && b.weekly_budget ? b.weekly_budget : "";
   $("b-share").value = b ? b.client_share_percent : 30;
+  $(b && b.mode === "auto" ? "mode-auto" : "mode-ask").checked = true;
   $("business-title").textContent = b ? `Бизнес: ${b.name}` : "Расскажите о бизнесе";
   $("business-delete").hidden = !b;
   setStatus("business-status", "");
@@ -173,6 +178,7 @@ async function selectBusiness(id, refreshList = true) {
   currentBusiness = result.data;
   fillForm(currentBusiness);
   renderFiles();
+  refreshStopbar();
   if (refreshList) {
     for (const chip of $("business-list").children) {
       chip.classList.toggle("active", chip.textContent === currentBusiness.name);
@@ -184,6 +190,7 @@ function newBusiness() {
   currentBusiness = null;
   fillForm(null);
   renderFiles();
+  $("stopbar").hidden = true;
   for (const chip of $("business-list").children) chip.classList.remove("active");
 }
 
@@ -195,6 +202,7 @@ function readForm() {
     description: $("b-description").value,
     city: $("b-city").value,
     site_url: $("b-site").value,
+    maps_url: $("b-maps").value,
     tone: $("b-tone").value,
     color_main: getColor("b-color-main"),
     color_extra: getColor("b-color-extra"),
@@ -202,6 +210,7 @@ function readForm() {
     target_cpa: num("b-cpa"),
     weekly_budget: num("b-budget"),
     client_share_percent: num("b-share") || 30,
+    mode: $("mode-auto").checked ? "auto" : "ask",
   };
 }
 
@@ -307,6 +316,56 @@ function tile(num, label) {
   return el("div", { className: "tile" }, el("div", { className: "num", textContent: num }), el("div", { className: "lbl", textContent: label }));
 }
 
+function renderChecklist(steps) {
+  const box = $("checklist");
+  box.replaceChildren();
+  const next = steps.find((s) => !s.done && !s.soon);
+  if (!next) { box.hidden = true; return; }
+  box.hidden = false;
+  box.append(el("h3", { textContent: "Что нужно, чтобы реклама заработала" }));
+  for (const s of steps) {
+    const state = s.done ? "done" : s === next ? "next" : s.soon ? "soon" : "";
+    const body = el("div", {}, el("div", { className: "title", textContent: s.title }));
+    if (!s.done) {
+      const hint = el("div", { className: "hint", textContent: s.hint + " " });
+      if (s.page) {
+        const go = el("a", { textContent: "Перейти" });
+        go.addEventListener("click", () => showPage(s.page));
+        hint.append(go);
+      }
+      body.append(hint);
+    }
+    box.append(el("div", { className: `step ${state}` }, el("div", { className: "mark", textContent: s.done ? "✓" : "" }), body));
+  }
+}
+
+async function refreshStopbar() {
+  const bar = $("stopbar");
+  if (!currentBusiness) { bar.hidden = true; return; }
+  const result = await api("GET", `/api/businesses/${currentBusiness.id}/overview`);
+  if (!result.ok) return;
+  const data = result.data;
+  bar.hidden = !data.example && !data.stopped;
+  $("stop-all").hidden = data.stopped;
+  $("resume-all").hidden = !data.stopped;
+  $("stopbar-text").textContent = data.stopped
+    ? "Вся реклама остановлена вами."
+    : data.mode === "ask" ? "Сервис сначала спрашивает вас о каждом изменении." : "Сервис меняет рекламу сам и записывает всё в историю.";
+}
+
+async function stopAll() {
+  if (!confirm("Остановить всю рекламу этого бизнеса? Показы прекратятся сразу. Включить обратно можно в один клик.")) return;
+  const result = await api("POST", `/api/businesses/${currentBusiness.id}/stop-all`);
+  if (!result.ok) { setStatus("stats-status", errorText(result), "err"); return; }
+  await Promise.all([refreshStopbar(), loadStats()]);
+}
+
+async function resumeAll() {
+  const result = await api("POST", `/api/businesses/${currentBusiness.id}/resume-all`);
+  if (!result.ok) { setStatus("stats-status", errorText(result), "err"); return; }
+  await Promise.all([refreshStopbar(), loadStats()]);
+}
+
 async function loadStats() {
   const has = !!currentBusiness;
   $("stats-empty").hidden = has;
@@ -316,6 +375,15 @@ async function loadStats() {
   const result = await api("GET", `/api/businesses/${currentBusiness.id}/overview`);
   if (!result.ok) { setStatus("stats-status", errorText(result), "err"); return; }
   const data = result.data;
+  renderChecklist(data.checklist || []);
+  const note = $("proposals-note");
+  note.hidden = !data.proposals;
+  note.replaceChildren();
+  if (data.proposals) {
+    const go = el("a", { textContent: "Посмотреть" });
+    go.addEventListener("click", () => showPage("history"));
+    note.append(`Предложений, которые ждут вашего решения: ${data.proposals}. `, go);
+  }
   $("example-notice").hidden = !data.example;
   $("stats-needs").textContent = data.needs;
   $("sim-start").hidden = data.example;
@@ -366,8 +434,9 @@ async function simAction(path, body) {
   const result = await api("POST", `/api/businesses/${currentBusiness.id}/sim/${path}`, body);
   if (!result.ok) { setStatus("stats-status", errorText(result), "err"); return; }
   const made = result.data.changes_made;
-  setStatus("stats-status", made ? `Готово. Изменений за это время: ${made}. Подробности на вкладке «История».` : "Готово.", "ok");
-  await loadStats();
+  const word = currentBusiness.mode === "ask" ? "Предложений" : "Изменений";
+  setStatus("stats-status", made ? `Готово. ${word} за это время: ${made}. Подробности на вкладке «История».` : "Готово.", "ok");
+  await Promise.all([loadStats(), refreshStopbar()]);
 }
 
 /* ---------- История изменений ---------- */
@@ -386,13 +455,27 @@ async function loadHistory() {
       el("div", { className: "text", textContent: c.reason }),
     );
     let action;
-    if (c.reverted) action = el("span", { className: "hint", textContent: "Отменено" });
+    if (c.can_decide) {
+      info.firstChild.append(el("span", { className: "pill", textContent: "Ждёт вашего решения" }));
+      const yes = el("button", { className: "small", textContent: "Подтвердить" });
+      yes.addEventListener("click", () => decide(c, "approve"));
+      const no = el("button", { className: "small secondary", textContent: "Не делать" });
+      no.addEventListener("click", () => decide(c, "reject"));
+      action = el("div", { className: "btns" }, yes, no);
+    } else if (c.status === "rejected") action = el("span", { className: "hint", textContent: "Отклонено" });
+    else if (c.reverted) action = el("span", { className: "hint", textContent: "Отменено" });
     else if (c.can_rollback) {
       action = el("button", { className: "small secondary", textContent: "Отменить" });
       action.addEventListener("click", () => rollbackChange(c));
     } else action = el("span");
     list.append(el("li", {}, info, action));
   }
+}
+
+async function decide(change, verb) {
+  const result = await api("POST", `/api/businesses/${currentBusiness.id}/changes/${change.id}/${verb}`);
+  setStatus("history-status", result.ok ? (verb === "approve" ? "Готово, сделали." : "Хорошо, ничего не меняем.") : errorText(result), result.ok ? "ok" : "err");
+  await loadHistory();
 }
 
 async function rollbackChange(change, force = false) {
@@ -492,6 +575,8 @@ async function start() {
   $("nav-business").addEventListener("click", () => showPage("business"));
   $("nav-accounts").addEventListener("click", () => showPage("accounts"));
   $("nav-stats").addEventListener("click", () => showPage("stats"));
+  $("stop-all").addEventListener("click", stopAll);
+  $("resume-all").addEventListener("click", resumeAll);
   $("nav-history").addEventListener("click", () => showPage("history"));
   $("sim-start").addEventListener("click", () => simAction("start"));
   $("sim-reset").addEventListener("click", () => {

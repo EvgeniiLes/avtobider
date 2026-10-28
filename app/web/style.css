@@ -73,6 +73,26 @@ tr.off td { color:var(--muted); }
 .or { text-align:center; margin:16px 0 8px; }
 .btn-yandex { display:block; text-align:center; padding:11px 20px; border-radius:8px; background:#000; color:#fff; font-weight:600; text-decoration:none; }
 .btn-yandex:hover { background:#222; }
+.radio { display:flex; gap:10px; align-items:flex-start; font-weight:400; padding:10px 12px; border:1px solid var(--line); border-radius:10px; margin:8px 0; cursor:pointer; }
+.radio input { margin-top:5px; }
+.stopbar { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin:0 0 12px; }
+.stopbar .hint { flex:1 1 200px; }
+.stopbar button { margin:0; }
+button.danger { background:#fff; color:var(--err); border:1px solid var(--err); }
+.checklist { margin:0 0 14px; }
+.checklist .step { display:flex; gap:10px; align-items:flex-start; padding:8px 0; border-bottom:1px solid var(--line); }
+.checklist .step:last-child { border-bottom:0; }
+.checklist .mark { flex:0 0 22px; height:22px; border-radius:50%; border:2px solid var(--line); text-align:center; line-height:18px; font-size:14px; }
+.checklist .done .mark { background:var(--ok); border-color:var(--ok); color:#fff; }
+.checklist .next .mark { border-color:var(--accent); }
+.checklist .soon .mark { border-style:dashed; }
+.checklist .title { font-weight:600; }
+.checklist .done .title { font-weight:400; color:var(--muted); }
+.checklist a { color:var(--accent); font-weight:600; cursor:pointer; }
+.proposals { background:#eef4ff; border-color:#c7d7f5; }
+.proposals a { color:var(--accent); font-weight:600; cursor:pointer; }
+.pill { display:inline-block; padding:2px 8px; border-radius:10px; font-size:12px; background:#eef4ff; color:#1d4ed8; margin-left:6px; }
+.history .btns { display:flex; gap:6px; flex-wrap:wrap; }
 .table-wrap { overflow-x:auto; }
 table { width:100%; border-collapse:collapse; }
 th, td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); }

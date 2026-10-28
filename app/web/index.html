@@ -47,6 +47,12 @@
         <button id="nav-accounts" class="tab">Рекламные кабинеты</button>
       </nav>
 
+      <div id="stopbar" class="stopbar" hidden>
+        <span id="stopbar-text" class="hint"></span>
+        <button id="stop-all" class="small danger">Остановить всю рекламу</button>
+        <button id="resume-all" class="small" hidden>Включить обратно</button>
+      </div>
+
       <!-- Бизнес -->
       <div id="page-business">
         <div class="card">
@@ -80,6 +86,10 @@
             <label for="b-site">Сайт <span class="hint">(необязательно)</span></label>
             <input type="text" id="b-site" maxlength="300" placeholder="salon.ru">
 
+            <label for="b-maps">Ссылка на ваш бизнес в Яндекс Картах <span class="hint">(необязательно)</span></label>
+            <input type="text" id="b-maps" maxlength="500" placeholder="https://yandex.ru/maps/org/...">
+            <p class="hint">Найдите свою организацию в Яндекс Картах и скопируйте адрес страницы из браузера. По ней покажем в рекламе адрес, рейтинг и отзывы.</p>
+
             <h3>Стиль рекламы</h3>
             <label for="b-tone">Какой тон вам ближе</label>
             <select id="b-tone"><option value="">Не важно</option></select>
@@ -106,6 +116,12 @@
             <label for="b-share">Какая часть обращений становится клиентами, %</label>
             <input type="number" id="b-share" min="1" max="100" step="1" placeholder="30">
             <p class="hint">Например, из 10 звонков приходят 3 человека: это 30%. Если не знаете, оставьте 30.</p>
+
+            <h3>Как действовать сервису</h3>
+            <label class="radio"><input type="radio" name="mode" id="mode-ask" value="ask" checked>
+              <span><strong>Сначала спрашивать меня</strong><br><span class="hint">Сервис предлагает остановить слабое объявление или добавить бюджет, а вы подтверждаете. Так спокойнее на старте.</span></span></label>
+            <label class="radio"><input type="radio" name="mode" id="mode-auto" value="auto">
+              <span><strong>Делать самому</strong><br><span class="hint">Сервис сам меняет рекламу и записывает всё в историю. Любое изменение можно отменить.</span></span></label>
 
             <button type="submit" id="business-save">Сохранить</button>
             <button type="button" id="business-delete" class="secondary" hidden>Удалить бизнес</button>
@@ -147,6 +163,8 @@
           <h2 id="stats-title">Статистика</h2>
           <p id="stats-empty" class="hint" hidden>Сначала опишите бизнес на вкладке «Мой бизнес».</p>
           <div id="stats-body" hidden>
+            <div id="checklist" class="checklist"></div>
+            <p id="proposals-note" class="notice proposals" hidden></p>
             <p class="notice" id="example-notice" hidden>Пример данных. Это учебная симуляция, а не ваша реальная реклама. Деньги не тратятся, но сервис принимает решения так же, как на настоящей рекламе.</p>
             <p id="stats-needs" class="status err"></p>
             <div class="actions">

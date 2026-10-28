@@ -5,7 +5,7 @@ from pathlib import Path
 
 from app.config import get_settings
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 7
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (
@@ -47,13 +47,15 @@ CREATE TABLE IF NOT EXISTS businesses (
     description         TEXT NOT NULL DEFAULT '',
     city                TEXT NOT NULL DEFAULT '',
     site_url            TEXT NOT NULL DEFAULT '',
-    tone                TEXT NOT NULL DEFAULT '',
+    maps_url            TEXT NOT NULL DEFAULT '',
+    tone               TEXT NOT NULL DEFAULT '',
     color_main          TEXT NOT NULL DEFAULT '',
     color_extra         TEXT NOT NULL DEFAULT '',
     avg_check_micro     INTEGER NOT NULL DEFAULT 0,
     target_cpa_micro    INTEGER NOT NULL DEFAULT 0,
     weekly_budget_micro INTEGER NOT NULL DEFAULT 0,
     client_share        REAL NOT NULL DEFAULT 0.3,  -- какая доля обращений становится клиентами
+    mode                TEXT NOT NULL DEFAULT 'auto', -- ask: сначала спрашивать владельца, auto: делать самому
     status              TEXT NOT NULL DEFAULT 'draft',
     created_at          TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -146,6 +148,7 @@ CREATE TABLE IF NOT EXISTS changes (
     before_json   TEXT NOT NULL,
     after_json    TEXT NOT NULL,
     evidence_json TEXT NOT NULL DEFAULT '{}',
+    status        TEXT NOT NULL DEFAULT 'applied',  -- applied, proposed (ждёт решения), rejected
     reverted_by   INTEGER REFERENCES changes(id),
     created_at    TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -167,6 +170,9 @@ CREATE TABLE IF NOT EXISTS sim_units (
 ADDED_COLUMNS = [
     ("businesses", "client_share", "REAL NOT NULL DEFAULT 0.3"),
     ("users", "yandex_id", "TEXT"),
+    ("businesses", "maps_url", "TEXT NOT NULL DEFAULT ''"),
+    ("businesses", "mode", "TEXT NOT NULL DEFAULT 'auto'"),
+    ("changes", "status", "TEXT NOT NULL DEFAULT 'applied'"),
 ]
 
 

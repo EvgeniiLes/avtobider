@@ -73,6 +73,25 @@ def test_validation_messages():
         assert make_business(http, weekly_budget=-5).status_code == 422
 
 
+def test_maps_link_is_checked_and_org_id_extracted():
+    with TestClient(app) as http:
+        register(http)
+        url = "https://yandex.ru/maps/org/lotos/1234567890/?ll=37.6%2C55.7&z=17"
+        b = make_business(http, maps_url=url).json()
+        assert b["maps_url"] == url and b["maps_org_id"] == "1234567890"
+        short = make_business(http, maps_url="yandex.ru/maps/-/CDxyz123").json()
+        assert short["maps_url"] == "https://yandex.ru/maps/-/CDxyz123" and short["maps_org_id"] == ""
+        profile = make_business(http, maps_url="https://yandex.ru/profile/9876543210").json()
+        assert profile["maps_org_id"] == "9876543210"
+        empty = make_business(http, maps_url="").json()
+        assert empty["maps_url"] == ""
+        bad = make_business(http, maps_url="https://evil.example/maps/org/1/22222")
+        assert bad.status_code == 422
+        assert "Яндекс Картах" in str(bad.json())
+        updated = http.put(f"/api/businesses/{b['id']}", json={"name": "x", "kind": "y", "maps_url": ""}).json()
+        assert updated["maps_url"] == "" and updated["maps_org_id"] == ""
+
+
 def test_business_limit():
     with TestClient(app) as http:
         register(http)

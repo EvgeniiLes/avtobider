@@ -4,6 +4,7 @@ import secrets
 import shutil
 import sqlite3
 from pathlib import Path
+from typing import Literal
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
@@ -35,6 +36,15 @@ TONES = {
     "friendly": "Дружелюбный",
 }
 COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
+# Ссылка на организацию в Яндекс Картах: yandex.ru/maps/..., yandex.ru/profile/..., короткие yandex.ru/maps/-/XXXX
+MAPS_RE = re.compile(r"^https?://(www\.)?yandex\.(ru|com|kz|by|uz)/(maps|profile)/", re.I)
+MAPS_ORG_RE = re.compile(r"/(?:org/[^/]+|profile)/(\d{5,})", re.I)
+
+
+def maps_org_id(url: str) -> str:
+    """Номер организации из ссылки на Яндекс Карты (если он в ней есть)."""
+    m = MAPS_ORG_RE.search(url or "")
+    return m.group(1) if m else ""
 
 
 class BusinessIn(BaseModel):
@@ -43,6 +53,7 @@ class BusinessIn(BaseModel):
     description: str = Field(default="", max_length=2000)
     city: str = Field(default="", max_length=100)
     site_url: str = Field(default="", max_length=300)
+    maps_url: str = Field(default="", max_length=500)
     tone: str = ""
     color_main: str = ""
     color_extra: str = ""
@@ -50,6 +61,17 @@ class BusinessIn(BaseModel):
     target_cpa: float = Field(default=0, ge=0, le=100_000_000)
     weekly_budget: float = Field(default=0, ge=0, le=100_000_000)
     client_share_percent: float = Field(default=30, ge=1, le=100)  # какая часть обращений становится клиентами
+    mode: Literal["ask", "auto"] = "ask"  # ask: сначала спрашивать, auto: делать самому
+
+    @field_validator("maps_url")
+    @classmethod
+    def _maps(cls, v: str) -> str:
+        v = v.strip()
+        if v and not re.match(r"^https?://", v, re.I):
+            v = "https://" + v
+        if v and not MAPS_RE.match(v):
+            raise ValueError("Нужна ссылка на вашу организацию в Яндекс Картах, например https://yandex.ru/maps/org/...")
+        return v
 
     @field_validator("name", "kind", "description", "city", "site_url")
     @classmethod
@@ -110,6 +132,8 @@ def _business(row: sqlite3.Row, assets: list[sqlite3.Row] | None = None) -> dict
         "description": row["description"],
         "city": row["city"],
         "site_url": row["site_url"],
+        "maps_url": row["maps_url"],
+        "maps_org_id": maps_org_id(row["maps_url"]),
         "tone": row["tone"],
         "color_main": row["color_main"],
         "color_extra": row["color_extra"],
@@ -117,6 +141,7 @@ def _business(row: sqlite3.Row, assets: list[sqlite3.Row] | None = None) -> dict
         "target_cpa": _rub(row["target_cpa_micro"]),
         "weekly_budget": _rub(row["weekly_budget_micro"]),
         "client_share_percent": round(row["client_share"] * 100, 1),
+        "mode": row["mode"],
         "status": row["status"],
     }
     if assets is not None:
@@ -161,12 +186,12 @@ def create_business(data: BusinessIn, user: sqlite3.Row = Depends(current_user),
     if count >= MAX_BUSINESSES:
         raise HTTPException(400, detail={"message": f"Можно добавить не больше {MAX_BUSINESSES} бизнесов."})
     cur = conn.execute(
-        "INSERT INTO businesses (user_id, name, kind, description, city, site_url, tone, color_main, color_extra, "
-        "avg_check_micro, target_cpa_micro, weekly_budget_micro, client_share) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO businesses (user_id, name, kind, description, city, site_url, maps_url, tone, color_main, color_extra, "
+        "avg_check_micro, target_cpa_micro, weekly_budget_micro, client_share, mode) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (
-            user["id"], data.name, data.kind, data.description, data.city, data.site_url, data.tone,
+            user["id"], data.name, data.kind, data.description, data.city, data.site_url, data.maps_url, data.tone,
             data.color_main, data.color_extra, _micro(data.avg_check), _micro(data.target_cpa), _micro(data.weekly_budget),
-            data.client_share_percent / 100,
+            data.client_share_percent / 100, data.mode,
         ),
     )
     conn.commit()
@@ -188,12 +213,12 @@ def update_business(
 ):
     _own(conn, user, business_id)
     conn.execute(
-        "UPDATE businesses SET name=?, kind=?, description=?, city=?, site_url=?, tone=?, color_main=?, color_extra=?, "
-        "avg_check_micro=?, target_cpa_micro=?, weekly_budget_micro=?, client_share=? WHERE id=?",
+        "UPDATE businesses SET name=?, kind=?, description=?, city=?, site_url=?, maps_url=?, tone=?, color_main=?, color_extra=?, "
+        "avg_check_micro=?, target_cpa_micro=?, weekly_budget_micro=?, client_share=?, mode=? WHERE id=?",
         (
-            data.name, data.kind, data.description, data.city, data.site_url, data.tone, data.color_main,
+            data.name, data.kind, data.description, data.city, data.site_url, data.maps_url, data.tone, data.color_main,
             data.color_extra, _micro(data.avg_check), _micro(data.target_cpa), _micro(data.weekly_budget),
-            data.client_share_percent / 100, business_id,
+            data.client_share_percent / 100, data.mode, business_id,
         ),
     )
     conn.commit()

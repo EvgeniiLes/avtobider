@@ -32,16 +32,20 @@ def biz(conn):
     return conn.execute("SELECT * FROM businesses WHERE id = 1").fetchone()
 
 
-def simulate(conn, days):
+def simulate(conn, days, propose=False):
     b = biz(conn)
     platform = SimulatedPlatform(conn)
     start_demo(conn, b, target_lead_micro(b), START)
     all_changes = []
     for _ in range(days):
         today = advance_day(conn, b)
-        all_changes += run_cycle(conn, b, platform, today)
+        all_changes += run_cycle(conn, b, platform, today, propose=propose)
         check_invariants(conn, today)
     return platform, all_changes
+
+
+def today_of(conn):
+    return conn.execute("SELECT today FROM sim_state").fetchone()[0]
 
 
 def check_invariants(conn, today):
