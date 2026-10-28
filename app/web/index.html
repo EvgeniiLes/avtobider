@@ -3,22 +3,45 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
   <title>Автобидер</title>
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-  <main>
-    <header class="top">
-      <h1>Автобидер</h1>
+  <svg class="sprite" aria-hidden="true" focusable="false">
+    <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 11l9-8 9 8v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z"/></symbol>
+    <symbol id="i-business" viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></symbol>
+    <symbol id="i-ads" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/></symbol>
+    <symbol id="i-stats" viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></symbol>
+    <symbol id="i-history" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+    <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></symbol>
+  </svg>
+
+  <header class="topbar">
+    <div class="topbar-in">
+      <div class="brand"><span class="brand-mark">А</span><span>Автобидер</span></div>
+      <nav class="nav" id="nav" hidden aria-label="Разделы">
+        <button id="nav-home" class="active"><svg class="ic"><use href="#i-home"/></svg><span>Главная</span></button>
+        <button id="nav-business"><svg class="ic"><use href="#i-business"/></svg><span>Бизнес</span></button>
+        <button id="nav-creatives"><svg class="ic"><use href="#i-ads"/></svg><span>Объявления</span></button>
+        <button id="nav-stats"><svg class="ic"><use href="#i-stats"/></svg><span>Результаты</span></button>
+        <button id="nav-history"><svg class="ic"><use href="#i-history"/></svg><span>История</span><span class="dot" id="nav-history-dot" hidden></span></button>
+        <button id="nav-accounts"><svg class="ic"><use href="#i-link"/></svg><span>Подключения</span></button>
+      </nav>
       <div id="user" class="user" hidden>
         <span id="user-email"></span>
         <button id="logout" class="link">Выйти</button>
       </div>
-    </header>
+    </div>
+  </header>
 
+  <main>
     <!-- Вход и регистрация -->
-    <section id="view-auth" hidden>
-      <p class="lead">Сервис сам ведёт рекламу вашего бизнеса в Яндекс Директе. Войдите или создайте аккаунт.</p>
+    <section id="view-auth" class="auth" hidden>
+      <div class="auth-hero">
+        <h1>Реклама без хлопот</h1>
+        <p>Автобидер сам ведёт вашу рекламу в Яндекс Директе: запускает, следит за результатом и объясняет каждый шаг простыми словами.</p>
+      </div>
       <div class="card">
         <div class="tabs" role="tablist">
           <button id="tab-login" class="tab active" role="tab">Вход</button>
@@ -29,42 +52,99 @@
           <input type="email" id="email" autocomplete="email" required>
           <label for="password">Пароль <span class="hint" id="password-hint"></span></label>
           <input type="password" id="password" autocomplete="current-password" required>
-          <button type="submit" id="auth-submit">Войти</button>
+          <p></p>
+          <button type="submit" id="auth-submit" class="big">Войти</button>
           <p id="auth-status" class="status" role="status"></p>
         </form>
         <div id="yandex-box" hidden>
           <p class="hint or">или</p>
-          <a id="yandex-login" class="btn-yandex" href="/auth/yandex/start">Войти через Яндекс ID</a>
+          <a id="yandex-login" class="btn btn-yandex" href="/auth/yandex/start">Войти через Яндекс ID</a>
         </div>
       </div>
     </section>
 
     <section id="view-app" hidden>
-      <nav class="tabs main-tabs">
-        <button id="nav-business" class="tab active">Мой бизнес</button>
-        <button id="nav-creatives" class="tab">Креативы</button>
-        <button id="nav-stats" class="tab">Статистика</button>
-        <button id="nav-history" class="tab">История</button>
-        <button id="nav-accounts" class="tab">Рекламные кабинеты</button>
-      </nav>
-
       <div id="stopbar" class="stopbar" hidden>
         <span id="stopbar-text" class="hint"></span>
         <button id="stop-all" class="small danger">Остановить всю рекламу</button>
         <button id="resume-all" class="small" hidden>Включить обратно</button>
       </div>
 
+      <!-- Главная -->
+      <div id="page-home">
+        <div class="card hero">
+          <p class="eyebrow" id="home-eyebrow">Добро пожаловать</p>
+          <h1 id="home-title">Расскажите о бизнесе</h1>
+          <p id="home-text" class="muted">Это займёт пару минут. Остальное сервис сделает сам.</p>
+          <div class="hero-actions">
+            <button id="home-cta" class="big">Начать</button>
+            <button id="sim-start" class="secondary big" hidden>Посмотреть на примере</button>
+          </div>
+          <div class="progress" id="home-progress" hidden>
+            <div class="bar"><div id="home-progress-fill" class="fill good"></div></div>
+            <span id="home-progress-text" class="hint"></span>
+          </div>
+        </div>
+
+        <p class="notice" id="example-notice" hidden>Это пример: учебная симуляция, а не ваша реальная реклама. Деньги не тратятся, но решения принимаются так же, как на настоящей рекламе.</p>
+        <ul id="notices" class="notices"></ul>
+        <p id="stats-needs" class="status err"></p>
+
+        <div class="card" id="decisions-card" hidden>
+          <h2>Ждёт вашего решения</h2>
+          <ul id="decisions" class="decisions"></ul>
+        </div>
+
+        <div id="launch-card" class="launch" hidden>
+          <h3>Что будет создано в Яндекс Директе</h3>
+          <p id="launch-summary" class="hint"></p>
+          <ul id="launch-variants" class="variants"></ul>
+          <ul id="launch-warnings" class="notices"></ul>
+          <p class="hint">Деньги спишутся только после того, как Яндекс одобрит объявления и вы пополните счёт. Больше недельного бюджета сервис не потратит.</p>
+          <div class="notice" id="marking-box">
+            <p id="marking-help" class="hint"></p>
+            <label class="check"><input type="checkbox" id="marking-ok"> Я внёс данные рекламодателя в Яндекс Директе</label>
+          </div>
+          <div class="hero-actions">
+            <button id="launch-go" disabled>Создать и отправить на проверку</button>
+            <button id="launch-cancel" class="secondary">Отмена</button>
+          </div>
+        </div>
+
+        <div id="tiles" class="tiles" hidden></div>
+        <p id="goal-line" class="goal" hidden></p>
+
+        <div class="card" id="chart-card" hidden>
+          <h2>Последние 14 дней</h2>
+          <svg id="chart" class="chart" viewBox="0 0 640 220" role="img" aria-label="Расход и обращения по дням"></svg>
+          <div class="legend"><span><i></i>Расход, ₽</span><span><i class="l2"></i>Обращения</span></div>
+        </div>
+
+        <div class="card" id="budget-box" hidden>
+          <h2>Бюджет недели</h2>
+          <p class="hint" id="budget-text"></p>
+          <div class="bar"><div id="budget-fill" class="fill"></div></div>
+        </div>
+
+        <div class="card checklist" id="checklist-card" hidden>
+          <h2>Что нужно, чтобы реклама заработала</h2>
+          <div id="checklist"></div>
+        </div>
+        <p id="home-sim-day" class="hint"></p>
+      </div>
+
       <!-- Бизнес -->
-      <div id="page-business">
+      <div id="page-business" hidden>
+        <div class="page-head"><h1>Бизнес</h1></div>
         <div class="card">
           <h2>Ваши бизнесы</h2>
           <div id="business-list" class="chips"></div>
           <button id="business-new" class="small secondary">Добавить бизнес</button>
         </div>
 
-        <div class="card">
-          <h2 id="business-title">Расскажите о бизнесе</h2>
-          <form id="business-form">
+        <form id="business-form">
+          <fieldset class="card">
+            <legend id="business-title">Расскажите о бизнесе</legend>
             <label for="b-name">Название</label>
             <input type="text" id="b-name" maxlength="100" required placeholder="Например, Салон «Лотос»">
 
@@ -89,12 +169,34 @@
 
             <label for="b-maps">Ссылка на ваш бизнес в Яндекс Картах <span class="hint">(необязательно)</span></label>
             <input type="text" id="b-maps" maxlength="500" placeholder="https://yandex.ru/maps/org/...">
-            <p class="hint">Найдите свою организацию в Яндекс Картах и скопируйте адрес страницы из браузера. По ней покажем в рекламе адрес, рейтинг и отзывы.</p>
+            <p class="hint">Найдите организацию в Яндекс Картах и скопируйте адрес страницы из браузера. По ней покажем в рекламе адрес, рейтинг и отзывы.</p>
+          </fieldset>
 
-            <h3>Стиль рекламы</h3>
+          <fieldset class="card">
+            <legend>Деньги</legend>
+            <label for="b-budget">Бюджет на рекламу в неделю, ₽</label>
+            <input type="number" id="b-budget" min="0" step="1" inputmode="numeric" placeholder="Больше этой суммы сервис не потратит">
+            <label for="b-cpa">Сколько готовы платить за одного клиента, ₽</label>
+            <input type="number" id="b-cpa" min="0" step="1" inputmode="numeric" placeholder="Если не знаете, оставьте пустым">
+            <label for="b-check">Средний чек, ₽</label>
+            <input type="number" id="b-check" min="0" step="1" inputmode="numeric" placeholder="Сколько в среднем платит один клиент">
+            <label for="b-share">Какая часть обращений становится клиентами, %</label>
+            <input type="number" id="b-share" min="1" max="100" step="1" inputmode="numeric" placeholder="30">
+            <p class="hint">Например, из 10 звонков приходят 3 человека: это 30%. Если не знаете, оставьте 30.</p>
+          </fieldset>
+
+          <fieldset class="card">
+            <legend>Как действовать сервису</legend>
+            <label class="radio"><input type="radio" name="mode" id="mode-ask" value="ask" checked>
+              <span><strong>Сначала спрашивать меня</strong><br><span class="hint">Сервис предлагает остановить слабое объявление или добавить бюджет, а вы подтверждаете. Так спокойнее на старте.</span></span></label>
+            <label class="radio"><input type="radio" name="mode" id="mode-auto" value="auto">
+              <span><strong>Делать самому</strong><br><span class="hint">Сервис сам меняет рекламу и записывает всё в историю. Любое изменение можно отменить.</span></span></label>
+          </fieldset>
+
+          <fieldset class="card">
+            <legend>Стиль рекламы</legend>
             <label for="b-tone">Какой тон вам ближе</label>
             <select id="b-tone"><option value="">Не важно</option></select>
-
             <div class="row">
               <div>
                 <label for="b-color-main">Главный цвет</label>
@@ -106,29 +208,14 @@
               </div>
             </div>
             <p class="hint">Цвета и логотип помогут сделать картинки в вашем стиле.</p>
+          </fieldset>
 
-            <h3>Деньги</h3>
-            <label for="b-check">Средний чек, ₽</label>
-            <input type="number" id="b-check" min="0" step="1" placeholder="Сколько в среднем платит один клиент">
-            <label for="b-cpa">Сколько готовы платить за одного клиента, ₽</label>
-            <input type="number" id="b-cpa" min="0" step="1" placeholder="Если не знаете, оставьте пустым">
-            <label for="b-budget">Бюджет на рекламу в неделю, ₽</label>
-            <input type="number" id="b-budget" min="0" step="1" placeholder="Больше этой суммы сервис не потратит">
-            <label for="b-share">Какая часть обращений становится клиентами, %</label>
-            <input type="number" id="b-share" min="1" max="100" step="1" placeholder="30">
-            <p class="hint">Например, из 10 звонков приходят 3 человека: это 30%. Если не знаете, оставьте 30.</p>
-
-            <h3>Как действовать сервису</h3>
-            <label class="radio"><input type="radio" name="mode" id="mode-ask" value="ask" checked>
-              <span><strong>Сначала спрашивать меня</strong><br><span class="hint">Сервис предлагает остановить слабое объявление или добавить бюджет, а вы подтверждаете. Так спокойнее на старте.</span></span></label>
-            <label class="radio"><input type="radio" name="mode" id="mode-auto" value="auto">
-              <span><strong>Делать самому</strong><br><span class="hint">Сервис сам меняет рекламу и записывает всё в историю. Любое изменение можно отменить.</span></span></label>
-
+          <div class="savebar">
             <button type="submit" id="business-save">Сохранить</button>
-            <button type="button" id="business-delete" class="secondary" hidden>Удалить бизнес</button>
-            <p id="business-status" class="status" role="status"></p>
-          </form>
-        </div>
+            <button type="button" id="business-delete" class="danger" hidden>Удалить бизнес</button>
+            <span id="business-status" class="status" role="status"></span>
+          </div>
+        </form>
 
         <div class="card" id="metrika-card" hidden>
           <h2>Обращения с сайта (Яндекс Метрика)</h2>
@@ -138,6 +225,7 @@
             <select id="m-counter"></select>
             <label for="m-goal">Цель «обращение»</label>
             <select id="m-goal"></select>
+            <p></p>
             <button id="m-save" class="small">Сохранить</button>
             <button id="m-clear" class="small secondary" hidden>Отключить</button>
           </div>
@@ -172,12 +260,13 @@
         </div>
       </div>
 
-      <!-- Креативы -->
+      <!-- Объявления: тексты, картинки, видео -->
       <div id="page-creatives" hidden>
-        <p id="cr-empty" class="hint" hidden>Сначала опишите бизнес на вкладке «Мой бизнес».</p>
+        <div class="page-head"><h1>Объявления</h1></div>
+        <p id="cr-empty" class="hint" hidden>Сначала опишите бизнес на странице «Бизнес».</p>
         <div id="cr-body" hidden>
           <div class="card">
-            <h2>Тексты объявлений</h2>
+            <h2>Тексты</h2>
             <p class="hint">Одобренные варианты попадут в рекламу, остальные сервис добавит сам. Заголовок до 56 знаков, текст до 81. Лишних обещаний вроде скидок мы не придумываем.</p>
             <p id="cr-ai-note" class="notice" hidden></p>
             <div class="upload-row">
@@ -192,6 +281,7 @@
               <input type="text" id="cr-own-title" maxlength="80">
               <label for="cr-own-body">Текст <span class="hint" id="cr-own-body-n"></span></label>
               <input type="text" id="cr-own-body" maxlength="120">
+              <p></p>
               <button id="cr-add-own" class="small">Добавить</button>
             </details>
           </div>
@@ -216,63 +306,24 @@
             <p class="hint">Короткое видео делается из готовой картинки: нажмите «Сделать видео» под нужной картинкой. Готовится несколько минут.</p>
             <div id="cr-videos" class="grid creative-grid"></div>
             <p id="cr-videos-empty" class="hint">Видео пока нет.</p>
-            <p class="hint">Картинки: при создании рекламы сервис сам делает из выбранных картинок (или, если не выбраны, из ваших фото) баннеры с заголовком, логотипом и цветом бизнеса и прикрепляет их к объявлениям. Видео пока сохраняются в библиотеке, в объявления в Директе они не добавляются.</p>
+            <p class="hint">При создании рекламы сервис сам делает из выбранных картинок (или, если не выбраны, из ваших фото) баннеры с заголовком, логотипом и цветом бизнеса и прикрепляет их к объявлениям. Видео пока сохраняются в библиотеке, в объявления в Директе они не добавляются.</p>
           </div>
           <p id="cr-spend" class="hint"></p>
         </div>
       </div>
 
-      <!-- Статистика -->
+      <!-- Результаты -->
       <div id="page-stats" hidden>
-        <div class="card">
-          <h2 id="stats-title">Статистика</h2>
-          <p id="stats-empty" class="hint" hidden>Сначала опишите бизнес на вкладке «Мой бизнес».</p>
-          <div id="stats-body" hidden>
-            <div id="checklist" class="checklist"></div>
-            <p id="proposals-note" class="notice proposals" hidden></p>
-            <p class="notice" id="example-notice" hidden>Пример данных. Это учебная симуляция, а не ваша реальная реклама. Деньги не тратятся, но сервис принимает решения так же, как на настоящей рекламе.</p>
-            <p id="stats-needs" class="status err"></p>
-            <ul id="notices" class="notices"></ul>
-            <div id="launch-card" class="launch" hidden>
-              <h3>Что будет создано в Яндекс Директе</h3>
-              <p id="launch-summary" class="hint"></p>
-              <ul id="launch-variants" class="variants"></ul>
-              <ul id="launch-warnings" class="notices"></ul>
-              <p class="hint">Деньги спишутся только после того, как Яндекс одобрит объявления и вы пополните счёт. Больше недельного бюджета сервис не потратит.</p>
-              <div class="notice" id="marking-box">
-                <p id="marking-help" class="hint"></p>
-                <label class="check"><input type="checkbox" id="marking-ok"> Я внёс данные рекламодателя в Яндекс Директе</label>
-              </div>
-              <button id="launch-go" class="small" disabled>Создать и отправить на проверку</button>
-              <button id="launch-cancel" class="small secondary">Отмена</button>
-            </div>
-            <div class="actions">
-              <button id="launch-open" class="small">Создать рекламу</button>
-              <button id="sync-now" class="small secondary" hidden>Обновить данные</button>
-              <button id="sim-start" class="small secondary">Посмотреть на примере</button>
-              <button class="small secondary" data-advance="1">Прокрутить 1 день</button>
-              <button class="small secondary" data-advance="7">7 дней</button>
-              <button class="small secondary" data-advance="30">30 дней</button>
-              <button id="sim-reset" class="small secondary">Сбросить пример</button>
-            </div>
-            <p id="sim-day" class="hint"></p>
-            <p id="stats-status" class="status" role="status"></p>
-
-            <div id="tiles" class="tiles" hidden></div>
-            <details id="clients-box" class="own-text" hidden>
-              <summary>Записать, сколько клиентов пришло из рекламы</summary>
-              <p class="hint">Метрика видит обращения, но не знает, кто в итоге стал клиентом. Укажите число, и цена клиента станет точной, а не оценкой.</p>
-              <div class="upload-row">
-                <input type="date" id="clients-day">
-                <input type="number" id="clients-count" min="0" max="1000" step="1" placeholder="Сколько клиентов">
-                <button id="clients-save" class="small">Записать</button>
-              </div>
-              <p id="clients-status" class="status" role="status"></p>
-            </details>
-            <div id="budget-box" hidden>
-              <p class="hint" id="budget-text"></p>
-              <div class="bar"><div id="budget-fill" class="fill"></div></div>
-            </div>
+        <div class="page-head">
+          <h1 id="stats-title">Результаты</h1>
+          <button id="sync-now" class="small secondary" hidden>Обновить данные</button>
+        </div>
+        <p id="stats-empty" class="hint" hidden>Сначала опишите бизнес на странице «Бизнес».</p>
+        <div id="stats-body" hidden>
+          <p class="hint" id="stats-sync"></p>
+          <div class="card">
+            <h2>Объявления</h2>
+            <p id="units-empty" class="hint" hidden>Объявлений пока нет. Создайте рекламу на главной странице.</p>
             <div class="table-wrap">
               <table id="units-table" hidden>
                 <thead><tr><th>Объявление</th><th>Оценка</th><th>Бюджет в неделю</th><th>Расход</th><th>Обращения</th><th>Клиенты</th><th>Цена клиента</th></tr></thead>
@@ -281,24 +332,48 @@
             </div>
             <p class="hint" id="units-hint" hidden>Показаны последние 14 дней. «Пока неясно» значит, что данных мало или результат на грани окупаемости.</p>
           </div>
+
+          <details id="clients-box" class="card" hidden>
+            <summary>Записать, сколько клиентов пришло из рекламы</summary>
+            <p class="hint">Метрика видит обращения, но не знает, кто в итоге стал клиентом. Укажите число, и цена клиента станет точной, а не оценкой.</p>
+            <div class="upload-row">
+              <input type="date" id="clients-day">
+              <input type="number" id="clients-count" min="0" max="1000" step="1" inputmode="numeric" placeholder="Сколько клиентов">
+              <button id="clients-save" class="small">Записать</button>
+            </div>
+            <p id="clients-status" class="status" role="status"></p>
+          </details>
+
+          <details class="card" id="demo-box">
+            <summary>Демонстрация на примере данных</summary>
+            <p class="hint">Учебная симуляция: деньги не тратятся. Можно прокрутить время и посмотреть, как сервис принимает решения.</p>
+            <div class="upload-row">
+              <button class="small secondary" data-advance="1">Прокрутить 1 день</button>
+              <button class="small secondary" data-advance="7">7 дней</button>
+              <button class="small secondary" data-advance="30">30 дней</button>
+              <button id="sim-reset" class="small danger">Сбросить пример</button>
+            </div>
+            <p id="sim-day" class="hint"></p>
+          </details>
         </div>
       </div>
 
       <!-- История -->
       <div id="page-history" hidden>
+        <div class="page-head"><h1>История</h1></div>
         <div class="card">
-          <h2>История изменений</h2>
-          <p class="hint">Здесь всё, что сервис (или вы) менял в рекламе, и почему. Любое изменение можно отменить.</p>
+          <p class="hint">Всё, что сервис (или вы) менял в рекламе, и почему. Любое изменение можно отменить.</p>
           <p id="history-empty" class="hint" hidden>Пока изменений нет.</p>
           <ul id="history" class="list history"></ul>
           <p id="history-status" class="status" role="status"></p>
         </div>
       </div>
 
-      <!-- Кабинеты -->
+      <!-- Подключения -->
       <div id="page-accounts" hidden>
+        <div class="page-head"><h1>Подключения</h1></div>
         <div class="card">
-          <h2>Мои рекламные кабинеты</h2>
+          <h2>Рекламные кабинеты</h2>
           <p id="accounts-empty" class="hint" hidden>Пока нет ни одного кабинета. Подключите первый ниже.</p>
           <ul id="accounts" class="list"></ul>
         </div>
@@ -319,7 +394,7 @@
           <h2>Подключить кабинет</h2>
           <p>Нажмите кнопку и разрешите Автобидеру вести рекламу в вашем кабинете Директа. Пароль и токен вводить не нужно: Яндекс покажет короткий код, его нужно ввести на странице Яндекса.</p>
           <p id="connect-status" class="status" role="status"></p>
-          <button id="connect-direct" class="btn-direct">Подключить Яндекс Директ</button>
+          <button id="connect-direct" class="big">Подключить Яндекс Директ</button>
           <div id="connect-panel" class="launch" hidden>
             <ol class="steps">
               <li>Откройте <a id="connect-url" target="_blank" rel="noopener">страницу Яндекса</a> (откроется в новой вкладке).</li>
@@ -350,6 +425,7 @@
               Взять токен с сервера (режим разработки)
             </label>
 
+            <p></p>
             <button type="submit" id="account-submit">Подключить</button>
             <p id="account-status" class="status" role="status"></p>
           </form>
@@ -357,6 +433,18 @@
       </div>
     </section>
   </main>
+
+  <div id="modal" class="modal" hidden>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <h3 id="modal-title"></h3>
+      <p id="modal-text" class="muted"></p>
+      <div class="modal-actions">
+        <button id="modal-no" class="secondary">Отмена</button>
+        <button id="modal-yes">Да</button>
+      </div>
+    </div>
+  </div>
+  <div id="toasts" class="toasts" aria-live="polite"></div>
   <script src="/static/app.js"></script>
 </body>
 </html>

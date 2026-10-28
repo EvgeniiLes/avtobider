@@ -42,6 +42,36 @@ function el(tag, props = {}, ...children) {
   return node;
 }
 
+function toast(text, kind) {
+  const node = el("div", { className: "toast" + (kind === "err" ? " err" : ""), textContent: text });
+  $("toasts").append(node);
+  setTimeout(() => node.remove(), kind === "err" ? 7000 : 4000);
+}
+
+// Результат действия: успех — всплывающая подсказка, ошибка — тоже, но дольше.
+function say(text, kind) {
+  if (text) toast(text, kind);
+}
+
+function askConfirm(title, text, yesLabel = "Да") {
+  return new Promise((resolve) => {
+    $("modal-title").textContent = title;
+    $("modal-text").textContent = text;
+    $("modal-yes").textContent = yesLabel;
+    $("modal").hidden = false;
+    $("modal-yes").focus();
+    const done = (value) => {
+      $("modal").hidden = true;
+      $("modal-yes").onclick = $("modal-no").onclick = $("modal").onclick = document.onkeydown = null;
+      resolve(value);
+    };
+    $("modal-yes").onclick = () => done(true);
+    $("modal-no").onclick = () => done(false);
+    $("modal").onclick = (e) => { if (e.target === $("modal")) done(false); };
+    document.onkeydown = (e) => { if (e.key === "Escape") done(false); };
+  });
+}
+
 /* ---------- Вход и регистрация ---------- */
 
 let authMode = "login";
@@ -84,6 +114,7 @@ function showAuth() {
   $("view-auth").hidden = false;
   $("view-app").hidden = true;
   $("user").hidden = true;
+  $("nav").hidden = true;
   setAuthMode("login");
 }
 
@@ -92,22 +123,26 @@ async function showApp(email) {
   $("view-auth").hidden = true;
   $("view-app").hidden = false;
   $("user").hidden = false;
+  $("nav").hidden = false;
   $("user-email").textContent = email;
   $("campaigns-card").hidden = true;
-  showPage("business");
   await Promise.all([loadBusinesses(), loadAccounts()]);
+  showPage("home");
 }
 
-const PAGES = ["business", "creatives", "stats", "history", "accounts"];
+const PAGES = ["home", "business", "creatives", "stats", "history", "accounts"];
+let currentPage = "home";
 
 function showPage(name) {
+  currentPage = name;
   for (const page of PAGES) {
     $(`page-${page}`).hidden = page !== name;
     $(`nav-${page}`).classList.toggle("active", page === name);
   }
+  window.scrollTo(0, 0);
   if (name !== "creatives") clearTimeout(creativeTimer);
   if (name === "creatives") loadCreatives();
-  if (name === "stats") loadStats();
+  if (name === "home" || name === "stats") loadStats();
   if (name === "history") { setStatus("history-status", ""); loadHistory(); }
 }
 
@@ -233,12 +268,13 @@ async function saveBusiness(event) {
   const isNew = !currentBusiness;
   currentBusiness = result.data;
   await loadBusinesses(currentBusiness.id);
-  setStatus("business-status", isNew ? "Готово. Теперь загрузите фото и логотип ниже." : "Сохранено.", "ok");
+  setStatus("business-status", "");
+  say(isNew ? "Бизнес сохранён. Ниже можно загрузить фото и логотип." : "Сохранено.");
 }
 
 async function deleteBusiness() {
   if (!currentBusiness) return;
-  if (!confirm(`Удалить бизнес «${currentBusiness.name}» вместе с загруженными файлами?`)) return;
+  if (!(await askConfirm("Удалить бизнес?", `«${currentBusiness.name}» будет удалён вместе с загруженными файлами.`, "Удалить"))) return;
   await api("DELETE", `/api/businesses/${currentBusiness.id}`);
   currentBusiness = null;
   await loadBusinesses();
@@ -501,20 +537,23 @@ function tile(num, label) {
   return el("div", { className: "tile" }, el("div", { className: "num", textContent: num }), el("div", { className: "lbl", textContent: label }));
 }
 
+function nextStep(steps) {
+  return steps.find((s) => !s.done && !s.optional) || steps.find((s) => !s.done);
+}
+
 function renderChecklist(steps) {
   const box = $("checklist");
   box.replaceChildren();
-  const next = steps.find((s) => !s.done && !s.soon);
-  if (!next) { box.hidden = true; return; }
-  box.hidden = false;
-  box.append(el("h3", { textContent: "Что нужно, чтобы реклама заработала" }));
+  const next = nextStep(steps);
+  $("checklist-card").hidden = !next;
+  if (!next) return;
   for (const s of steps) {
-    const state = s.done ? "done" : s === next ? "next" : s.soon ? "soon" : "";
-    const body = el("div", {}, el("div", { className: "title", textContent: s.title }));
+    const state = s.done ? "done" : s === next ? "next" : s.optional ? "optional" : "";
+    const body = el("div", {}, el("div", { className: "title", textContent: s.title + (s.optional && !s.done ? " (желательно)" : "") }));
     if (!s.done) {
       const hint = el("div", { className: "hint", textContent: s.hint + " " });
-      if (s.page) {
-        const go = el("a", { textContent: "Перейти" });
+      if (s.page && s.page !== currentPage) {
+        const go = el("button", { className: "link", textContent: "Перейти" });
         go.addEventListener("click", () => showPage(s.page));
         hint.append(go);
       }
@@ -522,6 +561,145 @@ function renderChecklist(steps) {
     }
     box.append(el("div", { className: `step ${state}` }, el("div", { className: "mark", textContent: s.done ? "✓" : "" }), body));
   }
+}
+
+let homeAction = null; // что делает большая кнопка на главной
+
+function renderHome(data) {
+  const steps = data.checklist || [];
+  const required = steps.filter((s) => !s.optional);
+  const doneCount = required.filter((s) => s.done).length;
+  const next = nextStep(steps);
+  const noAds = !data.real && !data.example;
+  const eyebrow = $("home-eyebrow"), title = $("home-title"), text = $("home-text"), cta = $("home-cta");
+  $("sim-start").hidden = !noAds;
+  $("home-progress").hidden = !(noAds && next);
+  $("home-progress-fill").style.width = `${Math.round((doneCount / required.length) * 100)}%`;
+  $("home-progress-text").textContent = `Готово шагов: ${doneCount} из ${required.length}`;
+  cta.hidden = false;
+  if (data.stopped) {
+    eyebrow.textContent = "Пауза";
+    title.textContent = "Реклама остановлена";
+    text.textContent = "Показов нет, деньги не тратятся. Когда будете готовы, включите рекламу обратно.";
+    cta.textContent = "Включить обратно";
+    homeAction = resumeAll;
+  } else if (data.real || data.example) {
+    const t = data.totals;
+    eyebrow.textContent = data.example ? "Пример" : "Реклама работает";
+    title.textContent = t && t.leads ? `${t.leads} ${plural(t.leads, "обращение", "обращения", "обращений")} за ${t.days} дней` : "Реклама запущена";
+    text.textContent = data.proposals
+      ? `Есть предложения, которые ждут вашего решения: ${data.proposals}.`
+      : data.real ? "Сервис следит за результатом и сам сообщит, если нужно ваше решение." : "Посмотрите, как сервис принимает решения, в разделе «Демонстрация» на странице «Результаты».";
+    if (data.real) { cta.textContent = "Обновить данные"; homeAction = syncNow; } else { cta.hidden = true; homeAction = null; }
+  } else if (next && next.key !== "ads") {
+    eyebrow.textContent = "Следующий шаг";
+    title.textContent = STEP_ACTION[next.key] || next.title;
+    text.textContent = next.hint;
+    cta.textContent = STEP_BUTTON[next.key] || "Перейти";
+    homeAction = () => showPage(next.page || "home");
+  } else {
+    eyebrow.textContent = "Всё готово";
+    title.textContent = "Можно запускать рекламу";
+    text.textContent = "Сервис покажет план: какие объявления будут созданы и сколько денег на них уйдёт. Ничего не запустится без вашего подтверждения.";
+    cta.textContent = "Создать рекламу";
+    homeAction = openLaunch;
+  }
+}
+
+const STEP_ACTION = {
+  described: "Расскажите о своём бизнесе",
+  money: "Задайте бюджет",
+  cabinet: "Подключите рекламный кабинет",
+  marking: "Внесите данные рекламодателя",
+  metrika: "Подключите учёт обращений",
+};
+const STEP_BUTTON = {
+  described: "Описать бизнес", money: "Указать бюджет", cabinet: "Подключить кабинет", marking: "Понятно, сделаю", metrika: "Подключить",
+};
+
+function plural(n, one, few, many) {
+  const m10 = n % 10, m100 = n % 100;
+  if (m10 === 1 && m100 !== 11) return one;
+  if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return few;
+  return many;
+}
+
+function svgEl(tag, attrs) {
+  const node = document.createElementNS("http://www.w3.org/2000/svg", tag);
+  for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
+  return node;
+}
+
+function renderChart(days) {
+  const card = $("chart-card");
+  const total = days.reduce((s, d) => s + d.spend + d.leads, 0);
+  card.hidden = !days.length || !total;
+  const svg = $("chart");
+  svg.replaceChildren();
+  if (card.hidden) return;
+  const W = 640, H = 220, L = 40, R = 12, T = 12, B = 28;
+  const maxSpend = Math.max(...days.map((d) => d.spend), 1);
+  const maxLeads = Math.max(...days.map((d) => d.leads), 1);
+  const slot = (W - L - R) / days.length;
+  for (let i = 0; i <= 3; i++) {
+    const y = T + ((H - T - B) * i) / 3;
+    svg.append(svgEl("line", { x1: L, x2: W - R, y1: y, y2: y, class: "grid-line" }));
+    const label = svgEl("text", { x: L - 6, y: y + 4, "text-anchor": "end", class: "axis" });
+    label.textContent = Math.round(maxSpend * (1 - i / 3)).toLocaleString("ru-RU");
+    svg.append(label);
+  }
+  const points = [];
+  days.forEach((d, i) => {
+    const h = ((H - T - B) * d.spend) / maxSpend;
+    const x = L + i * slot + slot * 0.18;
+    svg.append(svgEl("rect", { x, y: H - B - h, width: slot * 0.64, height: Math.max(h, 0), rx: 3, class: "bar-spend" }));
+    points.push([L + i * slot + slot / 2, H - B - ((H - T - B) * d.leads) / maxLeads]);
+    if (i % Math.ceil(days.length / 7) === 0) {
+      const t = svgEl("text", { x: L + i * slot + slot / 2, y: H - 8, "text-anchor": "middle", class: "axis" });
+      t.textContent = d.day.slice(8) + "." + d.day.slice(5, 7);
+      svg.append(t);
+    }
+  });
+  if (days.some((d) => d.leads)) {
+    svg.append(svgEl("polyline", { points: points.map((p) => p.join(",")).join(" "), class: "line-leads" }));
+    for (const [x, y] of points) svg.append(svgEl("circle", { cx: x, cy: y, r: 3.5, class: "dot-leads" }));
+  }
+}
+
+async function loadSeries() {
+  const result = await api("GET", `/api/businesses/${currentBusiness.id}/series?days=14`);
+  renderChart(result.ok ? result.data.days : []);
+}
+
+function renderGoal(data) {
+  const line = $("goal-line");
+  const t = data.totals;
+  if (!t || !t.cost_per_client || !data.target_cpa) { line.hidden = true; return; }
+  const ok = t.cost_per_client <= data.target_cpa;
+  line.hidden = false;
+  line.className = "goal " + (ok ? "good" : "bad");
+  line.textContent = ok
+    ? `Клиент обходится в ${money(t.cost_per_client)}, это дешевле вашей цели (${money(data.target_cpa)}). Так держать.`
+    : `Клиент обходится в ${money(t.cost_per_client)}, это дороже вашей цели (${money(data.target_cpa)}). Сервис ищет, что можно улучшить.`;
+}
+
+async function renderDecisions() {
+  const card = $("decisions-card");
+  const result = await api("GET", `/api/businesses/${currentBusiness.id}/changes`);
+  const items = result.ok ? result.data.changes.filter((c) => c.can_decide) : [];
+  card.hidden = !items.length;
+  const dot = $("nav-history-dot");
+  dot.hidden = !items.length;
+  dot.textContent = String(items.length);
+  $("decisions").replaceChildren(...items.map((c) => {
+    const yes = el("button", { className: "small", textContent: "Подтвердить" });
+    yes.addEventListener("click", () => decide(c, "approve"));
+    const no = el("button", { className: "small secondary", textContent: "Не делать" });
+    no.addEventListener("click", () => decide(c, "reject"));
+    return el("li", {},
+      el("div", { className: "text" }, el("div", { className: "what", textContent: c.unit ? `${c.action}: ${c.unit}` : c.action }), el("div", { textContent: c.reason })),
+      el("div", { className: "btns" }, yes, no));
+  }));
 }
 
 async function refreshStopbar() {
@@ -536,18 +714,21 @@ async function refreshStopbar() {
   $("stopbar-text").textContent = data.stopped
     ? "Вся реклама остановлена вами."
     : data.mode === "ask" ? "Сервис сначала спрашивает вас о каждом изменении." : "Сервис меняет рекламу сам и записывает всё в историю.";
+  renderDecisions();
 }
 
 async function stopAll() {
-  if (!confirm("Остановить всю рекламу этого бизнеса? Показы прекратятся сразу. Включить обратно можно в один клик.")) return;
+  if (!(await askConfirm("Остановить всю рекламу?", "Показы прекратятся сразу. Включить обратно можно в один клик.", "Остановить"))) return;
   const result = await api("POST", `/api/businesses/${currentBusiness.id}/stop-all`);
-  if (!result.ok) { setStatus("stats-status", errorText(result), "err"); return; }
+  if (!result.ok) { say(errorText(result), "err"); return; }
+  say("Реклама остановлена.");
   await Promise.all([refreshStopbar(), loadStats()]);
 }
 
 async function resumeAll() {
   const result = await api("POST", `/api/businesses/${currentBusiness.id}/resume-all`);
-  if (!result.ok) { setStatus("stats-status", errorText(result), "err"); return; }
+  if (!result.ok) { say(errorText(result), "err"); return; }
+  say("Реклама включена обратно.");
   await Promise.all([refreshStopbar(), loadStats()]);
 }
 
@@ -555,32 +736,37 @@ async function loadStats() {
   const has = !!currentBusiness;
   $("stats-empty").hidden = has;
   $("stats-body").hidden = !has;
-  if (!has) return;
-  $("stats-title").textContent = `Статистика: ${currentBusiness.name}`;
+  if (!has) {
+    homeAction = () => showPage("business");
+    $("home-eyebrow").textContent = "Добро пожаловать";
+    $("home-title").textContent = "Расскажите о своём бизнесе";
+    $("home-text").textContent = "Это займёт пару минут. Остальное сервис сделает сам.";
+    $("home-cta").textContent = "Начать";
+    $("home-cta").hidden = false;
+    for (const id of ["sim-start", "home-progress", "tiles", "goal-line", "chart-card", "budget-box", "checklist-card", "decisions-card"]) $(id).hidden = true;
+    return;
+  }
+  $("stats-title").textContent = `Результаты: ${currentBusiness.name}`;
   const result = await api("GET", `/api/businesses/${currentBusiness.id}/overview`);
-  if (!result.ok) { setStatus("stats-status", errorText(result), "err"); return; }
+  if (!result.ok) { say(errorText(result), "err"); return; }
   const data = result.data;
   renderChecklist(data.checklist || []);
-  const note = $("proposals-note");
-  note.hidden = !data.proposals;
-  note.replaceChildren();
-  if (data.proposals) {
-    const go = el("a", { textContent: "Посмотреть" });
-    go.addEventListener("click", () => showPage("history"));
-    note.append(`Предложений, которые ждут вашего решения: ${data.proposals}. `, go);
-  }
+  renderHome(data);
+  renderGoal(data);
+  if (data.real || data.example) loadSeries(); else renderChart([]);
+  renderDecisions();
   $("example-notice").hidden = !data.example;
-  $("stats-needs").textContent = data.needs;
-  $("sim-start").hidden = data.example || data.real;
-  $("sim-reset").hidden = !data.example;
-  $("launch-open").hidden = data.real;
+  $("stats-needs").textContent = data.real || data.example ? data.needs : "";
+  $("demo-box").hidden = !data.example;
   $("sync-now").hidden = !data.real;
   for (const b of document.querySelectorAll("[data-advance]")) b.hidden = !data.example;
-  $("sim-day").textContent = data.example
-    ? `Сегодня в примере: ${data.today}`
-    : data.real
-      ? (data.sync.at ? `Данные обновлены: ${new Date(data.sync.at).toLocaleString("ru-RU")}` : "Данные ещё не обновлялись.")
-      : "Пока нет рекламы. Нажмите «Создать рекламу» или посмотрите, как всё работает, на примере.";
+  $("sim-reset").hidden = !data.example;
+  const syncText = data.real
+    ? (data.sync.at ? `Данные обновлены: ${new Date(data.sync.at).toLocaleString("ru-RU")}` : "Данные ещё не обновлялись.") : "";
+  $("stats-sync").textContent = syncText;
+  $("home-sim-day").textContent = data.real ? syncText : "";
+  $("sim-day").textContent = data.example ? `Сегодня в примере: ${data.today}` : "";
+  $("units-empty").hidden = data.units.length > 0;
   $("clients-box").hidden = !(data.real && data.conversions);
   if (!$("clients-day").value) $("clients-day").value = new Date().toISOString().slice(0, 10);
   const notices = $("notices");
@@ -598,10 +784,10 @@ async function loadStats() {
       tile(money(t.cost_per_client), t.clients_estimated ? "Цена клиента (оценка)" : "Цена клиента"),
     );
   }
-  $("budget-box").hidden = !data.budget;
+  $("budget-box").hidden = !data.budget || !(data.real || data.example);
   if (data.budget) {
     const b = data.budget;
-    $("budget-text").textContent = `Бюджет недели: потрачено ${money(b.spent_week)} из ${money(b.weekly)} (${b.percent}%).`;
+    $("budget-text").textContent = `Потрачено ${money(b.spent_week)} из ${money(b.weekly)} (${b.percent}%).`;
     const fill = $("budget-fill");
     fill.style.width = `${Math.min(b.percent, 100)}%`;
     fill.className = "fill" + (b.percent >= 100 ? " full" : b.percent >= 90 ? " warn" : "");
@@ -626,10 +812,8 @@ async function loadStats() {
 
 async function openLaunch() {
   if (!currentBusiness) return;
-  setStatus("stats-status", "Готовим план…");
   const result = await api("GET", `/api/businesses/${currentBusiness.id}/launch/preview`);
-  if (!result.ok) { setStatus("stats-status", errorText(result), "err"); $("launch-card").hidden = true; return; }
-  setStatus("stats-status", "");
+  if (!result.ok) { say(errorText(result), "err"); $("launch-card").hidden = true; return; }
   const p = result.data;
   $("launch-summary").textContent =
     `Кабинет: ${p.account}. Город: ${p.city}. Объявлений: ${p.count}, по ${p.per_unit} ₽ в неделю каждое (всего ${p.total} ₽). Ведёт на: ${p.link}.`;
@@ -647,20 +831,21 @@ async function openLaunch() {
 async function confirmLaunch() {
   const button = $("launch-go");
   button.disabled = true;
-  setStatus("stats-status", "Создаём рекламу в Яндекс Директе…");
+  button.textContent = "Создаём рекламу…";
   const result = await api("POST", `/api/businesses/${currentBusiness.id}/launch`, { marking_confirmed: $("marking-ok").checked });
   button.disabled = false;
-  if (!result.ok) { setStatus("stats-status", errorText(result), "err"); return; }
+  button.textContent = "Создать и отправить на проверку";
+  if (!result.ok) { say(errorText(result), "err"); return; }
   $("launch-card").hidden = true;
-  setStatus("stats-status", result.data.message, "ok");
+  say(result.data.message);
   await Promise.all([loadStats(), refreshStopbar()]);
 }
 
 async function syncNow() {
-  setStatus("stats-status", "Обновляем данные из Яндекс Директа…");
+  toast("Обновляем данные из Яндекс Директа…");
   const result = await api("POST", `/api/businesses/${currentBusiness.id}/sync`);
-  if (!result.ok) { setStatus("stats-status", errorText(result), "err"); await loadStats(); return; }
-  setStatus("stats-status", result.data.changes ? `Готово. Новых записей в истории: ${result.data.changes}.` : "Данные обновлены.", "ok");
+  if (!result.ok) { say(errorText(result), "err"); await loadStats(); return; }
+  say(result.data.changes ? `Готово. Новых записей в истории: ${result.data.changes}.` : "Данные обновлены.");
   await Promise.all([loadStats(), refreshStopbar()]);
 }
 
@@ -668,18 +853,18 @@ async function saveClients() {
   const count = $("clients-count").value;
   if (count === "" || !$("clients-day").value) { setStatus("clients-status", "Укажите дату и число клиентов.", "err"); return; }
   const r = await api("POST", `/api/businesses/${currentBusiness.id}/clients`, { day: $("clients-day").value, count: Number(count) });
-  setStatus("clients-status", r.ok ? "Записали." : errorText(r), r.ok ? "ok" : "err");
+  setStatus("clients-status", "");
+  say(r.ok ? "Записали." : errorText(r), r.ok ? "" : "err");
   if (r.ok) { $("clients-count").value = ""; await loadStats(); }
 }
 
 async function simAction(path, body) {
   if (!currentBusiness) return;
-  setStatus("stats-status", "Считаем…");
   const result = await api("POST", `/api/businesses/${currentBusiness.id}/sim/${path}`, body);
-  if (!result.ok) { setStatus("stats-status", errorText(result), "err"); return; }
+  if (!result.ok) { say(errorText(result), "err"); return; }
   const made = result.data.changes_made;
   const word = currentBusiness.mode === "ask" ? "Предложений" : "Изменений";
-  setStatus("stats-status", made ? `Готово. ${word} за это время: ${made}. Подробности на вкладке «История».` : "Готово.", "ok");
+  say(made ? `Готово. ${word} за это время: ${made}. Подробности на странице «История».` : "Готово.");
   await Promise.all([loadStats(), refreshStopbar()]);
 }
 
@@ -718,18 +903,18 @@ async function loadHistory() {
 
 async function decide(change, verb) {
   const result = await api("POST", `/api/businesses/${currentBusiness.id}/changes/${change.id}/${verb}`);
-  setStatus("history-status", result.ok ? (verb === "approve" ? "Готово, сделали." : "Хорошо, ничего не меняем.") : errorText(result), result.ok ? "ok" : "err");
-  await loadHistory();
+  say(result.ok ? (verb === "approve" ? "Готово, сделали." : "Хорошо, ничего не меняем.") : errorText(result), result.ok ? "" : "err");
+  await Promise.all([currentPage === "history" ? loadHistory() : Promise.resolve(), loadStats(), refreshStopbar()]);
 }
 
 async function rollbackChange(change, force = false) {
   const result = await api("POST", `/api/businesses/${currentBusiness.id}/changes/${change.id}/rollback`, { force });
   if (result.status === 409 && !force) {
-    if (confirm(errorText(result))) await rollbackChange(change, true);
+    if (await askConfirm("Всё равно отменить?", errorText(result), "Отменить изменение")) await rollbackChange(change, true);
     return;
   }
-  if (!result.ok) { setStatus("history-status", errorText(result), "err"); return; }
-  setStatus("history-status", "Изменение отменено.", "ok");
+  if (!result.ok) { say(errorText(result), "err"); return; }
+  say("Изменение отменено.");
   await loadHistory();
 }
 
@@ -779,7 +964,7 @@ async function showCampaigns(id) {
 }
 
 async function removeAccount(account) {
-  if (!confirm(`Удалить кабинет «${account.title}» из Автобидера? В самом Яндекс Директе ничего не изменится.`)) return;
+  if (!(await askConfirm("Удалить кабинет?", `«${account.title}» исчезнет из Автобидера. В самом Яндекс Директе ничего не изменится.`, "Удалить"))) return;
   await api("DELETE", `/api/accounts/${account.id}`);
   $("campaigns-card").hidden = true;
   await loadAccounts();
@@ -816,6 +1001,8 @@ async function start() {
   $("account-form").addEventListener("submit", submitAccount);
   $("logout").addEventListener("click", logout);
 
+  $("nav-home").addEventListener("click", () => showPage("home"));
+  $("home-cta").addEventListener("click", () => { if (homeAction) homeAction(); });
   $("nav-business").addEventListener("click", () => showPage("business"));
   $("nav-accounts").addEventListener("click", () => showPage("accounts"));
   $("nav-stats").addEventListener("click", () => showPage("stats"));
@@ -831,7 +1018,6 @@ async function start() {
   $("m-save").addEventListener("click", saveMetrika);
   $("m-clear").addEventListener("click", clearMetrika);
   $("marking-ok").addEventListener("change", () => { $("launch-go").disabled = !$("marking-ok").checked; });
-  $("launch-open").addEventListener("click", openLaunch);
   $("launch-go").addEventListener("click", confirmLaunch);
   $("launch-cancel").addEventListener("click", () => { $("launch-card").hidden = true; });
   $("sync-now").addEventListener("click", syncNow);
@@ -840,8 +1026,8 @@ async function start() {
   $("resume-all").addEventListener("click", resumeAll);
   $("nav-history").addEventListener("click", () => showPage("history"));
   $("sim-start").addEventListener("click", () => simAction("start"));
-  $("sim-reset").addEventListener("click", () => {
-    if (confirm("Сбросить пример? Вся примерная статистика и история изменений удалятся.")) simAction("reset");
+  $("sim-reset").addEventListener("click", async () => {
+    if (await askConfirm("Сбросить пример?", "Вся примерная статистика и история изменений удалятся.", "Сбросить")) simAction("reset");
   });
   for (const button of document.querySelectorAll("[data-advance]")) {
     button.addEventListener("click", () => simAction("advance", { days: Number(button.dataset.advance) }));

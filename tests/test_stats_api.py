@@ -132,7 +132,8 @@ def test_checklist_follows_progress():
         bid = make_business(http, description="", weekly_budget=0, target_cpa=0)
         steps = {s["key"]: s for s in http.get(f"/api/businesses/{bid}/overview").json()["checklist"]}
         assert not steps["described"]["done"] and not steps["money"]["done"] and not steps["cabinet"]["done"] and not steps["ads"]["done"]
-        assert steps["metrika"]["soon"] is True
+        assert steps["metrika"]["done"] is False and steps["metrika"]["optional"] is True
+        assert http.get(f"/api/businesses/{bid}/series").json() == {"days": []}
         http.put(f"/api/businesses/{bid}", json={"name": "Лотос", "kind": "Маникюр", "city": "Москва", "description": "Маникюр",
                                                    "weekly_budget": 20000, "target_cpa": 800})
         http.post(f"/api/businesses/{bid}/sim/start")

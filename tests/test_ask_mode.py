@@ -1,4 +1,6 @@
 """Режим «сначала спрашивать», подтверждение и отказ, стоп-кран."""
+import sqlite3
+
 import pytest
 
 from app.engine.cycle import approve, proposal_text, reject, resume_all, rollback, stop_all
@@ -66,6 +68,11 @@ def test_approve_start_test_creates_variant(conn):
     assert len(ex) == 1 and ex[0]["unit_a"] == ch["unit_id"]
     row = conn.execute("SELECT * FROM changes WHERE id = ?", (ch["id"],)).fetchone()
     assert row["status"] == "applied" and "второй вариант «" in row["reason_text"]
+    # решение должно быть записано в базу, а не жить только в открытом соединении
+    other = sqlite3.connect(conn.execute("PRAGMA database_list").fetchone()[2])
+    assert other.execute("SELECT status FROM changes WHERE id = ?", (ch["id"],)).fetchone()[0] == "applied"
+    assert other.execute("SELECT COUNT(*) FROM experiments").fetchone()[0] == 1
+    other.close()
 
 
 def test_reject_keeps_everything_as_is(conn):

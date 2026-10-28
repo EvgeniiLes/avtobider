@@ -66,11 +66,13 @@ def checklist(biz: sqlite3.Row, accounts: int, units: int) -> list[dict]:
          "hint": "Подключите кабинет Яндекс Директа на вкладке «Рекламные кабинеты».", "page": "accounts"},
         {"key": "marking", "title": "Данные рекламодателя для маркировки внесены", "done": bool(biz["marking_confirmed"]),
          "hint": "В Яндекс Директе нажмите на свой логин → «Данные рекламодателя»: имя, ИНН, телефон. Тогда Директ сам промаркирует рекламу.",
-         "page": "stats"},
+         "page": "home"},
         {"key": "ads", "title": "Объявления созданы", "done": units > 0,
-         "hint": "Пока можно посмотреть, как всё работает, на примере: нажмите «Запустить пример».", "page": "stats"},
-        {"key": "metrika", "title": "Счётчик Метрики подключён", "done": False, "soon": True,
-         "hint": "Подключение Метрики скоро появится: она покажет обращения с вашего сайта.", "page": None},
+         "hint": "Нажмите «Создать рекламу» на главной. Пока можно посмотреть, как всё работает, на примере.", "page": "home"},
+        {"key": "metrika", "title": "Обращения с сайта видны (Метрика)",
+         "done": bool(biz["metrika_counter_id"] and biz["metrika_goal_id"]), "optional": True,
+         "hint": "Выберите счётчик и цель «обращение» на странице «Бизнес». Без этого сервис не отличит хорошее объявление от плохого.",
+         "page": "business"},
     ]
     return steps
 
@@ -83,7 +85,7 @@ def overview(business_id: int, user: sqlite3.Row = Depends(current_user), conn: 
     real = conn.execute("SELECT 1 FROM campaigns WHERE business_id = ? AND source = 'direct'", (business_id,)).fetchone() is not None
     today = sim_today or (date.today().isoformat() if real else None)
     result = {"example": bool(sim_today), "real": real, "today": today, "units": [], "totals": None, "budget": None, "needs": "",
-              "mode": biz["mode"], "proposals": 0, "stopped": False, "notices": [],
+              "mode": biz["mode"], "target_cpa": _rub(biz["target_cpa_micro"]), "proposals": 0, "stopped": False, "notices": [],
               "sync": {"at": biz["last_sync_at"], "error": biz["last_sync_error"]},
               "has_account": bool(conn.execute("SELECT 1 FROM ad_accounts WHERE user_id = ?", (user["id"],)).fetchone())}
     try:
@@ -177,6 +179,31 @@ def overview(business_id: int, user: sqlite3.Row = Depends(current_user), conn: 
         "percent": round(week_spend / budget * 100) if budget else 0,
     }
     return result
+
+
+@router.get("/series")
+def series(business_id: int, days: int = 14, user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connection = Depends(get_db)):
+    """Расход и обращения по дням для графика."""
+    _own(conn, user, business_id)
+    days = max(2, min(days, 60))
+    sim_today = get_today(conn, business_id)
+    real = conn.execute("SELECT 1 FROM campaigns WHERE business_id = ? AND source = 'direct'", (business_id,)).fetchone() is not None
+    if not sim_today and not real:
+        return {"days": []}
+    today = sim_today or date.today().isoformat()
+    start = day_add(today, -(days - 1))
+    rows = conn.execute(
+        "SELECT s.day AS day, SUM(s.spend_micro) AS spend, SUM(s.leads) AS leads FROM stats_daily s "
+        "JOIN ad_units u ON u.id = s.unit_id WHERE u.business_id = ? AND s.day BETWEEN ? AND ? GROUP BY s.day",
+        (business_id, start, today),
+    ).fetchall()
+    by_day = {r["day"]: r for r in rows}
+    out = []
+    for i in range(days):
+        d = day_add(start, i)
+        r = by_day.get(d)
+        out.append({"day": d, "spend": _rub(r["spend"]) if r else 0, "leads": r["leads"] if r else 0})
+    return {"days": out}
 
 
 class ClientsIn(BaseModel):

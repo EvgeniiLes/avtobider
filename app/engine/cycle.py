@@ -335,6 +335,7 @@ def _start_test(conn, platform, biz, unit, today, free_text: str, evidence=None,
             "UPDATE changes SET after_json = ?, reason_text = ?, status = 'applied' WHERE id = ?",
             (json.dumps(after, ensure_ascii=False), text, change_id),
         )
+        conn.commit()
         return change_id
     return log_change(conn, biz["id"], unit["id"], today, "auto", "start_test", "borderline_unit", text, {}, after, evidence)
 
