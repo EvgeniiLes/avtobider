@@ -5,6 +5,7 @@
 без выдуманных фактов, без запрещённых обещаний, в пределах длины.
 """
 import json
+import re
 
 import httpx
 
@@ -31,7 +32,9 @@ SYSTEM = (
     "Фото выбирай по смыслу заголовка, разным идеям разные фото, если фото несколько. Если фото нет, photo: null. "
     "Референс: выбери для каждой идеи один референс-вдохновение из каталога, предпочитая близкую нишу, но можно взять приём из другой ниши, "
     "если он подходит по смыслу. Разным идеям разные референсы. Если фото нет, ref: null. Приём нужно переосмыслить под бизнес, а не копировать. "
-    "Если приём предполагает огромное слово, это должно быть слово из заголовка. Никаких скидок и акций в приёме, если их нет в фактах."
+    "Если приём предполагает огромное слово, это должно быть слово из заголовка. Никаких скидок и акций в приёме, если их нет в фактах. "
+    "В direction не проси писать контакты, телефон, сайт, адрес, название бизнеса, логотип и любые слова, которых нет в заголовке и на кнопке; "
+    "главным объектом остаётся фото владельца (животное, человек, товар), не заменяй его предметами из референса."
 )
 
 
@@ -48,6 +51,15 @@ def _user_prompt(biz, photos: list[dict], count: int) -> str:
     lines.append("Каталог референсов (номер: [ниша] приём):\n" + catalog_text())
     lines.append(f"Нужно идей: {count}.")
     return "\n".join(lines)
+
+
+FORBIDDEN_IN_DIRECTION = re.compile(r"contact|phone|tel\b|website|web site|url|domain|address|logo|brand name|watermark|qr|e-?mail|instagram|whatsapp", re.I)
+
+
+def clean_direction(text: str) -> str:
+    """Из подсказки модели картинок убираются предложения про контакты, адреса, сайты и логотипы: на баннере их быть не должно."""
+    sentences = re.split(r"(?<=[.!?])\s+", (text or "").strip())
+    return " ".join(s for s in sentences if s and not FORBIDDEN_IN_DIRECTION.search(s))[:500]
 
 
 def parse_briefs(raw: str, biz, photos: list[dict], count: int) -> list[dict]:
@@ -78,7 +90,7 @@ def parse_briefs(raw: str, biz, photos: list[dict], count: int) -> list[dict]:
         good.append({"hypothesis": str(item.get("hypothesis") or "")[:240], "audience": str(item.get("audience") or "")[:120],
                      "angle": angle if angle in ANGLES and angle in allowed else "", "title": title, "text": text,
                      "photo": photo, "look": look % len(LOOKS), "mood": str(item.get("mood") or "")[:140],
-                     "ref": ref if isinstance(ref, int) and ref in REFS else None, "direction": str(item.get("direction") or "")[:500]})
+                     "ref": ref if isinstance(ref, int) and ref in REFS else None, "direction": clean_direction(str(item.get("direction") or ""))})
         if len(good) >= count:
             break
     seen_refs: set[int] = set()   # референс только вместе с фото и у разных идей разный

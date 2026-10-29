@@ -102,6 +102,14 @@ def test_ideas_pick_distinct_references_and_the_banner_gets_the_reference_image(
         assert ad["ai"]["inspiration"] == briefs[0]["inspiration"]
 
 
+def test_direction_loses_contacts_and_logos():
+    from app.creative.strategist import clean_direction
+    text = ("Pet paw on orange background, huge title. Contact information and website at the bottom. "
+            "Add the brand logo in the corner. Soft cinematic light.")
+    assert clean_direction(text) == "Pet paw on orange background, huge title. Soft cinematic light."
+    assert clean_direction("Call us on WhatsApp. Phone number below.") == ""
+
+
 def test_no_photo_means_no_reference(monkeypatch):
     monkeypatch.setenv("FAL_KEY", "fal-test")
     fakes = Fakes(fal_done=True)
