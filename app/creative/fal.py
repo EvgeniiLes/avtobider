@@ -7,7 +7,7 @@ import httpx
 
 QUEUE = "https://queue.fal.run"
 # Примерная стоимость в центах доллара: нужна, чтобы не выйти за лимит расходов на генерацию.
-COST_CENTS = {"text": 1, "image": 8, "video": 70, "ai_banner": 7, "check": 1, "logo_cut": 1, "strategist": 3}  # ai_banner: GPT Image 2 (4:3, среднее качество) 3.7 цента, арт-директор, проверка текста и самопроверка по 1 центу
+COST_CENTS = {"text": 1, "image": 8, "video": 70, "ai_banner": 7, "check": 1, "logo_cut": 1, "strategist": 3, "ref_extra": 2}   # ref_extra: вторая картинка (референс) на входе баннера  # ai_banner: GPT Image 2 (4:3, среднее качество) 3.7 цента, арт-директор, проверка текста и самопроверка по 1 центу
 
 
 class FalError(Exception):
@@ -173,6 +173,22 @@ def photo_banner_prompt(biz, title: str, price: str, cta: str, index: int = 0, m
             + "Strong contrast, text is easy to read and never covers faces or the main subject. "
             "Do not write the business name, website addresses, domain names, phone numbers or any other text. "
             "Do not add logos, emblems, icons, watermarks, decorative frames, ornaments, sparkles or glow.")
+
+
+def reference_banner_prompt(biz, title: str, price: str, cta: str, direction: str) -> str:
+    """Баннер из фото владельца по мотивам референса: вторая картинка служит только вдохновением, её не копируем."""
+    text = f'a large bold headline «{title}»'
+    if price:
+        text += f' and a price badge «{price.replace(chr(160), " ")}»'
+    return ("Create a professional advertising banner, landscape 4:3, "
+            f"(the business is: {biz['kind']}; this is context only, do not write it on the banner). "
+            "The FIRST attached image is the business's real photo: use it as the main image, keep its subject natural and unaltered "
+            "(the same people, animals, objects), you may crop it, extend its background and place it freely in the layout. "
+            "The SECOND attached image is ONLY a style inspiration (its composition idea, color mood, typography weight and feel): do NOT copy it, "
+            "do NOT reuse its text, logo, products, animals or characters; make a new original layout inspired by it. "
+            f"Add text in Russian, spelled exactly as written, nothing added or changed: {text}, and a solid rounded button «{cta}». "
+            f"Direction: {direction}. Strong contrast, the text is easy to read and never covers faces or the main subject. "
+            "Do not write any other text, business names, website addresses, domain names, phone numbers, logos, icons or watermarks.")
 
 
 def edit_model(model: str) -> str:

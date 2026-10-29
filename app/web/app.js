@@ -442,6 +442,7 @@ async function loadAds() {
       el("div", { className: "ad-site" }, el("b", { textContent: "Реклама" }), host),
       a.angle_label ? el("div", { className: "hint", textContent: `Угол подачи: ${a.angle_label}` }) : "",
       a.ai && a.ai.hypothesis ? el("div", { className: "hint", textContent: `Проверяем: ${a.ai.hypothesis}` }) : "",
+      a.ai && a.ai.inspiration ? el("div", { className: "hint", textContent: `Вдохновение: ${a.ai.inspiration}` }) : "",
       a.ai && a.ai.scene ? el("div", { className: "hint", textContent: `Сцена: ${a.ai.scene}${a.ai.audience ? `. Для: ${a.ai.audience}` : ""}` }) : "",
       a.ai && a.ai.scene && (a.ai.logo === "placed" || a.ai.logo_reason) ? el("div", { className: "hint", textContent: a.ai.logo === "placed" ? "Логотип на баннере" : `Без логотипа: ${a.ai.logo_reason}` }) : "");
     const action = a.own
@@ -548,7 +549,8 @@ async function loadBriefs() {
       el("div", { className: "brief-hyp", textContent: b.hypothesis || "Идея для проверки" }),
       el("div", { className: "hint", textContent: [b.audience && `Для: ${b.audience}`, b.angle_label && `Угол: ${b.angle_label}`, `Оформление: ${b.look}`].filter(Boolean).join(" · ") }),
       el("div", { className: "brief-title", textContent: b.title }),
-      el("div", { textContent: b.text }));
+      el("div", { textContent: b.text }),
+      b.inspiration ? el("div", { className: "hint", textContent: `Вдохновение: ${b.inspiration}` }) : "");
     if (b.prompt) body.append(el("details", { className: "own-text" }, el("summary", { textContent: "Промпт для картинки" }), area));
     const acts = el("div", { className: "brief-acts" });
     if (b.status === "used") {

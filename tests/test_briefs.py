@@ -55,6 +55,63 @@ def test_strategist_makes_different_ideas_and_the_chosen_one_becomes_an_ad(monke
         assert path.endswith("gpt-image-2/edit") and b"warm friendly mood" in body             # баннер делается по промпту идеи
 
 
+def test_reference_catalog_is_complete():
+    from app.creative import refs
+    assert sorted(refs.REFS) == list(range(1, 94))
+    assert all(niche in refs.NICHES and note for niche, note in refs.REFS.values())
+    for n in refs.REFS:
+        data = refs.load(n)
+        assert data and data[:2] == b"\xff\xd8", n                                     # у каждого референса есть файл (JPEG)
+    assert refs.load(999) is None and refs.note(None) == "" and "17" not in refs.catalog_text().split("\n")[0]
+    assert len(refs.catalog_text().split("\n")) == 93
+
+
+def reference_ideas():
+    return json.dumps([
+        {"hypothesis": "Проверяем крупное слово", "audience": "Занятые", "angle": "booking", "title": "Маникюр на удобное время", "text": "Запишитесь онлайн",
+         "photo": 1, "look": 0, "mood": "calm", "ref": 56, "direction": "huge first word behind the subject, deep navy background"},
+        {"hypothesis": "Проверяем лёгкость", "audience": "Мамы", "angle": "booking", "title": "Запись онлайн без звонков", "text": "Запишитесь онлайн",
+         "photo": 1, "look": 1, "mood": "soft", "ref": 56, "direction": "same ref again"},          # повтор референса у другой идеи
+        {"hypothesis": "Без референса", "audience": "Гости", "angle": "booking", "title": "Маникюр в центре города", "text": "Запишитесь онлайн",
+         "photo": 1, "look": 2, "mood": "bright", "ref": 9999, "direction": "x"}], ensure_ascii=False)      # такого референса нет
+
+
+def test_ideas_pick_distinct_references_and_the_banner_gets_the_reference_image(monkeypatch):
+    monkeypatch.setenv("FAL_KEY", "fal-test")
+    fakes = Fakes(fal_done=True)
+    fakes.keep = 10 ** 8
+    with TestClient(app) as http:
+        bid = setup(http)
+        base = f"/api/businesses/{bid}"
+        upload(http, base, "work")
+        fakes.claude_text = reference_ideas()
+        briefs = http.post(f"{base}/briefs/generate", json={"count": 3}).json()["briefs"]
+        assert len(briefs) == 3
+        assert briefs[0]["inspiration"] and "SECOND attached image" in briefs[0]["prompt"] and "huge first word" in briefs[0]["prompt"]
+        assert briefs[1]["inspiration"] == "" and "SECOND attached image" not in briefs[1]["prompt"]       # повтор референса отброшен
+        assert briefs[2]["inspiration"] == "" and "SECOND attached image" not in briefs[2]["prompt"]       # несуществующий тоже
+        spent_before = http.get(f"{base}/creatives").json()["spend"]["spent_usd"]
+        used = http.post(f"{base}/briefs/{briefs[0]['id']}/use").json()
+        fakes.claude_text = json.dumps([briefs[0]["title"], "Записаться"], ensure_ascii=False)
+        assert http.post(f"{base}/creatives/ads/{used['ad_index']}/ai-banner").status_code == 200
+        _h, path, body = next(r for r in fakes.requests if r[0] == "queue.fal.run")
+        assert path.endswith("gpt-image-2/edit") and body.count(b"data:image/jpeg;base64") == 2           # фото владельца и референс
+        spent = http.get(f"{base}/creatives").json()["spend"]["spent_usd"]
+        assert round(spent - spent_before, 2) == 0.09                                                      # 7 центов баннер и 2 за вторую картинку
+        ad = http.get(f"{base}/creatives/ads").json()["ads"][used["ad_index"]]
+        assert ad["ai"]["inspiration"] == briefs[0]["inspiration"]
+
+
+def test_no_photo_means_no_reference(monkeypatch):
+    monkeypatch.setenv("FAL_KEY", "fal-test")
+    fakes = Fakes(fal_done=True)
+    with TestClient(app) as http:
+        bid = setup(http)
+        fakes.claude_text = reference_ideas()
+        briefs = http.post(f"/api/businesses/{bid}/briefs/generate", json={"count": 3}).json()["briefs"]
+        assert all(b["inspiration"] == "" and b["prompt"] == "" for b in briefs)                           # без фото референс не нужен
+
+
 def test_new_ideas_replace_unused_ones_but_keep_the_used(monkeypatch):
     monkeypatch.setenv("FAL_KEY", "fal-test")
     fakes = Fakes(fal_done=True)

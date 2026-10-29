@@ -252,6 +252,7 @@ ADDED_COLUMNS = [
     ("businesses", "visual_hint", "TEXT NOT NULL DEFAULT ''"),
     ("businesses", "address", "TEXT NOT NULL DEFAULT ''"),
     ("businesses", "allow_promo", "INTEGER NOT NULL DEFAULT 0"),   # можно ли писать в рекламе про скидки и акции из описания
+    ("briefs", "ref_id", "INTEGER"),   # номер референса-вдохновения из app/refs (NULL: без референса)
     ("business_assets", "ai_fx", "REAL"),   # где главный объект на фото (доли ширины и высоты), по нему шаблоны обрезают кадр; NULL: ещё не смотрели
     ("business_assets", "ai_fy", "REAL"),
     ("creatives", "angle", "TEXT NOT NULL DEFAULT ''"),

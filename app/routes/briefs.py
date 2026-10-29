@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 
 from app.assets import PHOTO_TAGS
 from app.config import get_settings
-from app.creative import fal
+from app.creative import fal, refs
 from app.creative.angles import effective_description, label as angle_label, profile
 from app.creative.compose import find_price
 from app.creative.strategist import LOOKS, plan_briefs
@@ -38,6 +38,7 @@ def _public(conn, biz, r: sqlite3.Row, variants: list[dict]) -> dict:
     return {
         "id": r["id"], "hypothesis": r["hypothesis"], "audience": r["audience"], "angle": r["angle"], "angle_label": angle_label(r["angle"]),
         "title": r["title"], "text": r["body"], "look": LOOKS[r["look"] % len(LOOKS)], "prompt": r["prompt"], "status": r["status"],
+        "inspiration": refs.note(r["ref_id"]),   # какой приём референса взят за основу (картинку референса пользователю не показываем)
         "photo_url": f"/api/businesses/{biz['id']}/assets/{asset['id']}/file" if asset else "",
         "ad_index": index,   # номер объявления, если идея уже в рекламе (и помещается в бюджет)
     }
@@ -78,9 +79,15 @@ def generate(business_id: int, data: GenerateIn, user: sqlite3.Row = Depends(cur
     for b in found:
         asset_id = photos[b["photo"]]["asset_id"] if photos and b["photo"] is not None else None
         price = find_price(b["title"], b["text"], effective_description(biz))
-        prompt = fal.photo_banner_prompt(biz, b["title"], price, cta, b["look"], b["mood"]) if asset_id else ""
-        conn.execute("INSERT INTO briefs (business_id, hypothesis, audience, angle, title, body, asset_id, look, prompt) VALUES (?,?,?,?,?,?,?,?,?)",
-                     (business_id, b["hypothesis"], b["audience"], b["angle"], b["title"], b["text"], asset_id, b["look"], prompt))
+        ref_id = b["ref"] if asset_id else None
+        if not asset_id:
+            prompt = ""
+        elif ref_id:   # по мотивам референса: фото владельца плюс референс как вдохновение
+            prompt = fal.reference_banner_prompt(biz, b["title"], price, cta, b["direction"] or f"take inspiration from this idea: {refs.note(ref_id)}")
+        else:
+            prompt = fal.photo_banner_prompt(biz, b["title"], price, cta, b["look"], b["mood"])
+        conn.execute("INSERT INTO briefs (business_id, hypothesis, audience, angle, title, body, asset_id, look, prompt, ref_id) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                     (business_id, b["hypothesis"], b["audience"], b["angle"], b["title"], b["text"], asset_id, b["look"], prompt, ref_id))
     conn.commit()
     return list_briefs(business_id, user, conn)
 

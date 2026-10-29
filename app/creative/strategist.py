@@ -9,6 +9,7 @@ import json
 import httpx
 
 from app.creative.angles import ANGLES, available, effective_description, profile, prompt_block
+from app.creative.refs import REFS, catalog_text
 from app.creative.texts_ai import FAL_CHAT_URL, facts_of
 from app.direct.texts import check, unsupported_claims
 
@@ -20,12 +21,17 @@ SYSTEM = (
     "{\"hypothesis\": \"что проверяем, одно предложение по-русски\", \"audience\": \"кто целевая аудитория этой идеи, коротко\", "
     "\"angle\": \"id угла из списка\", \"title\": \"заголовок до 56 знаков\", \"text\": \"текст до 81 знака\", "
     "\"photo\": номер фото из списка или null, \"look\": число от 0 до 4, "
-    "\"mood\": \"настроение картинки ПО-АНГЛИЙСКИ, до 120 знаков, без текста для надписей\"}. "
+    "\"mood\": \"настроение картинки ПО-АНГЛИЙСКИ, до 120 знаков, без текста для надписей\", "
+    "\"ref\": номер референса из списка или null, "
+    "\"direction\": \"ПО-АНГЛИЙСКИ, 1-2 предложения: как применить приём референса к фото этого бизнеса (композиция, цвет, вес шрифта, где текст), без копирования\"}. "
     "look: 0 светлое, 1 яркое, 2 тёмное, 3 пастельное, 4 фото во весь баннер. "
     "Правила: идеи различаются аудиторией, углом подачи, фото и оформлением (look не повторяй). "
     "Ничего не выдумывай: цены, скидки, адреса, сроки, гарантии и числа бери только из фактов владельца. "
     "Заголовок и текст без восклицательных знаков, без слов «лучший», «№1», «100%». Пиши под действие клиента на кнопке. "
-    "Фото выбирай по смыслу заголовка, разным идеям разные фото, если фото несколько. Если фото нет, photo: null."
+    "Фото выбирай по смыслу заголовка, разным идеям разные фото, если фото несколько. Если фото нет, photo: null. "
+    "Референс: выбери для каждой идеи один референс-вдохновение из каталога, предпочитая близкую нишу, но можно взять приём из другой ниши, "
+    "если он подходит по смыслу. Разным идеям разные референсы. Если фото нет, ref: null. Приём нужно переосмыслить под бизнес, а не копировать. "
+    "Если приём предполагает огромное слово, это должно быть слово из заголовка. Никаких скидок и акций в приёме, если их нет в фактах."
 )
 
 
@@ -39,6 +45,7 @@ def _user_prompt(biz, photos: list[dict], count: int) -> str:
         lines += [f"Фото {i + 1}: {ph['label']}, оценка {ph['score'] or '?'} из 5. {ph['note']}".strip() for i, ph in enumerate(photos)]
     else:
         lines.append("Фото владельца нет.")
+    lines.append("Каталог референсов (номер: [ниша] приём):\n" + catalog_text())
     lines.append(f"Нужно идей: {count}.")
     return "\n".join(lines)
 
@@ -67,11 +74,19 @@ def parse_briefs(raw: str, biz, photos: list[dict], count: int) -> list[dict]:
             look = int(item.get("look"))
         except (TypeError, ValueError):
             look = len(good)
+        ref = item.get("ref")
         good.append({"hypothesis": str(item.get("hypothesis") or "")[:240], "audience": str(item.get("audience") or "")[:120],
                      "angle": angle if angle in ANGLES and angle in allowed else "", "title": title, "text": text,
-                     "photo": photo, "look": look % len(LOOKS), "mood": str(item.get("mood") or "")[:140]})
+                     "photo": photo, "look": look % len(LOOKS), "mood": str(item.get("mood") or "")[:140],
+                     "ref": ref if isinstance(ref, int) and ref in REFS else None, "direction": str(item.get("direction") or "")[:500]})
         if len(good) >= count:
             break
+    seen_refs: set[int] = set()   # референс только вместе с фото и у разных идей разный
+    for b in good:
+        if not photos or b["ref"] in seen_refs:
+            b["ref"] = None
+        elif b["ref"]:
+            seen_refs.add(b["ref"])
     if photos:   # разным идеям разные фото, если модель не указала или повторила
         used = set()
         for i, b in enumerate(good):

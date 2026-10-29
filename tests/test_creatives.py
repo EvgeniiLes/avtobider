@@ -40,12 +40,13 @@ class Fakes:
         self.jobs = 0
         self.image = None  # что отдаёт «генератор»; по умолчанию однотонная картинка
         self.requests = []
+        self.keep = 6000   # сколько байт тела запроса помнить; тесты, которым нужны все картинки, ставят больше
         self.transport = httpx.MockTransport(self.handle)
         app.dependency_overrides[creative_transport] = lambda: self.transport
 
     def handle(self, request: httpx.Request):
         host, path = request.url.host, request.url.path
-        self.requests.append((host, path, request.content[:6000]))
+        self.requests.append((host, path, request.content[:self.keep]))
         if host == "api.anthropic.com":
             if self.claude_text is None:
                 return httpx.Response(500, json={})

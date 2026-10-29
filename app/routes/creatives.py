@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 
 from app.assets import AssetError, prepare_image, prepare_video
 from app.config import get_settings
-from app.creative import fal
+from app.creative import fal, refs
 from app.creative.angles import effective_description, label as angle_label, profile
 from app.assets import PHOTO_TAGS
 from app.creative.compose import add_logo, find_price, prepare_for_direct, style_for
@@ -260,7 +260,7 @@ def ads(business_id: int, user: sqlite3.Row = Depends(current_user), conn: sqlit
                        "logo": "placed" if meta.get("logo") else "skipped", "logo_reason": meta.get("logo_reason", "")})
         brief = _brief_for(conn, business_id, v)
         if brief:   # объявление сделано по идее стратега: показываем, что именно проверяем
-            ai.update({"hypothesis": brief["hypothesis"], "audience": brief["audience"]})
+            ai.update({"hypothesis": brief["hypothesis"], "audience": brief["audience"], "inspiration": refs.note(brief["ref_id"])})
         if photos and not _extras():   # промпт, по которому рисуется баннер из фото: виден и правится на карточке
             ai["prompt"] = meta.get("prompt_text") or (brief["prompt"] if brief and brief["prompt"] else fal.photo_banner_prompt(
                 biz, v["title"], find_price(v["title"], v["text"], effective_description(biz)), profile(biz)["cta"], brief["look"] if brief else i))
@@ -362,9 +362,14 @@ def _order_banner(conn, biz, variants: list[dict], index: int, key: str, transpo
         look_no = brief["look"] if brief else index
         look = fal.PHOTO_LOOKS[look_no % len(fal.PHOTO_LOOKS)][0]
         prompt = custom_prompt or (brief["prompt"] if brief and brief["prompt"] else fal.photo_banner_prompt(biz, v["title"], price, cta, look_no))
-        job = asyncio.run(fal.start_edit(prompt, [_bytes_url(data, 1280)], key, s.fal_banner_model, transport))
-        what = f"фото «{PHOTO_TAGS.get(kind, kind)}», оформление: {look}"
+        ref_bytes = refs.load(brief["ref_id"]) if brief and brief["ref_id"] else None   # референс-вдохновение идёт второй картинкой
+        images = [_bytes_url(data, 1280)] + ([_bytes_url(ref_bytes, 900)] if ref_bytes else [])
+        if ref_bytes:
+            _charge(conn, business_id, "ref_extra")
+        job = asyncio.run(fal.start_edit(prompt, images, key, s.fal_banner_model, transport))
+        what = f"фото «{PHOTO_TAGS.get(kind, kind)}», " + (f"по мотивам референса {brief['ref_id']}" if ref_bytes else f"оформление: {look}")
         meta = {"expect": expected, "logo": False, "screen": False, "mode": "photo", "concept": kind, "look": look,
+                "ref": brief["ref_id"] if ref_bytes else None,
                 "audience": brief["audience"] if brief else "", "hypothesis": brief["hypothesis"] if brief else "", "scene": what,
                 "logo_reason": "", "prompt_text": prompt,
                 "brief": f"ВАЖНО: основа баннера настоящее фото владельца, его нужно принимать как есть. Оформление: {look}. {biz['kind']}."}
