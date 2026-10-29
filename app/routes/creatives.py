@@ -36,8 +36,10 @@ STATUSES = ("draft", "approved", "rejected")
 MAX_TEXTS = 30
 
 
-def _spent_cents(conn, business_id: int) -> int:
-    return conn.execute("SELECT COALESCE(SUM(cents),0) FROM generations WHERE business_id = ?", (business_id,)).fetchone()[0]
+def _spent_cents(conn, business_id: int, whole_time: bool = False) -> int:
+    """Расход на генерацию: по умолчанию с 1-го числа текущего месяца (лимит обнуляется сам), whole_time=True: за всё время."""
+    month = "" if whole_time else " AND created_at >= strftime('%Y-%m-01', 'now')"
+    return conn.execute(f"SELECT COALESCE(SUM(cents),0) FROM generations WHERE business_id = ?{month}", (business_id,)).fetchone()[0]
 
 
 def _charge(conn, business_id: int, kind: str) -> None:
@@ -45,7 +47,7 @@ def _charge(conn, business_id: int, kind: str) -> None:
     limit = round(get_settings().gen_limit_usd * 100)
     cents = fal.COST_CENTS[kind]
     if _spent_cents(conn, business_id) + cents > limit:
-        raise HTTPException(400, detail={"message": f"Лимит расходов на генерацию исчерпан (${limit / 100:.0f}). Администратор может увеличить его настройкой GEN_LIMIT_USD."})
+        raise HTTPException(400, detail={"message": f"Лимит расходов на генерацию в этом месяце исчерпан (${limit / 100:.0f}). Он обнулится 1-го числа. Администратор может увеличить его настройкой GEN_LIMIT_USD."})
     conn.execute("INSERT INTO generations (business_id, kind, cents) VALUES (?,?,?)", (business_id, kind, cents))
 
 
@@ -173,7 +175,8 @@ def list_creatives(business_id: int, user: sqlite3.Row = Depends(current_user), 
     return {
         "creatives": [_row(r, business_id) for r in rows],
         "caps": _caps(),
-        "spend": {"spent_usd": round(_spent_cents(conn, business_id) / 100, 2), "limit_usd": limit},
+        "spend": {"spent_usd": round(_spent_cents(conn, business_id) / 100, 2), "limit_usd": limit,
+                  "total_usd": round(_spent_cents(conn, business_id, whole_time=True) / 100, 2)},
         "limits": {"title": TITLE_MAX, "text": TEXT_MAX},
         "prices_usd": {"image": fal.COST_CENTS["image"] / 100, "video": fal.COST_CENTS["video"] / 100,
                        "ai_banner": fal.COST_CENTS["ai_banner"] / 100},

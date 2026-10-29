@@ -253,6 +253,24 @@ def test_generation_spend_limit(monkeypatch):
         assert r.status_code == 400 and "Лимит расходов" in r.json()["detail"]["message"]
 
 
+def test_spend_limit_resets_every_month(monkeypatch):
+    from app.config import get_settings
+    from app.db import connect
+    monkeypatch.setenv("FAL_KEY", "fal-test")
+    monkeypatch.setenv("GEN_LIMIT_USD", "0.20")
+    Fakes()
+    with TestClient(app) as http:
+        bid = setup(http)
+        base = f"/api/businesses/{bid}/creatives"
+        conn = connect(get_settings().db_path)
+        conn.execute("INSERT INTO generations (business_id, kind, cents, created_at) VALUES (?, 'image', 500, '2020-01-05 10:00:00')", (bid,))
+        conn.commit(); conn.close()
+        spend = http.get(base).json()["spend"]
+        assert spend["spent_usd"] == 0 and spend["total_usd"] == 5.0                   # старый расход в лимит месяца не входит
+        assert http.post(f"{base}/images/generate", json={"count": 2}).status_code == 200
+        assert http.post(f"{base}/images/generate", json={"count": 1}).status_code == 400     # а в этом месяце лимит всё ещё действует
+
+
 def test_fal_errors_are_plain(monkeypatch):
     monkeypatch.setenv("FAL_KEY", "fal-bad")
     Fakes(fal_status=403)

@@ -369,7 +369,7 @@ async function loadCreatives() {
   $("cr-image-note").textContent = "Создание картинок и видео пока не подключено на сервере. Свои фото можно загрузить на вкладке «Мой бизнес».";
   $("cr-image-form").hidden = !caps.image_ai;
   $("cr-spend").textContent = caps.image_ai || caps.text_ai
-    ? `Потрачено на создание: $${spend.spent_usd.toFixed(2)} из $${spend.limit_usd.toFixed(0)}. Больше лимита сервис не потратит.` : "";
+    ? `Потрачено на создание в этом месяце: $${spend.spent_usd.toFixed(2)} из $${spend.limit_usd.toFixed(0)}, всего с начала: $${(spend.total_usd ?? spend.spent_usd).toFixed(2)}. Больше лимита сервис не потратит, 1-го числа он обнуляется.` : "";
 
   renderTexts(creatives.filter((c) => c.kind === "text").reverse());  // старые сверху, новые снизу
   const images = creatives.filter((c) => c.kind === "image");
