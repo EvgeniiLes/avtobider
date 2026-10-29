@@ -20,6 +20,7 @@ PHOTO_TAGS = {
     "work": "Наши работы",
     "team": "Команда",
     "product": "Товар или услуга",
+    "screen": "Скриншот приложения",
     "other": "Другое",
 }
 LIMITS = {"logo": 1, "photo": 20, "video": 3}

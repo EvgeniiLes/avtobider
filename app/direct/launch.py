@@ -178,7 +178,7 @@ def media_typed(conn: sqlite3.Connection, biz) -> tuple[list[tuple[str, bytes]],
         "SELECT a.stored_name, a.ai_type, a.tag, a.ai_score FROM creatives c JOIN business_assets a ON a.id = c.asset_id "
         "WHERE c.business_id = ? AND c.kind = 'image' AND c.status = 'approved' ORDER BY c.id", (biz["id"],)
     ).fetchall() + conn.execute(
-        "SELECT stored_name, ai_type, tag, ai_score FROM business_assets WHERE business_id = ? AND kind = 'photo' ORDER BY id LIMIT 12", (biz["id"],)
+        "SELECT stored_name, ai_type, tag, ai_score FROM business_assets WHERE business_id = ? AND kind = 'photo' AND tag != 'screen' ORDER BY id LIMIT 12", (biz["id"],)
     ).fetchall()
     rows = [r for r in rows if not 0 < r["ai_score"] < 3]
     photos = []

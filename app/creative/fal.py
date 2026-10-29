@@ -80,7 +80,12 @@ def _visual_rules(biz) -> str:
     return rules
 
 
-def banner_prompt(biz, title: str, price: str, cta: str, logo_corner: bool = False, index: int = 0) -> str:
+SCREEN_RULE = (" Include a modern smartphone held at a slight angle. IMPORTANT: the phone screen must be one completely flat, solid, pure "
+               "magenta (#FF00FF) rectangle filling the whole screen, with no interface, no text, no reflections, no gradient. "
+               "Do not use magenta or hot pink anywhere else in the banner.")
+
+
+def banner_prompt(biz, title: str, price: str, cta: str, logo_corner: bool = False, index: int = 0, screen: bool = False) -> str:
     """Запрос на баннер целиком: русский текст пишет сама модель, поэтому он короткий и в точных кавычках."""
     parts = [f'headline "{title}"']
     if price:
@@ -90,7 +95,8 @@ def banner_prompt(biz, title: str, price: str, cta: str, logo_corner: bool = Fal
             "Landscape 4:3, modern professional layout, lots of clean space around the text. Visual direction: " + DIRECTIONS[index % len(DIRECTIONS)] + ". "
             "Text in Russian, exactly as written, large and perfectly legible: " + ", ".join(parts) + ". "
             "No other text, no extra letters, no third-party brand logos."
-            + (" Keep the top-right corner plain and empty: a logo will be placed there." if logo_corner else ""))
+            + (" Keep the top-right corner plain and empty: a logo will be placed there." if logo_corner else "")
+            + (SCREEN_RULE if screen else ""))
 
 async def _submit(http: httpx.AsyncClient, model: str, key: str, payload: dict) -> dict:
     try:

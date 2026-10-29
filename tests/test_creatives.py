@@ -38,6 +38,7 @@ class Fakes:
     def __init__(self, claude_text=None, fal_done=False, fal_status=200):
         self.claude_text, self.fal_done, self.fal_status = claude_text, fal_done, fal_status
         self.jobs = 0
+        self.image = None  # что отдаёт «генератор»; по умолчанию однотонная картинка
         self.requests = []
         self.transport = httpx.MockTransport(self.handle)
         app.dependency_overrides[creative_transport] = lambda: self.transport
@@ -65,7 +66,7 @@ class Fakes:
             video = self.jobs and "video" in self.requests[0][2].decode(errors="ignore")
             return httpx.Response(200, json={"images": [{"url": "https://files.test/img.png"}]})
         if host == "files.test":
-            return httpx.Response(200, content=png())
+            return httpx.Response(200, content=self.image or png())
         return httpx.Response(404)
 
 
@@ -553,6 +554,69 @@ def test_online_business_gets_its_own_button_and_no_offline_phrases():
     salon_text = " ".join(v["title"] + " " + v["text"] for v in draft_variants(salon))
     assert "рядом с вами" in salon_text and "запись на сегодня" in salon_text and "Москва" in salon_text            # у салона всё как раньше
     assert len({v["title"] for v in draft_variants(game)}) == 6                                                      # шесть разных заголовков
+
+
+def _phone_banner():
+    """Баннер с «телефоном»: наклонённый пурпурный экран и посторонний пурпурный элемент рядом (заголовок, кнопка)."""
+    from PIL import ImageDraw as D
+    img = Image.new("RGB", (1200, 900), (30, 20, 70))
+    d = D.Draw(img)
+    d.polygon([(700, 120), (1000, 160), (1040, 800), (680, 760)], fill=(255, 0, 255))   # экран
+    d.rectangle((60, 300, 400, 380), fill=(255, 0, 255))                                  # пурпурное слово, не экран
+    out = BytesIO(); img.save(out, "PNG")
+    return out.getvalue()
+
+
+def _screen_shot():
+    shot = Image.new("RGB", (540, 1170), (20, 200, 60))   # зелёный «скриншот»
+    out = BytesIO(); shot.save(out, "PNG")
+    return out.getvalue()
+
+
+def test_screenshot_goes_into_the_screen_only():
+    from app.creative.screen import insert_screenshot
+    done = Image.open(BytesIO(insert_screenshot(_phone_banner(), _screen_shot()))).convert("RGB")
+    g = lambda p: tuple(done.getpixel(p))
+    assert g((850, 450))[1] > 150 and g((850, 450))[0] < 80          # внутри экрана теперь скриншот
+    assert g((200, 340)) == (255, 0, 255) or g((200, 340))[0] > 200   # посторонний пурпурный элемент не тронут
+    assert g((200, 340))[1] < 60
+    assert insert_screenshot(png(), _screen_shot()) is None            # экрана на картинке нет
+
+
+def test_ai_banner_with_a_screenshot_is_composited(monkeypatch):
+    monkeypatch.setenv("FAL_KEY", "fal-test")
+    fakes = Fakes(fal_done=True)
+    with TestClient(app) as http:
+        bid = setup(http)
+        base = f"/api/businesses/{bid}"
+        up = http.post(f"{base}/assets", data={"kind": "photo", "tag": "screen"}, files={"file": ("s.png", _screen_shot(), "image/png")})
+        assert up.status_code == 200 and up.json()["tag"] == "screen"
+        ad = http.get(f"{base}/creatives/ads").json()["ads"][0]
+        fakes.image = _phone_banner()
+        fakes.claude_text = json.dumps([ad["title"], "Лотос", "Записаться"], ensure_ascii=False)
+        assert http.post(f"{base}/creatives/ads/0/ai-banner").status_code == 200
+        prompt = [b for h, _, b in fakes.requests if h == "queue.fal.run"][0].decode()
+        assert "FF00FF" in prompt and "smartphone" in prompt                                         # просим экран-заглушку
+        http.get(f"{base}/creatives")
+        assert http.get(f"{base}/creatives/ads").json()["ads"][0]["ai"]["status"] == "ready"
+        banner = Image.open(BytesIO(http.get(f"{base}/creatives/ads/0/banner.jpg").content)).convert("RGB")
+        assert banner.size == (1200, 900) and banner.getpixel((850, 450))[1] > 150               # скриншот на месте
+        assert http.post(f"{base}/creatives/photos/check").json() == {"checked": 0, "failed": 0}   # скриншот ИИ не «проверяет»
+
+
+def test_screenshot_without_a_phone_screen_makes_the_banner_fail(monkeypatch):
+    monkeypatch.setenv("FAL_KEY", "fal-test")
+    fakes = Fakes(fal_done=True)
+    with TestClient(app) as http:
+        bid = setup(http)
+        base = f"/api/businesses/{bid}"
+        http.post(f"{base}/assets", data={"kind": "photo", "tag": "screen"}, files={"file": ("s.png", _screen_shot(), "image/png")})
+        ad = http.get(f"{base}/creatives/ads").json()["ads"][0]
+        fakes.claude_text = json.dumps([ad["title"], "Лотос", "Записаться"], ensure_ascii=False)       # картинка без экрана (однотонная)
+        http.post(f"{base}/creatives/ads/0/ai-banner")
+        http.get(f"{base}/creatives")
+        state = http.get(f"{base}/creatives/ads").json()["ads"][0]["ai"]
+        assert state["status"] == "failed" and "экран телефона" in state["error"]
 
 
 def test_missing_phrases_ignore_case_quotes_and_spaces():

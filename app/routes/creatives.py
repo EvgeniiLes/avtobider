@@ -18,6 +18,7 @@ from app.creative import fal
 from app.creative.angles import label as angle_label, profile
 from app.assets import PHOTO_TAGS
 from app.creative.compose import add_logo, find_price, prepare_for_direct, style_for
+from app.creative.screen import insert_screenshot
 from app.creative.texts_ai import check_photo, generate_texts, missing_phrases, read_image_text
 from app.db import get_db
 from app.deps import creative_transport, current_user
@@ -107,6 +108,15 @@ def _refresh_working(conn, business_id: int, transport) -> None:
                 continue
         try:
             data = asyncio.run(fal.download(value, transport))
+            if r["kind"] == "ai_banner":
+                shot = _screenshot(conn, business_id)
+                if shot:  # настоящий скриншот ложится в пурпурный экран телефона
+                    composed = insert_screenshot(data, shot)
+                    if composed is None:
+                        conn.execute("UPDATE creatives SET status = 'failed', error = ? WHERE id = ?",
+                                     ("Не нашли на картинке экран телефона для скриншота. Нажмите «Другой баннер» ещё раз.", r["id"]))
+                        continue
+                    data = composed
             asset_id = _save_asset(conn, business_id, "image" if r["kind"] == "ai_banner" else r["kind"], data, f"creative-{r['id']}")
             conn.execute("UPDATE creatives SET status = 'draft', asset_id = ?, external_id = '' WHERE id = ?", (asset_id, r["id"]))
         except (fal.FalError, AssetError) as e:
@@ -222,6 +232,16 @@ def ads(business_id: int, user: sqlite3.Row = Depends(current_user), conn: sqlit
     }
 
 
+def _screenshot(conn, business_id: int) -> bytes | None:
+    """Скриншот приложения, который владелец загрузил (тип «Скриншот приложения»): его вставляем в экран телефона на баннерах."""
+    row = conn.execute("SELECT stored_name FROM business_assets WHERE business_id = ? AND kind = 'photo' AND tag = 'screen' ORDER BY id DESC LIMIT 1",
+                       (business_id,)).fetchone()
+    try:
+        return _asset_path(business_id, row["stored_name"]).read_bytes() if row else None
+    except OSError:
+        return None
+
+
 def _ai_row(conn, business_id: int, variant: dict):
     """Последний заказ ИИ-баннера под этот вариант объявления (по заголовку и тексту)."""
     return conn.execute(
@@ -247,7 +267,8 @@ def make_ai_banner(business_id: int, index: int, user: sqlite3.Row = Depends(cur
     cta = profile(biz)["cta"]
     expected = [v["title"], biz["name"], cta] + ([price] if price else [])
     try:
-        job = asyncio.run(fal.start_image(fal.banner_prompt(biz, v["title"], price, cta, logo_corner=logo_for(conn, biz) is not None, index=index), key, get_settings().fal_banner_model, transport))
+        job = asyncio.run(fal.start_image(fal.banner_prompt(biz, v["title"], price, cta, logo_corner=logo_for(conn, biz) is not None, index=index,
+                                                       screen=_screenshot(conn, business_id) is not None), key, get_settings().fal_banner_model, transport))
     except fal.FalError as e:
         conn.rollback()
         raise HTTPException(502, detail={"message": e.message})
@@ -301,6 +322,7 @@ def make_all_ai_banners(business_id: int, user: sqlite3.Row = Depends(current_us
     variants, _count, _pool = _ad_variants(conn, biz)
     cta = profile(biz)["cta"]
     logo = logo_for(conn, biz) is not None
+    screen = _screenshot(conn, business_id) is not None
     started = 0
     for index, v in enumerate(variants):
         old = _ai_row(conn, business_id, v)
@@ -310,7 +332,7 @@ def make_all_ai_banners(business_id: int, user: sqlite3.Row = Depends(current_us
         price = find_price(v["title"], v["text"], biz["description"])
         expected = [v["title"], biz["name"], cta] + ([price] if price else [])
         try:
-            job = asyncio.run(fal.start_image(fal.banner_prompt(biz, v["title"], price, cta, logo_corner=logo, index=index), key,
+            job = asyncio.run(fal.start_image(fal.banner_prompt(biz, v["title"], price, cta, logo_corner=logo, index=index, screen=screen), key,
                                               get_settings().fal_banner_model, transport))
         except fal.FalError as e:
             conn.rollback()
@@ -379,7 +401,8 @@ def check_photos(business_id: int, force: bool = False, user: sqlite3.Row = Depe
     key = _need_fal()
     s = get_settings()
     rows = conn.execute(
-        "SELECT * FROM business_assets WHERE business_id = ? AND kind IN ('photo', 'logo', 'generated') "
+        "SELECT * FROM business_assets WHERE business_id = ? AND kind IN ('photo', 'logo', 'generated') AND tag != 'screen' "
+        "AND id NOT IN (SELECT asset_id FROM creatives WHERE kind = 'ai_banner' AND asset_id IS NOT NULL) "
         + ("" if force else "AND ai_score = 0 ") + "ORDER BY id LIMIT 10", (business_id,)).fetchall()
     checked = failed = 0
     for r in rows:
