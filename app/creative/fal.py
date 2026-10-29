@@ -101,12 +101,18 @@ def banner_prompt(biz, title: str, price: str, cta: str, logo_corner: bool = Fal
     parts = [f'headline "{title}"']
     if price:
         parts.append(f'price badge "{price.replace(chr(160), " ")}"')
-    parts += [f'button "{cta}"', f'small caption "{biz["name"]}"']
+    parts.append(f'button "{cta}"')
+    if not logo_corner:  # с настоящим логотипом отдельная подпись не нужна: нейросеть рисует из неё свой выдуманный знак
+        parts.append(f'small plain-text caption "{biz["name"]}" without any icon or emblem')
     return (f"Advertising banner for: {biz['kind']}, brand {biz['name']}. " + _visual_rules(biz)
             + (f"Scene, follow it closely: {scene}. " if scene else "") +
             "Landscape 4:3, modern professional layout, lots of clean space around the text. Visual direction: " + DIRECTIONS[index % len(DIRECTIONS)] + ". "
             "Text in Russian, exactly as written, large and perfectly legible: " + ", ".join(parts) + ". "
-            "No other text, no extra letters, no third-party brand logos. "
+            "No other text, no extra letters. Never draw any logo, emblem, badge, mascot, icon or brand mark of any company, including "
+            "the advertiser: the real logo is added later by the designer. "
+            + ("" if screen else "Never invent an app or website interface: any phone or monitor in the scene must show no readable interface, "
+               "no text and no faces, so show it from the back or at an angle where the screen is not visible, or with a plain softly glowing blank screen. ")
+            +
             "No decorative frames, ornaments, hexagon or diamond shapes, golden dust, sparkles, bokeh, lens flare or glow effects: "
             "a confident, simple layout with a big readable headline and one clear subject."
             + (LOGO_RULE.format(ratio=logo_ratio or 2.5) if logo_corner else "")

@@ -321,11 +321,15 @@ def _order_banner(conn, biz, variants: list[dict], index: int, key: str, transpo
     screen = _screenshot(conn, business_id) is not None
     art = asyncio.run(art_direction(biz, v, index, others, _logo_info(conn, biz, logo), screen, key, s.fal_text_model, transport))
     use_logo = bool(art["logo"]) and logo is not None
+    if use_logo:  # подписи с названием на баннере не будет: вместо неё настоящий логотип
+        expected = [e for e in expected if e != biz["name"]]
     prompt = fal.banner_prompt(biz, v["title"], price, cta, logo_corner=use_logo, index=index, screen=screen,
                                logo_ratio=_logo_ratio(logo), scene=art["scene"])
     job = asyncio.run(fal.start_image(prompt, key, s.fal_banner_model, transport))
     meta = {"expect": expected, "logo": use_logo, "concept": art["concept"], "audience": art["audience"], "scene": art["scene"],
-            "logo_reason": art["logo_reason"], "brief": f"{biz['kind']} «{biz['name']}». Сюжет: {art['label']}. {art['scene']}"}
+            "logo_reason": art["logo_reason"], "brief": f"{biz['kind']} «{biz['name']}». Сюжет: {art['label']}. {art['scene']}"
+                     + ("" if screen else " Экран телефона намеренно не показан: настоящего скриншота нет, интерфейс придумывать нельзя, это не недостаток.")
+                     + (" Логотип вставлен позже из файла владельца, это нормально." if use_logo else "")}
     conn.execute("INSERT INTO creatives (business_id, kind, title, body, prompt, status, source, external_id) VALUES (?, 'ai_banner', ?, ?, ?, 'working', 'fal', ?)",
                  (business_id, v["title"], v["text"], json.dumps(meta, ensure_ascii=False), json.dumps(job)))
     return art["scene"]
