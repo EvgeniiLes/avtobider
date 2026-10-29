@@ -533,13 +533,15 @@ function renderBannerHistory(banners) {
   for (const c of banners.slice().sort((a, b) => b.id - a.id)) {
     const tile = el("div", { className: `thumb ${c.status}` });
     if (c.status === "working") tile.append(el("div", { className: "wait" }, el("div", { className: "spinner" }), el("div", { textContent: "Рисуем… около минуты" })));
-    else if (c.status === "failed") tile.append(el("div", { className: "wait", textContent: c.error || "Не получилось." }));
-    else tile.append(el("img", { src: c.url, alt: c.title, loading: "lazy" }));
+    else if (c.status === "failed") {
+      const why = c.error || "Не получилось.";
+      tile.append(el("div", { className: "wait", title: why, textContent: why.length > 150 ? `${why.slice(0, 147)}…` : why }));
+    } else tile.append(el("img", { src: c.url, alt: c.title }));
     const m = c.meta || {};
     const current = newest.get(`${c.title}\u0000${c.body}`).id === c.id && (c.status === "draft" || c.status === "approved");
     const when = (c.created_at || "").slice(0, 16).replace("T", " ");
-    const info = [c.title, [m.scene, m.audience && `для: ${m.audience}`, m.logo ? "с логотипом" : ""].filter(Boolean).join(", "), when].filter(Boolean);
-    tile.append(el("div", { className: "hint", textContent: info.join(" · ") }));
+    const detail = [m.scene, m.audience && `для: ${m.audience}`, m.logo ? "с логотипом" : ""].filter(Boolean).join(", ");
+    tile.append(el("div", { className: "cap" }, el("b", { textContent: c.title }), el("span", { textContent: [detail, when].filter(Boolean).join(" · ") })));
     const acts = el("div", { className: "acts" });
     if (current) acts.append(el("span", { className: "badge good", textContent: "Сейчас на карточке" }));
     else if (c.status === "draft" || c.status === "approved") {

@@ -256,6 +256,11 @@ tr.off td { color: var(--muted); }
 .creative-grid { grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); }
 .creative-grid .thumb img, .creative-grid .thumb video { height: 150px; }
 .creative-grid .wait { height: 150px; display: flex; align-items: center; justify-content: center; text-align: center; padding: 8px; color: var(--muted); font-size: 13px; }
+.history-grid { grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); }
+.history-grid .thumb img, .history-grid .wait { height: 172px; }
+.history-grid .wait { overflow: hidden; font-size: 12px; }
+.history-grid .cap { padding: 6px 8px 0; font-size: 12px; line-height: 1.4; }
+.history-grid .cap b { display: block; color: var(--text); font-weight: 600; }
 .creative-grid .acts { display: flex; gap: 4px; flex-wrap: wrap; padding: 6px; }
 .creative-grid .acts button { position: static; padding: 4px 9px; font-size: 12px; background: var(--accent); }
 .creative-grid .acts button.secondary { background: var(--surface-2); color: var(--text); }
