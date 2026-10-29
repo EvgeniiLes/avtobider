@@ -974,11 +974,35 @@ async function openLaunch() {
     el("li", {}, el("div", { className: "t", textContent: v.title }), el("div", { className: "hint", textContent: v.text }))));
   $("launch-warnings").replaceChildren(...p.warnings.map((w) => el("li", { textContent: w })));
   $("marking-help").textContent = p.marking.help;
-  $("marking-ok").checked = p.marking.confirmed;
-  $("marking-box").hidden = p.marking.confirmed;
-  $("launch-go").disabled = !p.marking.confirmed;
+  let confirmed = p.marking.confirmed;
+  if (!confirmed) {  // Директ сам скажет, внесены ли данные: тогда подтверждать вручную не нужно
+    const mk = await api("GET", `/api/businesses/${currentBusiness.id}/marking`);
+    if (mk.ok) {
+      confirmed = mk.data.filled;
+      if (!$("mk-kind").options.length) {
+        $("mk-kind").replaceChildren(...Object.entries(mk.data.kinds).map(([v, t]) => el("option", { value: v, textContent: t })));
+      }
+    }
+  }
+  $("marking-ok").checked = confirmed;
+  $("marking-box").hidden = confirmed;
+  $("launch-go").disabled = !confirmed;
   $("launch-card").hidden = false;
   $("launch-card").scrollIntoView({ block: "nearest" });
+}
+
+async function saveMarking() {
+  const btn = $("mk-save");
+  btn.disabled = true;
+  $("mk-status").textContent = "Передаём в Директ…";
+  const r = await api("POST", `/api/businesses/${currentBusiness.id}/marking`, {
+    kind: $("mk-kind").value, tin: $("mk-tin").value, name: $("mk-name").value, phone: $("mk-phone").value });
+  btn.disabled = false;
+  $("mk-status").textContent = "";
+  if (!r.ok) { say(errorText(r), "err"); return; }
+  $("mk-tin").value = "";  // ИНН на странице не оставляем
+  say(r.data.message, r.data.filled ? "" : "err");
+  if (r.data.filled) { $("marking-ok").checked = true; $("marking-box").hidden = true; $("launch-go").disabled = false; }
 }
 
 async function confirmLaunch() {
@@ -1181,6 +1205,7 @@ async function start() {
   $("m-clear").addEventListener("click", clearMetrika);
   $("marking-ok").addEventListener("change", () => { $("launch-go").disabled = !$("marking-ok").checked; });
   $("launch-go").addEventListener("click", confirmLaunch);
+  $("mk-save").addEventListener("click", saveMarking);
   $("launch-cancel").addEventListener("click", () => { $("launch-card").hidden = true; });
   $("sync-now").addEventListener("click", syncNow);
   $("clients-save").addEventListener("click", saveClients);

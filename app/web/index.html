@@ -107,7 +107,20 @@
           <p class="hint">Деньги спишутся только после того, как Яндекс одобрит объявления и вы пополните счёт. Больше недельного бюджета сервис не потратит.</p>
           <div class="notice" id="marking-box">
             <p id="marking-help" class="hint"></p>
-            <label class="check"><input type="checkbox" id="marking-ok"> Я внёс данные рекламодателя в Яндекс Директе</label>
+            <div class="mk-form">
+              <label for="mk-kind">Кто размещает рекламу</label>
+              <select id="mk-kind"></select>
+              <label for="mk-tin">ИНН</label>
+              <input type="text" id="mk-tin" inputmode="numeric" maxlength="12" autocomplete="off" placeholder="10 или 12 цифр">
+              <label for="mk-name">Имя или название</label>
+              <input type="text" id="mk-name" maxlength="255" placeholder="Например, Иванова Анна Сергеевна или ООО «Мята»">
+              <label for="mk-phone">Телефон <span class="hint">(необязательно)</span></label>
+              <input type="text" id="mk-phone" inputmode="tel" maxlength="30" placeholder="+79001234567">
+              <p class="hint">Данные уйдут сразу в ваш кабинет Яндекс Директа. На нашем сервере ИНН не сохраняется.</p>
+              <button id="mk-save" class="small">Передать в Директ</button>
+              <span id="mk-status" class="hint"></span>
+            </div>
+            <label class="check"><input type="checkbox" id="marking-ok"> Я уже внёс данные рекламодателя в Яндекс Директе сам</label>
           </div>
           <div class="hero-actions">
             <button id="launch-go" disabled>Создать и отправить на проверку</button>

@@ -242,6 +242,8 @@ tr.off td { color: var(--muted); }
 .ad-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px 12px; flex-wrap: wrap; }
 .thumb .ai-note { font-size: 12px; padding-top: 0; }
 .thumb .ai-note.bad { color: var(--err); }
+.mk-form { margin: 8px 0; }
+.mk-form input, .mk-form select { max-width: 460px; }
 .counter { font-size: 12px; color: var(--muted); }
 .counter.over { color: var(--err); font-weight: 700; }
 .creative-grid { grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); }

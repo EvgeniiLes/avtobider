@@ -18,6 +18,8 @@ class FakeDirect:
         self.report_requests: list[dict] = []
         self.negatives: dict[int, list[str]] = {}
         self.images: list[str] = []
+        self.advertiser = {"tin_type": None, "tin": None, "name": None, "phone": ""}  # данные рекламодателя в «кабинете»
+        self.update_error = ""
         self._id = 1000
         self.transport = httpx.MockTransport(self._handle)
 
@@ -51,7 +53,18 @@ class FakeDirect:
                 return ok({"GeoRegions": [{"GeoRegionId": i, "GeoRegionName": n.capitalize(), "GeoRegionType": "City"} for n, i in self.regions.items()]})
             return ok({"Currencies": [{"Currency": "RUB", "Properties": [{"Name": "MinimumWeeklySpendLimit", "Value": str(self.min_weekly)}]}]})
         if service == "clients":
-            return ok({"Clients": [{"Login": "fake-login"}]})
+            if method == "update":
+                if self.update_error:
+                    return ok({"UpdateResults": [{"Errors": [{"Code": 8000, "Message": self.update_error}]}]})
+                item = params["Clients"][0]
+                self.advertiser = {"tin_type": item["TinInfo"]["TinType"], "tin": item["TinInfo"]["Tin"],
+                                   "name": item["ErirAttributes"]["Organization"]["Name"], "phone": item.get("Phone", self.advertiser["phone"])}
+                return ok({"UpdateResults": [{"ClientId": 1}]})
+            client = {"Login": "fake-login", "ClientInfo": "Иванов Иван", "Phone": self.advertiser["phone"]}
+            if params.get("TinInfoFieldNames") and self.advertiser["tin"]:
+                client["TinInfo"] = {"TinType": self.advertiser["tin_type"], "Tin": self.advertiser["tin"]}
+                client["ErirAttributes"] = {"Organization": {"Name": self.advertiser["name"]}}
+            return ok({"Clients": [client]})
         if service == "campaigns":
             if method == "add":
                 item = params["Campaigns"][0]

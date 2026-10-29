@@ -330,6 +330,27 @@ class DirectClient:
             raise DirectError("Не удалось определить ваш рекламный кабинет.")
         return clients[0]["Login"]
 
+    async def advertiser_data(self) -> dict:
+        """Что уже внесено в «Данные рекламодателя»: вид плательщика, ИНН (только факт), название или имя, телефон."""
+        result = await self.call("clients", "get", {
+            "FieldNames": ["Login", "Phone", "ClientInfo"],
+            "TinInfoFieldNames": ["TinType", "Tin"],
+            "OrganizationFieldNames": ["Name"],
+        })
+        c = (result.get("Clients") or [{}])[0]
+        tin = c.get("TinInfo") or {}
+        org = (c.get("ErirAttributes") or {}).get("Organization") or {}
+        return {"login": c.get("Login", ""), "tin_type": tin.get("TinType") or "", "has_tin": bool(tin.get("Tin")),
+                "org_name": org.get("Name") or "", "has_phone": bool(c.get("Phone")), "full_name": c.get("ClientInfo") or ""}
+
+    async def set_advertiser_data(self, tin_type: str, tin: str, name: str, phone: str = "") -> None:
+        """Записывает данные рекламодателя в кабинет (то же, что форма «Данные рекламодателя» в Директе)."""
+        item: dict = {"TinInfo": {"TinType": tin_type, "Tin": tin}, "ErirAttributes": {"Organization": {"Name": name}}}
+        if phone:
+            item["Phone"] = phone
+        result = await self.call("clients", "update", {"Clients": [item]})
+        self._result_item(result, "UpdateResults", 0)
+
     async def find_region_id(self, city: str) -> int | None:
         """Номер региона Директа по названию города (Москва = 213). None, если не нашли."""
         result = await self.call("dictionaries", "get", {"DictionaryNames": ["GeoRegions"]})
