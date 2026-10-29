@@ -500,6 +500,23 @@ def test_rewrite_puts_a_new_text_in_the_same_place(monkeypatch):
         assert http.post(f"{base}/ads/99/rewrite").status_code == 400
 
 
+def test_visual_hint_reaches_the_banner_prompt_and_is_saved(monkeypatch):
+    from app.creative import fal
+    monkeypatch.setenv("FAL_KEY", "fal-test")
+    fakes = Fakes(fal_done=False)
+    with TestClient(app) as http:
+        bid = setup(http, kind="Карточные игры онлайн с ИИ ведущим", name="Мафия онлайн",
+                    description="Мафия и другие игры по видео. ИИ ведёт партию, карт нет, всё в телефоне.",
+                    visual_hint="Человек играет в телефоне. Бумажных карт на картинках нет.")
+        assert http.get(f"/api/businesses/{bid}").json()["visual_hint"] == "Человек играет в телефоне. Бумажных карт на картинках нет."
+        http.post(f"/api/businesses/{bid}/creatives/ads/0/ai-banner")
+        prompt = [b for h, _, b in fakes.requests if h == "queue.fal.run"][0].decode()
+        assert "follow it strictly" in prompt and "Бумажных карт на картинках нет" in prompt and "smartphone" in prompt
+    row = {"kind": "Игры", "name": "М", "description": "Всё в телефоне.", "visual_hint": "Только смартфон"}
+    assert "Только смартфон" in fal.banner_prompt(row, "З", "", "Играть") and "smartphone" in fal.banner_prompt(row, "З", "", "Играть")
+    assert "Только смартфон" in fal.image_prompt(row, "", 0) and "смартфон" in fal.image_prompt(row, "", 0)
+
+
 def test_rewrite_needs_ai():
     with TestClient(app) as http:
         bid = setup(http)

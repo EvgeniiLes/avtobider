@@ -32,11 +32,21 @@ PHOTO_STYLES = [
 ]
 
 
+def _visual_rules_ru(biz) -> str:
+    try:
+        hint = (biz["visual_hint"] or "").strip()
+    except (KeyError, IndexError):
+        hint = ""
+    text = ("Рисуй ровно то, что бизнес предлагает на самом деле, без физических аналогов: если услуга онлайн или в телефоне, "
+            "покажи смартфон или экран приложения, а не реальные предметы.")
+    return text + (f" Пожелание владельца, выполни строго: {hint}." if hint else "")
+
+
 def image_prompt(biz, idea: str = "", style: int = 0) -> str:
     """Запрос к генератору картинок: без текста на изображении (текст и логотип накладываем сами).
     style выбирает один из пяти непохожих кадров, чтобы варианты рекламы различались."""
     first = (biz["description"] or "").strip().split(".")[0][:200]
-    base = f"Рекламная фотография в стиле коммерческой съёмки: {biz['kind']}"
+    base = f"Рекламная фотография в стиле коммерческой съёмки: {biz['kind']}. " + _visual_rules_ru(biz)
     if first:
         base += f". {first}"
     if idea.strip():
@@ -55,19 +65,32 @@ DIRECTIONS = (
 )
 
 
+def _visual_rules(biz) -> str:
+    """Общие правила для картинок: рисовать то, что бизнес правда предлагает, и слушаться пожеланий владельца."""
+    try:
+        hint = (biz["visual_hint"] or "").strip()
+    except (KeyError, IndexError):
+        hint = ""
+    description = (biz["description"] or "").strip()[:500]
+    rules = (f"About the business (use only this, do not invent anything): {description}. "
+             "Depict exactly what the business really offers and how clients use it. Never replace the real product with a physical "
+             "equivalent: if the description says it is online or used on a phone, show a smartphone or an app screen, not real-world objects. ")
+    if hint:
+        rules += f"The owner's direction for the visuals, follow it strictly: {hint}. "
+    return rules
+
+
 def banner_prompt(biz, title: str, price: str, cta: str, logo_corner: bool = False, index: int = 0) -> str:
     """Запрос на баннер целиком: русский текст пишет сама модель, поэтому он короткий и в точных кавычках."""
-    first = (biz["description"] or "").strip().split(".")[0][:160]
     parts = [f'headline "{title}"']
     if price:
         parts.append(f'price badge "{price.replace(chr(160), " ")}"')
     parts += [f'button "{cta}"', f'small caption "{biz["name"]}"']
-    return (f"Advertising banner for a business: {biz['kind']}. {first}. Landscape 4:3, modern professional layout with a real-looking "
-            "photo relevant to the business on one side, lots of clean space around the text. Visual direction: " + DIRECTIONS[index % len(DIRECTIONS)] + ". "
+    return (f"Advertising banner for: {biz['kind']}, brand {biz['name']}. " + _visual_rules(biz) +
+            "Landscape 4:3, modern professional layout, lots of clean space around the text. Visual direction: " + DIRECTIONS[index % len(DIRECTIONS)] + ". "
             "Text in Russian, exactly as written, large and perfectly legible: " + ", ".join(parts) + ". "
             "No other text, no extra letters, no third-party brand logos."
             + (" Keep the top-right corner plain and empty: a logo will be placed there." if logo_corner else ""))
-
 
 async def _submit(http: httpx.AsyncClient, model: str, key: str, payload: dict) -> dict:
     try:

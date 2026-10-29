@@ -194,6 +194,7 @@ function fillForm(b) {
   $("b-site").value = b ? b.site_url : "";
   $("b-maps").value = b ? b.maps_url : "";
   $("b-tone").value = b ? b.tone : "";
+  $("b-visual").value = b ? b.visual_hint || "" : "";
   setColor("b-color-main", b ? b.color_main : "");
   setColor("b-color-extra", b ? b.color_extra : "");
   $("b-check").value = b && b.avg_check ? b.avg_check : "";
@@ -286,6 +287,7 @@ function readForm() {
     city: $("b-city").value,
     site_url: $("b-site").value,
     maps_url: $("b-maps").value,
+    visual_hint: $("b-visual").value,
     tone: $("b-tone").value,
     color_main: getColor("b-color-main"),
     color_extra: getColor("b-color-extra"),
