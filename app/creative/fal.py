@@ -164,7 +164,8 @@ def photo_banner_prompt(biz, title: str, price: str, cta: str, index: int = 0) -
     if price:
         text += f' and a price badge «{price.replace(chr(160), " ")}»'
     name, look = PHOTO_LOOKS[index % len(PHOTO_LOOKS)]
-    return (f"Create a professional advertising banner, landscape 4:3, for: {biz['kind']}, using the attached photo as the main image. "
+    return (f"Create a professional advertising banner, landscape 4:3, using the attached photo as the main image (the business is: {biz['kind']}; "
+            "this is context only, do not write it on the banner). "
             "Keep the real photo natural and unaltered (the same people, animals, objects and place); you may crop it and extend its background for the layout. "
             f"Add text in Russian, spelled exactly as written, nothing added or changed: {text}, and a solid rounded button «{cta}». "
             f"Visual direction: {look}. Strong contrast, text is easy to read and never covers faces or the main subject. "
