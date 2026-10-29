@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 from app.assets import AssetError, prepare_image, prepare_video
 from app.config import get_settings
 from app.creative import fal
-from app.creative.angles import label as angle_label
+from app.creative.angles import label as angle_label, profile
 from app.assets import PHOTO_TAGS
 from app.creative.compose import add_logo, find_price, prepare_for_direct, style_for
 from app.creative.texts_ai import check_photo, generate_texts, missing_phrases, read_image_text
@@ -214,6 +214,9 @@ def ads(business_id: int, user: sqlite3.Row = Depends(current_user), conn: sqlit
         "site": biz["site_url"] or "",
         "has_maps": bool(biz["maps_url"]),
         "has_images": bool(photos),
+        "rejected_photos": conn.execute("SELECT COUNT(*) FROM business_assets WHERE business_id = ? AND kind = 'photo' AND ai_score BETWEEN 1 AND 2",
+                                        (business_id,)).fetchone()[0],
+        "cta": profile(biz)["cta"],
     }
 
 
@@ -239,9 +242,10 @@ def make_ai_banner(business_id: int, index: int, user: sqlite3.Row = Depends(cur
         raise HTTPException(400, detail={"message": "Этот баннер уже рисуется. Подождите минуту."})
     _charge(conn, business_id, "ai_banner")
     price = find_price(v["title"], v["text"], biz["description"])
-    expected = [v["title"], biz["name"], "Записаться"] + ([price] if price else [])
+    cta = profile(biz)["cta"]
+    expected = [v["title"], biz["name"], cta] + ([price] if price else [])
     try:
-        job = asyncio.run(fal.start_image(fal.banner_prompt(biz, v["title"], price, "Записаться", logo_corner=logo_for(conn, biz) is not None), key, get_settings().fal_banner_model, transport))
+        job = asyncio.run(fal.start_image(fal.banner_prompt(biz, v["title"], price, cta, logo_corner=logo_for(conn, biz) is not None), key, get_settings().fal_banner_model, transport))
     except fal.FalError as e:
         conn.rollback()
         raise HTTPException(502, detail={"message": e.message})

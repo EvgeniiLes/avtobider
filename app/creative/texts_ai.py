@@ -4,7 +4,7 @@ import re
 
 import httpx
 
-from app.creative.angles import ANGLES, prompt_block
+from app.creative.angles import ANGLES, business_block, prompt_block
 from app.direct.texts import TEXT_MAX, TITLE_MAX, check, fit, unsupported_claims
 
 API_URL = "https://api.anthropic.com/v1/messages"
@@ -31,6 +31,7 @@ def build_prompt(biz, count: int, hint: str = "") -> str:
         parts.append(f"Желаемый тон: {tones.get(biz['tone'], biz['tone'])}")
     if hint.strip():
         parts.append(f"Пожелание владельца: {hint.strip()[:300]}")
+    parts.append(business_block(biz))
     parts.append(prompt_block(biz["description"]))
     parts.append(f"Нужно вариантов: {count}.")
     return "\n".join(parts)
@@ -93,7 +94,9 @@ PHOTO_CHECK_SYSTEM = (
     "product (товар, предметы), other. score: насколько фото подходит для рекламы (резкость, свет, композиция, свободное место для текста). "
     "В issues перечисли реальные проблемы по-русски коротко: чужие читаемые вывески, бренды или логотипы, водяные знаки, посторонний текст, "
     "узнаваемые лица людей (для рекламы нужно их согласие), беспорядок, тёмное или смазанное фото. Если проблем нет, issues пустой. "
-    "Важно: если на фото читается чужой бренд, вывеска или логотип, либо есть водяной знак, score не выше 2."
+    "Важно: если на фото читается чужой бренд, вывеска или логотип, либо есть водяной знак, score не выше 2. "
+    "Если на картинке много собственного текста, заголовков или графики (готовый рекламный баннер, афиша, скриншот), score не выше 2, "
+    "type other, а в issues напиши «на картинке свой текст»: поверх такого кадра нельзя ставить новый заголовок."
 )
 
 

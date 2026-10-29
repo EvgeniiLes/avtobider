@@ -23,6 +23,47 @@ ANGLES: dict[str, tuple[str, str, str | None]] = {
     "urgency": ("Свободные окна", "ограниченные места или срок, только если это названо в описании", r"окн|мест\b|мест[аы]\b|только до|на этой неделе|до \d"),
 }
 
+ONLINE = re.compile(r"(?i)онлайн|интернет|приложени|платформ|подписк|игр[аыуе]\b|телеграм|софт|сайт")
+OFFLINE = re.compile(r"(?i)салон|студи|клиник|кабинет|барбер|маникюр|педикюр|массаж|стоматолог|косметолог|парикмахер|ремонт|магазин|кафе|ресторан|фитнес|зал\b|мастерск|центр\b")
+APPOINTMENT = re.compile(r"(?i)салон|студи|клиник|кабинет|барбер|маникюр|педикюр|массаж|стоматолог|косметолог|парикмахер|врач")
+
+CTA_SENTENCES = {
+    "Записаться": "Запишитесь онлайн",
+    "Играть": "Присоединяйтесь к игре",
+    "Заказать": "Оформите заказ на сайте",
+    "Попробовать": "Попробуйте сервис",
+    "Узнать подробнее": "Подробности на сайте",
+}
+
+
+def profile(biz) -> dict:
+    """Какой это бизнес: онлайн или офлайн, какое действие предлагаем клиенту. От этого зависят кнопка и шаблонные тексты."""
+    def field(key: str) -> str:
+        try:
+            return biz[key] or ""
+        except (KeyError, IndexError):
+            return ""
+
+    kind, description = field("kind"), field("description")
+    online = bool(ONLINE.search(kind)) and not OFFLINE.search(kind)
+    local = bool(not online and (field("maps_url") or available_location(description) or OFFLINE.search(kind)))
+    if APPOINTMENT.search(kind) and not online:
+        cta = "Записаться"
+    elif online and re.search(r"(?i)игр", kind):
+        cta = "Играть"
+    elif re.search(r"(?i)магазин|купить|доставк|товар", kind + " " + description[:200]):
+        cta = "Заказать"
+    elif online:
+        cta = "Попробовать"
+    else:
+        cta = "Узнать подробнее"
+    return {"online": online, "local": local, "cta": cta, "cta_sentence": CTA_SENTENCES[cta], "appointment": cta == "Записаться"}
+
+
+def available_location(description: str) -> bool:
+    return "location" in available(description)
+
+
 # Теги шаблонных вариантов (запасные тексты без ИИ)
 TEMPLATE_ANGLES = ("location", "booking", "price", "booking", "choice", "location")
 
@@ -35,6 +76,13 @@ def available(description: str) -> list[str]:
     """Углы, доступные для этого бизнеса: без фактов всегда, с фактами только если факт назван в описании."""
     text = (description or "").lower()
     return [a for a, (_n, _b, need) in ANGLES.items() if need is None or re.search(need, text)]
+
+
+def business_block(biz) -> str:
+    p = profile(biz)
+    where = ("Это онлайн-проект: физического адреса нет, не пиши про «рядом», «у метро», «приходите», «запись к мастеру»."
+             if p["online"] else "Это бизнес с адресом, клиенты приходят на место." if p["local"] else "")
+    return f"{where} Главное действие клиента на кнопке: «{p['cta']}». Пиши под это действие.".strip()
 
 
 def prompt_block(description: str) -> str:

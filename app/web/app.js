@@ -320,6 +320,7 @@ async function deleteBusiness() {
 
 let creativeTimer = null;
 let creativeLimits = { title: 56, text: 81 };
+const autoTexts = new Set();
 let creativePrices = { image: 0.08, video: 0.7 };
 const usd = (v) => `$${v.toFixed(2)}`;
 
@@ -366,6 +367,11 @@ async function loadCreatives() {
   renderMedia($("cr-videos"), videos, false);
   $("cr-videos-empty").hidden = videos.length > 0;
   loadAds();
+  const hasAiText = creatives.some((c) => c.kind === "text" && c.source === "claude");
+  if (caps.text_ai && !hasAiText && !autoTexts.has(currentBusiness.id) && (currentBusiness.description || "").trim().length >= 40) {
+    autoTexts.add(currentBusiness.id);  // один раз на бизнес: ИИ пишет тексты сам, чтобы вместо шаблонов были настоящие варианты
+    generateTexts(true);
+  }
   if (creatives.some((c) => c.status === "working")) creativeTimer = setTimeout(loadCreatives, 6000);
 }
 
@@ -373,7 +379,7 @@ async function loadCreatives() {
 async function loadAds() {
   const result = await creativeCall("GET", "/ads");
   if (!result.ok) return;
-  const { ads, count, per_unit, site, has_maps, has_images } = result.data;
+  const { ads, count, per_unit, site, has_maps, has_images, rejected_photos } = result.data;
   const target = site || (has_maps ? "вашу страницу в Яндекс Картах" : "");
   $("ads-summary").textContent = !count
     ? "Бюджет слишком мал для запуска: увеличьте его на странице «Бизнес». Так будут выглядеть объявления."
@@ -382,7 +388,9 @@ async function loadAds() {
       : `При запуске будет создано объявлений: ${count}, по ${per_unit} ₽ в неделю каждое. Чтобы запустить, укажите сайт или ссылку на Яндекс Карты на странице «Бизнес»: объявлению нужно куда вести.`;
   const note = $("ads-note");
   note.hidden = has_images;
-  note.textContent = "Картинок пока нет. Нарисуйте и выберите их ниже или загрузите свои фото на странице «Бизнес»: баннеры соберутся сами.";
+  note.textContent = rejected_photos
+    ? "Загруженные фото не подошли для баннеров: ИИ нашёл на них свой текст, чужой бренд или водяной знак (подробности на странице «Бизнес»). Нарисуйте картинки ниже или загрузите другие фото: поверх готового баннера с надписями наш заголовок смотрелся бы плохо."
+    : "Картинок пока нет. Нарисуйте и выберите их ниже или загрузите свои фото на странице «Бизнес»: баннеры соберутся сами.";
   const stamp = Date.now();
   $("ads").replaceChildren(...ads.map((a) => {
     const aiText = a.ai && {
@@ -497,10 +505,10 @@ function renderMedia(grid, items, canMakeVideo) {
   }
 }
 
-async function generateTexts() {
+async function generateTexts(auto = false) {
   const button = $("cr-gen-texts");
   button.disabled = true;
-  setStatus("cr-texts-status", "Придумываем…");
+  setStatus("cr-texts-status", auto === true ? "Пишем первые варианты…" : "Придумываем…");
   const r = await creativeCall("POST", "/texts/generate", { count: 6, hint: $("cr-hint").value });
   button.disabled = false;
   setStatus("cr-texts-status", r.ok ? r.data.message : errorText(r), r.ok ? "ok" : "err");
@@ -630,6 +638,7 @@ async function uploadFiles(files, kind, tag) {
     done += 1;
   }
   await refreshAssets();
+  if (kind !== "video") api("POST", `/api/businesses/${currentBusiness.id}/creatives/photos/check`).then(refreshAssets);  // ИИ сам проверит загруженное (около 1 цента за файл)
   if (done === files.length) setStatus("files-status", done === 1 ? "Файл загружен." : `Загружено файлов: ${done}.`, "ok");
 }
 
@@ -1218,7 +1227,7 @@ async function start() {
   $("nav-stats").addEventListener("click", () => showPage("stats"));
   $("nav-creatives").addEventListener("click", () => showPage("creatives"));
   $("ads-launch").addEventListener("click", () => { showPage("home"); openLaunch(); });
-  $("cr-gen-texts").addEventListener("click", generateTexts);
+  $("cr-gen-texts").addEventListener("click", () => generateTexts());
   $("photos-check").addEventListener("click", checkPhotos);
   $("insights-ai").addEventListener("click", analyzeResults);
   $("cr-gen-images").addEventListener("click", generateImages);

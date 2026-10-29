@@ -471,6 +471,23 @@ def test_generated_texts_keep_their_angle(monkeypatch):
         assert shown["angle"] == "durability" and shown["angle_label"] == "Долговечность"
 
 
+def test_online_business_gets_its_own_button_and_no_offline_phrases():
+    from app.creative.angles import profile
+    from app.direct.texts import draft_variants
+    game = {"name": "Мафия онлайн", "kind": "Карточные игры онлайн с ИИ ведущим", "city": "Москва", "description": "Играйте в мафию в телефоне.", "maps_url": ""}
+    salon = {"name": "Мята", "kind": "Маникюрная студия", "city": "Москва", "description": "Маникюр и педикюр рядом с метро.", "maps_url": ""}
+    shop = {"name": "Тесто", "kind": "Магазин выпечки с доставкой", "city": "Казань", "description": "Хлеб и булки.", "maps_url": ""}
+    assert (profile(game)["online"], profile(game)["local"], profile(game)["cta"]) == (True, False, "Играть")
+    assert (profile(salon)["online"], profile(salon)["local"], profile(salon)["cta"]) == (False, True, "Записаться")
+    assert profile(shop)["cta"] == "Заказать"
+    text = " ".join(v["title"] + " " + v["text"] for v in draft_variants(game))
+    assert "рядом" not in text and "запись" not in text.lower() and "Запиш" not in text and "Москва" not in text   # офлайн-фраз нет
+    assert {v["angle"] for v in draft_variants(game)} <= {"booking", "choice", "comfort"}                           # угла «Расположение» нет
+    salon_text = " ".join(v["title"] + " " + v["text"] for v in draft_variants(salon))
+    assert "рядом с вами" in salon_text and "запись на сегодня" in salon_text and "Москва" in salon_text            # у салона всё как раньше
+    assert len({v["title"] for v in draft_variants(game)}) == 6                                                      # шесть разных заголовков
+
+
 def test_missing_phrases_ignore_case_quotes_and_spaces():
     from app.creative.texts_ai import missing_phrases
     read = ["МАНИКЮР  с покрытием", "от 2 200 ₽", "Студия «Мята»"]

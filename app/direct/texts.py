@@ -80,24 +80,26 @@ def _first_sentence(description: str, limit: int) -> str:
 
 
 def draft_variants(biz, count: int = 6) -> list[dict]:
-    """Варианты объявлений с разными акцентами. Без выдуманных фактов: только данные владельца."""
+    """Запасные варианты объявлений без ИИ. Без выдуманных фактов: только данные владельца. Подбираются под тип бизнеса:
+    для онлайн-проекта нет «рядом с вами» и «записи», кнопка и призыв по сути услуги."""
+    from app.creative.angles import profile  # импорт здесь, чтобы не было круга
+    pr = profile(biz)
     name, kind, city = biz["name"].strip(), biz["kind"].strip(), biz["city"].strip()
     kind_l = kind[:1].lower() + kind[1:]
     own = _first_sentence(biz["description"], TEXT_MAX)
+    act, where = pr["cta_sentence"], (f" в городе {city}" if city and pr["local"] else "")
     options = [
-        (f"{kind}, {city}" if city else kind, f"Запишитесь онлайн. {name}"),
-        (f"{name}: запись онлайн", f"{kind} {'в городе ' + city if city else 'рядом с вами'}. Подберём удобное время"),
-        (f"{kind} рядом с вами", f"{name}. Узнайте цены и запишитесь сегодня"),
-        (f"{kind}: запись на сегодня", f"{name}{', ' + city if city else ''}. Ответим на вопросы по телефону"),
-        (f"{name}: {kind_l}", own or "Приходите знакомиться, будем рады вам"),
-        (f"{kind}: удобный адрес", f"{name}. Выберите время и приходите"),
+        ((f"{kind}, {city}" if city and pr["local"] else kind), f"{act}. {name}", "location" if pr["local"] else "booking"),
+        (f"{name}: {kind_l}", own or f"{act}. {kind}{where}", "choice"),
+        ((f"{kind} рядом с вами" if pr["local"] else f"{kind}: подробности на сайте"), f"{name}. {act}", "booking"),
+        ((f"{kind}: запись на сегодня" if pr["appointment"] else f"{name}: {act.lower()}"), f"{name}{', ' + city if city and pr['local'] else ''}. {act}", "booking"),
+        (f"{kind}: удобно и понятно", f"{name}. Выберите подходящее и {act[0].lower() + act[1:]}", "comfort"),
+        (f"{name}: узнайте подробнее", f"{kind}{where}. {act}", "choice"),
     ]
-    from app.creative.angles import TEMPLATE_ANGLES  # импорт здесь, чтобы не было круга
     variants = []
-    for (title, text), angle in zip(options[:count], TEMPLATE_ANGLES):
+    for title, text, angle in options[:count]:
         variants.append({"title": fit(title, TITLE_MAX), "text": fit(text, TEXT_MAX), "angle": angle})
     return variants
-
 
 def alternative_variant(biz, used_titles: set[str]) -> dict:
     """Второй вариант для сравнения: другой акцент, чем у уже созданных. Если все заняты, берёт первый с пометкой."""
