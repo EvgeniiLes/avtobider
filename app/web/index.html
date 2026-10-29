@@ -294,6 +294,26 @@
               <button id="ads-ai-all" class="secondary">Нарисовать баннеры ИИ для всех</button>
               <button id="ads-launch">Создать рекламу из этих объявлений</button>
             </div>
+            <details id="banner-history-box" class="own-text" hidden>
+              <summary id="banner-history-title">История баннеров</summary>
+              <p class="hint">Все баннеры, которые рисовала нейросеть. Любой готовый можно вернуть на карточку: платить за новую картинку не нужно.</p>
+              <div id="banner-history" class="grid creative-grid"></div>
+            </details>
+          </div>
+
+          <div class="card">
+            <h2>Картинки</h2>
+            <p id="cr-image-note" class="notice" hidden></p>
+            <div id="cr-image-form">
+              <div class="upload-row">
+                <input type="text" id="cr-idea" maxlength="300" placeholder="Что должно быть на картинке (необязательно)">
+                <select id="cr-image-count"><option value="1">1 картинка</option><option value="3">3 разные</option><option value="4">4 разные</option><option value="5" selected>5 разных</option></select>
+                <button id="cr-gen-images" class="small">Нарисовать</button>
+              </div>
+              <p class="hint">Каждая картинка в своём стиле (крупный план, тёмный люкс, пастельная раскладка, яркий студийный кадр, интерьер), чтобы объявления по-настоящему отличались и их можно было сравнить. Текст и логотип добавляются отдельно. Готовятся около минуты.</p>
+            </div>
+            <p id="cr-images-status" class="status" role="status"></p>
+            <div id="cr-images" class="grid creative-grid"></div>
           </div>
 
           <div class="card">
@@ -315,21 +335,6 @@
               <p></p>
               <button id="cr-add-own" class="small">Добавить</button>
             </details>
-          </div>
-
-          <div class="card">
-            <h2>Картинки</h2>
-            <p id="cr-image-note" class="notice" hidden></p>
-            <div id="cr-image-form">
-              <div class="upload-row">
-                <input type="text" id="cr-idea" maxlength="300" placeholder="Что должно быть на картинке (необязательно)">
-                <select id="cr-image-count"><option value="1">1 картинка</option><option value="3">3 разные</option><option value="4">4 разные</option><option value="5" selected>5 разных</option></select>
-                <button id="cr-gen-images" class="small">Нарисовать</button>
-              </div>
-              <p class="hint">Каждая картинка в своём стиле (крупный план, тёмный люкс, пастельная раскладка, яркий студийный кадр, интерьер), чтобы объявления по-настоящему отличались и их можно было сравнить. Текст и логотип добавляются отдельно. Готовятся около минуты.</p>
-            </div>
-            <p id="cr-images-status" class="status" role="status"></p>
-            <div id="cr-images" class="grid creative-grid"></div>
           </div>
 
           <div class="card">

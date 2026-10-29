@@ -322,6 +322,37 @@ def test_ai_banner_is_ordered_checked_and_used(monkeypatch):
         assert http.get(base).json()["spend"]["spent_usd"] == 0.07
 
 
+def test_banner_history_and_restore(monkeypatch):
+    monkeypatch.setenv("FAL_KEY", "fal-test")
+    fakes = Fakes(fal_done=True)
+    with TestClient(app) as http:
+        bid = setup(http)
+        base = f"/api/businesses/{bid}/creatives"
+        ad = _ai_ad(http, bid)
+        fakes.claude_text = json.dumps([ad["title"], "ЗАПИСАТЬСЯ"], ensure_ascii=False)
+        assert http.post(f"{base}/ads/4/ai-banner").status_code == 200
+        http.get(base)
+        history = [c for c in http.get(base).json()["creatives"] if c["kind"] == "ai_banner"]
+        assert len(history) == 1 and history[0]["status"] == "draft" and history[0]["url"]
+        assert history[0]["meta"]["scene"]                                          # сюжет виден в истории
+        first = history[0]["id"]
+        fakes.claude_text = json.dumps(["не то", "совсем не то"], ensure_ascii=False)  # второй заказ с ошибками в тексте: не принят
+        assert http.post(f"{base}/ads/4/ai-banner").status_code == 200
+        http.get(base)
+        assert _ai_ad(http, bid)["ai"]["status"] == "failed"                        # на карточке видна ошибка, хорошего баннера там нет
+        spent = http.get(base).json()["spend"]["spent_usd"]
+        assert http.post(f"{base}/{first}/restore").json() == {"restored": True}    # вернули прошлый
+        assert _ai_ad(http, bid)["ai"]["status"] == "ready"
+        assert http.get(base).json()["spend"]["spent_usd"] == spent                 # возврат бесплатный
+        failed = next(c for c in http.get(base).json()["creatives"] if c["status"] == "failed")
+        assert http.post(f"{base}/{failed['id']}/restore").status_code == 400       # неудачный вернуть нельзя
+        banners = [c for c in http.get(base).json()["creatives"] if c["kind"] == "ai_banner"]
+        assert len(banners) == 3 and len({c["url"] for c in banners if c["url"]}) == 2   # у копии свой файл
+    with TestClient(app) as other:
+        other.post("/api/auth/register", json={"email": "z@example.com", "password": "password123"})
+        assert other.post(f"{base}/{first}/restore").status_code == 404             # чужое вернуть нельзя
+
+
 def test_all_ai_banners_are_ordered_once_each_with_different_directions(monkeypatch):
     monkeypatch.setenv("FAL_KEY", "fal-test")
     fakes = Fakes(fal_done=False)

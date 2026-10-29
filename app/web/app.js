@@ -376,6 +376,7 @@ async function loadCreatives() {
   const videos = creatives.filter((c) => c.kind === "video");
   renderMedia($("cr-images"), images, caps.video_ai);
   renderMedia($("cr-videos"), videos, false);
+  renderBannerHistory(creatives.filter((c) => c.kind === "ai_banner"));
   $("cr-videos-empty").hidden = videos.length > 0;
   loadAds();
   const hasAiText = creatives.some((c) => c.kind === "text" && c.source === "claude");
@@ -512,6 +513,50 @@ function renderTexts(items) {
     const del = el("button", { className: "small secondary", textContent: "Удалить" });
     del.addEventListener("click", async () => { await creativeCall("DELETE", `/${c.id}`); await loadCreatives(); });
     list.append(el("li", { className: c.status }, title, body, meta, el("div", { className: "btns" }, approve, skip, del)));
+  }
+}
+
+// История баннеров: все, что рисовала нейросеть. Готовый можно вернуть на карточку без новой оплаты.
+function renderBannerHistory(banners) {
+  const box = $("banner-history-box");
+  box.hidden = banners.length === 0;
+  if (!banners.length) return;
+  const newest = new Map();   // для каждого объявления самый свежий заказ: он и показан на карточке
+  for (const c of banners) {
+    const key = `${c.title}\u0000${c.body}`;
+    if (!newest.has(key) || newest.get(key).id < c.id) newest.set(key, c);
+  }
+  const ready = banners.filter((c) => c.status === "draft" || c.status === "approved").length;
+  $("banner-history-title").textContent = `История баннеров (${banners.length}, готовых ${ready})`;
+  const grid = $("banner-history");
+  grid.replaceChildren();
+  for (const c of banners.slice().sort((a, b) => b.id - a.id)) {
+    const tile = el("div", { className: `thumb ${c.status}` });
+    if (c.status === "working") tile.append(el("div", { className: "wait" }, el("div", { className: "spinner" }), el("div", { textContent: "Рисуем… около минуты" })));
+    else if (c.status === "failed") tile.append(el("div", { className: "wait", textContent: c.error || "Не получилось." }));
+    else tile.append(el("img", { src: c.url, alt: c.title, loading: "lazy" }));
+    const m = c.meta || {};
+    const current = newest.get(`${c.title}\u0000${c.body}`).id === c.id && (c.status === "draft" || c.status === "approved");
+    const when = (c.created_at || "").slice(0, 16).replace("T", " ");
+    const info = [c.title, [m.scene, m.audience && `для: ${m.audience}`, m.logo ? "с логотипом" : ""].filter(Boolean).join(", "), when].filter(Boolean);
+    tile.append(el("div", { className: "hint", textContent: info.join(" · ") }));
+    const acts = el("div", { className: "acts" });
+    if (current) acts.append(el("span", { className: "badge good", textContent: "Сейчас на карточке" }));
+    else if (c.status === "draft" || c.status === "approved") {
+      const back = el("button", { className: "secondary", textContent: "Вернуть этот" });
+      back.addEventListener("click", async () => {
+        back.disabled = true;
+        const r = await creativeCall("POST", `/${c.id}/restore`);
+        say(r.ok ? "Баннер возвращён на карточку." : errorText(r), r.ok ? "ok" : "err");
+        await loadCreatives();
+      });
+      acts.append(back);
+    }
+    const del = el("button", { className: "secondary", textContent: "Удалить" });
+    del.addEventListener("click", async () => { await creativeCall("DELETE", `/${c.id}`); await loadCreatives(); });
+    acts.append(del);
+    tile.append(acts);
+    grid.append(tile);
   }
 }
 

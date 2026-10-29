@@ -55,7 +55,15 @@ def _caps() -> dict:
 
 
 def _row(r: sqlite3.Row, business_id: int) -> dict:
-    return {
+    meta = {}
+    if r["kind"] == "ai_banner":   # для истории баннеров: какая сцена, для кого, был ли логотип
+        try:
+            made = json.loads(r["prompt"] or "{}")
+        except ValueError:
+            made = {}
+        meta = {"scene": scene_label(made.get("concept", "")), "audience": made.get("audience", ""), "logo": bool(made.get("logo")),
+                "score": made.get("score", 0)}
+    return {"meta": meta,
         "id": r["id"], "kind": r["kind"], "title": r["title"], "body": r["body"], "status": r["status"], "source": r["source"],
         "angle": r["angle"], "angle_label": angle_label(r["angle"]),
         "error": r["error"], "prompt": r["prompt"],
@@ -552,6 +560,25 @@ def update(business_id: int, creative_id: int, data: CreativeIn, user: sqlite3.R
                  (title, body, data.status or row["status"], creative_id))
     conn.commit()
     return _row(conn.execute("SELECT * FROM creatives WHERE id = ?", (creative_id,)).fetchone(), business_id)
+
+
+@router.post("/{creative_id}/restore")
+def restore_banner(business_id: int, creative_id: int, user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connection = Depends(get_db)):
+    """Вернуть прошлый баннер: копия становится самым свежим баннером этого объявления. Платить за новую генерацию не нужно."""
+    _own(conn, user, business_id)
+    row = _own_creative(conn, business_id, creative_id)
+    asset = conn.execute("SELECT stored_name FROM business_assets WHERE id = ?", (row["asset_id"],)).fetchone() if row["asset_id"] else None
+    if row["kind"] != "ai_banner" or row["status"] not in ("draft", "approved") or asset is None:
+        raise HTTPException(400, detail={"message": "Вернуть можно только готовый баннер."})
+    try:
+        data = _asset_path(business_id, asset["stored_name"]).read_bytes()
+    except OSError:
+        raise HTTPException(400, detail={"message": "Файл этого баннера уже удалён."})
+    asset_id = _save_asset(conn, business_id, "image", data, f"creative-{row['id']}-restored")   # своя копия файла: удаление одного не ломает другой
+    conn.execute("INSERT INTO creatives (business_id, kind, title, body, prompt, status, source, asset_id) VALUES (?, 'ai_banner', ?, ?, ?, 'draft', 'fal', ?)",
+                 (business_id, row["title"], row["body"], row["prompt"], asset_id))
+    conn.commit()
+    return {"restored": True}
 
 
 @router.delete("/{creative_id}")
