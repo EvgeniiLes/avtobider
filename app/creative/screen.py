@@ -54,12 +54,84 @@ def _largest_region(mask: Image.Image, step: int = 4) -> list[tuple[int, int]] |
     return pts
 
 
+def _hull(points: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    pts = sorted(set(points))
+    if len(pts) < 3:
+        return pts
+
+    def cross(o, a, b):
+        return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+
+    lower, upper = [], []
+    for p in pts:
+        while len(lower) >= 2 and cross(lower[-2], lower[-1], p) <= 0:
+            lower.pop()
+        lower.append(p)
+    for p in reversed(pts):
+        while len(upper) >= 2 and cross(upper[-2], upper[-1], p) <= 0:
+            upper.pop()
+        upper.append(p)
+    return lower[:-1] + upper[:-1]
+
+
+def _simplify(poly: list[tuple[float, float]], keep: int) -> list[tuple[float, float]]:
+    """Убирает вершины с наименьшим вкладом (площадью треугольника), пока не останется keep штук."""
+    poly = list(poly)
+    while len(poly) > keep:
+        n = len(poly)
+        areas = []
+        for i in range(n):
+            a, b, c = poly[i - 1], poly[i], poly[(i + 1) % n]
+            areas.append(abs((b[0] - a[0]) * (c[1] - a[1]) - (c[0] - a[0]) * (b[1] - a[1])))
+        poly.pop(areas.index(min(areas)))
+    return poly
+
+
+def _line_cross(p1, p2, p3, p4):
+    d = (p1[0] - p2[0]) * (p3[1] - p4[1]) - (p1[1] - p2[1]) * (p3[0] - p4[0])
+    if abs(d) < 1e-9:
+        return None
+    a = p1[0] * p2[1] - p1[1] * p2[0]
+    b = p3[0] * p4[1] - p3[1] * p4[0]
+    return ((a * (p3[0] - p4[0]) - (p1[0] - p2[0]) * b) / d, (a * (p3[1] - p4[1]) - (p1[1] - p2[1]) * b) / d)
+
+
 def _corners(pts: list[tuple[int, int]]) -> list[tuple[float, float]]:
-    """Четыре угла экрана: верхний левый, верхний правый, нижний правый, нижний левый."""
-    tl = min(pts, key=lambda p: p[0] + p[1])
-    br = max(pts, key=lambda p: p[0] + p[1])
-    tr = max(pts, key=lambda p: p[0] - p[1])
-    bl = min(pts, key=lambda p: p[0] - p[1])
+    """Четыре угла экрана: верхний левый, верхний правый, нижний правый, нижний левый.
+
+    Скруглённые края и перекрытия пальцем сдвигают крайние точки, поэтому углы берём как пересечения
+    четырёх самых длинных сторон выпуклой оболочки области.
+    """
+    rows: dict[int, list[int]] = {}
+    for x, y in pts:
+        lo_hi = rows.setdefault(y, [x, x])
+        lo_hi[0], lo_hi[1] = min(lo_hi[0], x), max(lo_hi[1], x)
+    edge = [(lo, y) for y, (lo, hi) in rows.items()] + [(hi, y) for y, (lo, hi) in rows.items()]
+    poly = _simplify(_hull(edge), 10)
+    quad = None
+    if len(poly) >= 4:
+        n = len(poly)
+        sides = sorted(range(n), key=lambda i: -((poly[(i + 1) % n][0] - poly[i][0]) ** 2 + (poly[(i + 1) % n][1] - poly[i][1]) ** 2))[:4]
+        sides.sort()
+        cs = []
+        for k in range(4):
+            i, j = sides[k], sides[(k + 1) % 4]
+            c = _line_cross(poly[i], poly[(i + 1) % n], poly[j], poly[(j + 1) % n])
+            if c is None:
+                break
+            cs.append(c)
+        if len(cs) == 4:
+            quad = cs
+    if quad is None:
+        tl = min(pts, key=lambda p: p[0] + p[1])
+        br = max(pts, key=lambda p: p[0] + p[1])
+        tr = max(pts, key=lambda p: p[0] - p[1])
+        bl = min(pts, key=lambda p: p[0] - p[1])
+        return [tl, tr, br, bl]
+    tl = min(quad, key=lambda p: p[0] + p[1])
+    br = max(quad, key=lambda p: p[0] + p[1])
+    tr = max(quad, key=lambda p: p[0] - p[1])
+    bl = min(quad, key=lambda p: p[0] - p[1])
     return [tl, tr, br, bl]
 
 
