@@ -454,17 +454,26 @@ async function loadAds() {
       foot.append(drop);
     }
     if (a.photo_label) foot.prepend(el("span", { className: "badge", textContent: `Фото: ${a.photo_label}` }));
-    if (a.ai && a.ai.status !== "working") {
-      const draw = el("button", { className: "small secondary", textContent: a.ai.status === "ready" ? "Перерисовать ИИ" : "Нарисовать ИИ-баннер" });
-      draw.addEventListener("click", async () => {
-        if (!(await askConfirm("Нарисовать ИИ-баннер?", `Это платно: около ${usd(creativePrices.ai_banner || 0.05)}. Нейросеть рисует баннер целиком, текст на нём сервис проверит сам. Готовится около минуты.`, "Нарисовать"))) return;
-        const r = await creativeCall("POST", `/ads/${a.index}/ai-banner`);
-        if (!r.ok) { say(errorText(r), "err"); return; }
-        await loadCreatives();
-      });
-      foot.append(draw);
-    }
-    return el("div", { className: "ad" }, pic, body, foot);
+    // две кнопки перегенерации под каждым вариантом: другой текст и другой баннер
+    const working = a.ai && a.ai.status === "working";
+    const again = el("button", { className: "small secondary", textContent: "↻ Другой текст" });
+    again.addEventListener("click", async () => {
+      again.disabled = true;
+      again.textContent = "Пишем…";
+      const r = await creativeCall("POST", `/ads/${a.index}/rewrite`);
+      if (!r.ok) { say(errorText(r), "err"); again.disabled = false; again.textContent = "↻ Другой текст"; return; }
+      say(`Новый текст: «${r.data.title}». Баннер к нему можно перерисовать.`);
+      await loadCreatives();
+    });
+    const redraw = el("button", { className: "small secondary", textContent: working ? "Рисуем…" : a.ai && a.ai.status === "ready" ? "↻ Другой баннер" : "Нарисовать баннер ИИ" });
+    redraw.disabled = working;
+    redraw.addEventListener("click", async () => {
+      if (!(await askConfirm("Нарисовать баннер?", `Это платно: около ${usd(creativePrices.ai_banner || 0.05)}. Нейросеть рисует баннер целиком, текст на нём сервис проверит сам. Готовится около минуты.`, "Нарисовать"))) return;
+      const r = await creativeCall("POST", `/ads/${a.index}/ai-banner`);
+      if (!r.ok) { say(errorText(r), "err"); return; }
+      await loadCreatives();
+    });
+    return el("div", { className: "ad" }, pic, body, foot, el("div", { className: "ad-foot ad-redo" }, again, redraw));
   }));
 }
 

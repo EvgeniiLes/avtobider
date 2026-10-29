@@ -474,6 +474,38 @@ def test_ai_proposals_go_into_ads_before_templates(monkeypatch):
         assert "Покрытие держится до 4 недель" not in titles                                         # убранный не возвращается
 
 
+def test_rewrite_puts_a_new_text_in_the_same_place(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+    fakes = Fakes(claude_text=json.dumps([
+        {"title": "Покрытие держится до 4 недель", "text": "Инструменты в крафт-пакетах", "angle": "durability"},
+        {"title": "Маникюр от 2 200 ₽", "text": "Запись онлайн", "angle": "price"}], ensure_ascii=False))
+    with TestClient(app) as http:
+        bid = setup(http, description=FACTS)
+        base = f"/api/businesses/{bid}/creatives"
+        http.post(f"{base}/texts/generate", json={"count": 2})
+        first = http.get(f"{base}/ads").json()["ads"][0]
+        spent = http.get(base).json()["spend"]["spent_usd"]
+        fakes.claude_text = json.dumps([
+            {"title": "Первый визит со скидкой 20%", "text": "Запишитесь на маникюр", "angle": "promo"},
+            {"title": "Маникюр от 2 200 ₽ с покрытием", "text": "Запись онлайн в любое время", "angle": "price"}], ensure_ascii=False)
+        r = http.post(f"{base}/ads/0/rewrite").json()
+        assert r["angle"] == first["angle"] and r["title"] != first["title"]                       # тот же угол, другой текст
+        now = http.get(f"{base}/ads").json()["ads"][0]
+        assert now["creative_id"] == first["creative_id"] and now["title"] == r["title"] and now["own"] is True   # то же место и тот же номер
+        assert http.get(base).json()["spend"]["spent_usd"] == round(spent + 0.01, 2)
+        fakes.claude_text = json.dumps([{"title": now["title"], "text": "тот же", "angle": "price"}], ensure_ascii=False)   # ИИ повторился
+        bad = http.post(f"{base}/ads/0/rewrite")
+        assert bad.status_code == 502 and "не предложил" in bad.json()["detail"]["message"]
+        assert http.get(base).json()["spend"]["spent_usd"] == round(spent + 0.01, 2)                # за неудачу не списали
+        assert http.post(f"{base}/ads/99/rewrite").status_code == 400
+
+
+def test_rewrite_needs_ai():
+    with TestClient(app) as http:
+        bid = setup(http)
+        assert http.post(f"/api/businesses/{bid}/creatives/ads/0/rewrite").status_code == 503
+
+
 def test_generated_texts_keep_their_angle(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
     Fakes(claude_text=json.dumps([{"title": "Покрытие держится до 4 недель", "text": "Инструменты в крафт-пакетах", "angle": "durability"}], ensure_ascii=False))

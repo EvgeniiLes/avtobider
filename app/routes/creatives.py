@@ -257,6 +257,41 @@ def make_ai_banner(business_id: int, index: int, user: sqlite3.Row = Depends(cur
     return {"started": True}
 
 
+@router.post("/ads/{index}/rewrite")
+def rewrite_text(business_id: int, index: int, user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connection = Depends(get_db),
+                 transport=Depends(creative_transport)):
+    """Другой текст для этого места: ИИ пишет новый вариант (желательно на тот же угол подачи), он встаёт на место старого."""
+    biz = _own(conn, user, business_id)
+    s = get_settings()
+    if not (s.anthropic_api_key or s.fal_key):
+        raise HTTPException(503, detail={"message": "ИИ для текстов пока не подключён на сервере."})
+    variants, _count, _pool = _ad_variants(conn, biz)
+    if not 0 <= index < len(variants):
+        raise HTTPException(400, detail={"message": "Такого объявления нет."})
+    old = variants[index]
+    used = {r["title"].lower() for r in conn.execute("SELECT title FROM creatives WHERE business_id = ? AND kind = 'text'", (business_id,))}
+    used |= {v["title"].lower() for v in variants}
+    _charge(conn, business_id, "text")
+    hint = (f"Нужен новый вариант взамен этого, не повторяй его мысль и слова: «{old['title']}». "
+            + (f"Угол подачи: {old['angle']}." if old.get("angle") else ""))
+    fresh = asyncio.run(generate_texts(biz, 4, s.anthropic_api_key, s.anthropic_model, hint, transport, s.fal_key, s.fal_text_model))
+    fresh = [v for v in fresh if v["title"].lower() not in used]
+    same = [v for v in fresh if old.get("angle") and v["angle"] == old["angle"]]
+    pick = (same or fresh or [None])[0]
+    if pick is None:
+        conn.execute("DELETE FROM generations WHERE id = (SELECT MAX(id) FROM generations WHERE business_id = ? AND kind = 'text')", (business_id,))
+        conn.commit()
+        raise HTTPException(502, detail={"message": "ИИ не предложил подходящий новый вариант. Попробуйте ещё раз."})
+    if old.get("creative_id"):   # тот же номер в списке: объявление не прыгает на другое место
+        conn.execute("UPDATE creatives SET title = ?, body = ?, angle = ?, status = 'approved', source = 'claude' WHERE id = ?",
+                     (pick["title"], pick["text"], pick.get("angle", ""), old["creative_id"]))
+    else:
+        conn.execute("INSERT INTO creatives (business_id, kind, title, body, source, angle, status) VALUES (?, 'text', ?, ?, 'claude', ?, 'approved')",
+                     (business_id, pick["title"], pick["text"], pick.get("angle", "")))
+    conn.commit()
+    return {"title": pick["title"], "text": pick["text"], "angle": pick.get("angle", "")}
+
+
 @router.post("/ads/ai-banners")
 def make_all_ai_banners(business_id: int, user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connection = Depends(get_db),
                         transport=Depends(creative_transport)):
