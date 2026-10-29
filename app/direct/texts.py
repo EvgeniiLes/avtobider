@@ -41,15 +41,26 @@ DISCOUNT = re.compile(r"(?i)\bскидк\w+\s*(?:до\s*)?(\d+)")
 NUMBER = re.compile(r"\d(?:[\d\s\u00a0]*\d)?")
 
 
-def _numbers(text: str) -> set[str]:
-    return {re.sub(r"\D", "", m.group(0)) for m in NUMBER.finditer(text or "")}
+# числа, написанные словами («больше пяти лет», «три мастера»): в описании так обычно и пишут
+WORD_NUMBERS = {
+    "2": r"\bдв(?:а|е|ух)\b", "3": r"\bтр(?:и|ёх|ех)\b", "4": r"\bчетыр\w*", "5": r"\bпят\w*", "6": r"\bшест\w*",
+    "7": r"\bсем(?:ь|и)\b", "8": r"\bвосьм\w*", "9": r"\bдевят\w*", "10": r"\bдесят\w*",
+}
+
+
+def _numbers(text: str, words: bool = False) -> set[str]:
+    found = {re.sub(r"\D", "", m.group(0)) for m in NUMBER.finditer(text or "")}
+    if words:
+        low = (text or "").lower()
+        found |= {n for n, pattern in WORD_NUMBERS.items() if re.search(pattern, low)}
+    return found
 
 
 def unsupported_claims(text: str, facts: str) -> list[str]:
     """Обещания, которых нет в описании владельца. Сильные слова («лучший», «№1», «100%») запрещены всегда.
     «Бесплатно», «гарантия», «скидка N%», цены, сроки и любые числа разрешены, только если это прямо сказано в описании."""
     found = [m.group(0) for m in ALWAYS_FORBIDDEN.finditer(text)]
-    low, facts_low, known = text.lower(), (facts or "").lower(), _numbers(facts or "")
+    low, facts_low, known = text.lower(), (facts or "").lower(), _numbers(facts or "", words=True)
     if "бесплатн" in low and "бесплатн" not in facts_low:
         found.append("бесплатно")
     if "гарант" in low and "гарант" not in facts_low:
