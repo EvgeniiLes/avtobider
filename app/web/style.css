@@ -36,7 +36,7 @@ p { margin: 0 0 10px; }
 .sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
 .ic { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .topbar { position: sticky; top: 0; z-index: 20; background: var(--bg); border-bottom: 1px solid var(--line); }
-.topbar-in { max-width: 980px; margin: 0 auto; padding: 10px 16px; display: flex; align-items: center; gap: 14px; }
+.topbar-in { max-width: 1240px; margin: 0 auto; padding: 10px 16px; display: flex; align-items: center; gap: 14px; }
 .brand { display: flex; align-items: center; gap: 9px; font-weight: 700; font-size: 18px; margin-right: 6px; }
 .brand-mark { width: 30px; height: 30px; border-radius: 9px; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; font-weight: 800; }
 .user { margin-left: auto; display: flex; gap: 10px; align-items: center; font-size: 14px; color: var(--muted); min-width: 0; }
@@ -54,6 +54,16 @@ main { max-width: 980px; margin: 0 auto; padding: 20px 16px 96px; }
 .nav button:hover { background: var(--surface-2); color: var(--text); }
 .nav button.active { background: var(--accent-soft); color: var(--accent); }
 .nav .dot { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--accent); color: var(--accent-ink); font-size: 11px; line-height: 18px; text-align: center; }
+/* на средних экранах меню не помещается с подписями: у неактивных пунктов остаются иконки (подсказка при наведении) */
+@media (max-width: 1240px) and (min-width: 761px) {
+  .nav button:not(.active) > span:not(.dot) { display: none; }
+  .nav button { padding: 8px 10px; }
+  .user #user-email { display: none; }
+}
+@media (max-width: 900px) and (min-width: 761px) {
+  .biz-switch { max-width: 150px; }
+  .brand span:last-child { display: none; }
+}
 @media (max-width: 760px) {
   .nav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; background: var(--surface); border-top: 1px solid var(--line); padding: 6px 4px calc(6px + env(safe-area-inset-bottom)); justify-content: space-around; gap: 0; }
   .nav button { flex: 1; flex-direction: column; gap: 2px; font-size: 11px; padding: 6px 2px; position: relative; }
@@ -256,6 +266,7 @@ tr.off td { color: var(--muted); }
 .creative-grid { grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); }
 .creative-grid .thumb img, .creative-grid .thumb video { height: 150px; }
 .creative-grid .wait { height: 150px; display: flex; align-items: center; justify-content: center; text-align: center; padding: 8px; color: var(--muted); font-size: 13px; }
+.ad > details.own-text { margin: 0 14px 14px; }
 .history-grid { grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); }
 .history-grid .thumb img, .history-grid .wait { height: 172px; }
 .history-grid .wait { overflow: hidden; font-size: 12px; }

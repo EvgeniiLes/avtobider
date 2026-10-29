@@ -4,7 +4,7 @@ import re
 
 import httpx
 
-from app.creative.angles import ANGLES, business_block, prompt_block
+from app.creative.angles import ANGLES, business_block, effective_description, prompt_block
 from app.direct.texts import TEXT_MAX, TITLE_MAX, check, fit, unsupported_claims
 
 API_URL = "https://api.anthropic.com/v1/messages"
@@ -27,14 +27,19 @@ def facts_of(biz) -> str:
         address = (biz["address"] or "").strip()
     except (KeyError, IndexError):
         address = ""
-    return f"{biz['description'] or ''} {address}".strip()
+    return f"{effective_description(biz)} {address}".strip()
 
 
 def build_prompt(biz, count: int, hint: str = "") -> str:
     parts = [
         f"Бизнес: {biz['name']}", f"Чем занимается: {biz['kind']}", f"Город: {biz['city'] or 'не указан'}",
-        f"Описание от владельца: {biz['description'] or 'нет'}",
+        f"Описание от владельца: {effective_description(biz) or 'нет'}",
     ]
+    try:
+        if not biz["allow_promo"]:
+            parts.append("Не предлагай скидки, акции, подарки и бонусы, даже если они где-то упомянуты.")
+    except (KeyError, IndexError):
+        pass
     try:
         if (biz["address"] or "").strip():
             parts.append(f"Адрес (можно упоминать улицу и дом, как написал владелец): {biz['address'].strip()}")

@@ -59,8 +59,13 @@ def text_candidates(conn: sqlite3.Connection, biz) -> list[dict]:
         "AND status IN ('approved', 'draft') ORDER BY id", (biz["id"],)).fetchall()
     chosen = [{"id": r["id"], "title": r["title"], "text": r["body"], "angle": r["angle"], "status": "approved"} for r in rows if r["status"] == "approved"]
     angles = {c["angle"] for c in chosen if c["angle"]}
+    from app.creative.texts_ai import facts_of  # здесь, чтобы не было круга
+    from app.direct.texts import unsupported_claims
+    facts = facts_of(biz)
     for r in reversed([r for r in rows if r["status"] == "draft" and r["source"] == "claude"]):  # новые сначала
         if r["angle"] and r["angle"] in angles:
+            continue
+        if unsupported_claims(f"{r['title']} {r['body']}", facts):   # старый черновик со скидкой, когда скидки выключены, в рекламу не идёт
             continue
         angles.add(r["angle"])
         chosen.append({"id": r["id"], "title": r["title"], "text": r["body"], "angle": r["angle"], "status": "draft"})

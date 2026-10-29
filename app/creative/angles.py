@@ -60,6 +60,23 @@ def profile(biz) -> dict:
     return {"online": online, "local": local, "cta": cta, "cta_sentence": CTA_SENTENCES[cta], "appointment": cta == "Записаться"}
 
 
+PROMO = re.compile(r"скидк|акци[июяе]|акционн|подар|комплимент|бонус|\d\s?%", re.I)
+
+
+def effective_description(biz) -> str:
+    """Описание, из которого делается реклама. Если владелец не разрешил скидки и акции, предложения с ними из описания убираются,
+    чтобы ни тексты, ни картинки их не использовали."""
+    try:
+        text = (biz["description"] or "")
+        allowed = bool(biz["allow_promo"])
+    except (KeyError, IndexError):
+        return (biz["description"] or "") if biz else ""
+    if allowed:
+        return text
+    kept = [s for s in re.split(r"(?<=[.!?])\s+", text) if not PROMO.search(s)]
+    return " ".join(kept).strip()
+
+
 def available_location(description: str) -> bool:
     return "location" in available(description)
 

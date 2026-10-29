@@ -57,6 +57,7 @@ class BusinessIn(BaseModel):
     site_url: str = Field(default="", max_length=300)
     maps_url: str = Field(default="", max_length=500)
     visual_hint: str = Field(default="", max_length=300)
+    allow_promo: bool = False   # по умолчанию скидки и акции в рекламе не используются, даже если написаны в описании
     tone: str = ""
     color_main: str = ""
     color_extra: str = ""
@@ -139,6 +140,7 @@ def _business(row: sqlite3.Row, assets: list[sqlite3.Row] | None = None) -> dict
         "description": row["description"],
         "city": row["city"],
         "address": row["address"],
+        "allow_promo": bool(row["allow_promo"]),
         "site_url": row["site_url"],
         "maps_url": row["maps_url"],
         "visual_hint": row["visual_hint"],
@@ -196,11 +198,11 @@ def create_business(data: BusinessIn, user: sqlite3.Row = Depends(current_user),
         raise HTTPException(400, detail={"message": f"Можно добавить не больше {MAX_BUSINESSES} бизнесов."})
     cur = conn.execute(
         "INSERT INTO businesses (user_id, name, kind, description, city, site_url, maps_url, tone, color_main, color_extra, "
-        "avg_check_micro, target_cpa_micro, weekly_budget_micro, client_share, mode, visual_hint, address) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "avg_check_micro, target_cpa_micro, weekly_budget_micro, client_share, mode, visual_hint, address, allow_promo) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (
             user["id"], data.name, data.kind, data.description, data.city, data.site_url, data.maps_url, data.tone,
             data.color_main, data.color_extra, _micro(data.avg_check), _micro(data.target_cpa), _micro(data.weekly_budget),
-            data.client_share_percent / 100, data.mode, data.visual_hint.strip(), data.address,
+            data.client_share_percent / 100, data.mode, data.visual_hint.strip(), data.address, int(data.allow_promo),
         ),
     )
     conn.commit()
@@ -223,11 +225,11 @@ def update_business(
     _own(conn, user, business_id)
     conn.execute(
         "UPDATE businesses SET name=?, kind=?, description=?, city=?, site_url=?, maps_url=?, tone=?, color_main=?, color_extra=?, "
-        "avg_check_micro=?, target_cpa_micro=?, weekly_budget_micro=?, client_share=?, mode=?, visual_hint=?, address=? WHERE id=?",
+        "avg_check_micro=?, target_cpa_micro=?, weekly_budget_micro=?, client_share=?, mode=?, visual_hint=?, address=?, allow_promo=? WHERE id=?",
         (
             data.name, data.kind, data.description, data.city, data.site_url, data.maps_url, data.tone, data.color_main,
             data.color_extra, _micro(data.avg_check), _micro(data.target_cpa), _micro(data.weekly_budget),
-            data.client_share_percent / 100, data.mode, data.visual_hint.strip(), data.address, business_id,
+            data.client_share_percent / 100, data.mode, data.visual_hint.strip(), data.address, int(data.allow_promo), business_id,
         ),
     )
     conn.commit()

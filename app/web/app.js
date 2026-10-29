@@ -192,6 +192,7 @@ function fillForm(b) {
   $("b-description").value = b ? b.description : "";
   $("b-city").value = b ? b.city : "";
   $("b-address").value = b ? (b.address || "") : "";
+  $("b-promo").checked = !!(b && b.allow_promo);
   $("b-site").value = b ? b.site_url : "";
   $("b-maps").value = b ? b.maps_url : "";
   $("b-tone").value = b ? b.tone : "";
@@ -287,6 +288,7 @@ function readForm() {
     description: $("b-description").value,
     city: $("b-city").value,
     address: $("b-address").value,
+    allow_promo: $("b-promo").checked,
     site_url: $("b-site").value,
     maps_url: $("b-maps").value,
     visual_hint: $("b-visual").value,
@@ -1367,6 +1369,7 @@ async function start() {
   $("nav-accounts").addEventListener("click", () => showPage("accounts"));
   $("nav-stats").addEventListener("click", () => showPage("stats"));
   $("nav-creatives").addEventListener("click", () => showPage("creatives"));
+  $("units-empty-go").addEventListener("click", () => showPage("creatives"));
   $("ads-launch").addEventListener("click", () => { showPage("home"); openLaunch(); });
   $("ads-ai-all").addEventListener("click", makeAllBanners);
   $("cr-gen-texts").addEventListener("click", () => generateTexts());

@@ -22,12 +22,12 @@
       <div class="brand"><span class="brand-mark">А</span><span>Автобидер</span></div>
       <select id="biz-switch" class="biz-switch" hidden aria-label="Бизнес"></select>
       <nav class="nav" id="nav" hidden aria-label="Разделы">
-        <button id="nav-home" class="active"><svg class="ic"><use href="#i-home"/></svg><span>Главная</span></button>
-        <button id="nav-business"><svg class="ic"><use href="#i-business"/></svg><span>Бизнес</span></button>
-        <button id="nav-creatives"><svg class="ic"><use href="#i-ads"/></svg><span>Объявления</span></button>
-        <button id="nav-stats"><svg class="ic"><use href="#i-stats"/></svg><span>Результаты</span></button>
-        <button id="nav-history"><svg class="ic"><use href="#i-history"/></svg><span>История</span><span class="dot" id="nav-history-dot" hidden></span></button>
-        <button id="nav-accounts"><svg class="ic"><use href="#i-link"/></svg><span>Подключения</span></button>
+        <button id="nav-home" title="Главная" class="active"><svg class="ic"><use href="#i-home"/></svg><span>Главная</span></button>
+        <button id="nav-business" title="Бизнес"><svg class="ic"><use href="#i-business"/></svg><span>Бизнес</span></button>
+        <button id="nav-creatives" title="Объявления"><svg class="ic"><use href="#i-ads"/></svg><span>Объявления</span></button>
+        <button id="nav-stats" title="Результаты"><svg class="ic"><use href="#i-stats"/></svg><span>Результаты</span></button>
+        <button id="nav-history" title="История"><svg class="ic"><use href="#i-history"/></svg><span>История</span><span class="dot" id="nav-history-dot" hidden></span></button>
+        <button id="nav-accounts" title="Подключения"><svg class="ic"><use href="#i-link"/></svg><span>Подключения</span></button>
       </nav>
       <div id="user" class="user" hidden>
         <span id="user-email"></span>
@@ -166,6 +166,9 @@
             <label for="b-description">Расскажите подробнее</label>
             <textarea id="b-description" rows="5" maxlength="2000" placeholder="Какие услуги, чем вы лучше других, для кого, какие цены и акции. Чем подробнее, тем лучше получатся объявления."></textarea>
 
+            <label class="check"><input type="checkbox" id="b-promo"> Можно писать в рекламе про скидки и акции из описания</label>
+            <p class="hint">По умолчанию выключено: скидки, акции, подарки и бонусы из описания в тексты и на баннеры не попадают, даже если вы их там упомянули. Отметьте, если хотите рекламировать акцию.</p>
+
             <label for="b-city">Город</label>
             <input type="text" id="b-city" maxlength="100" placeholder="Например, Москва">
             <p class="hint">Только название города: по нему сервис выбирает, где показывать рекламу.</p>
@@ -231,6 +234,44 @@
           </div>
         </form>
 
+        <div class="card" id="files-card">
+          <h2>Фото и видео для рекламы</h2>
+          <p id="files-locked" class="hint">Сначала сохраните описание бизнеса, потом сможете загрузить файлы.</p>
+          <div id="files" hidden>
+            <p class="hint">Чем больше настоящих фото, тем лучше получится реклама. Мы приведём их к нужным размерам сами.</p>
+            <div class="upload-row">
+              <button id="photos-check" class="small secondary">Проверить фото и логотип ИИ</button>
+              <span id="photos-check-status" class="hint"></span>
+            </div>
+            <p class="hint">ИИ определит, что на фото (помещение, работы, люди), оценит качество и предупредит о чужих вывесках, водяных знаках и узнаваемых лицах. Стоит около 1 цента за файл. Варианты рекламы строятся из разных типов кадров, по два на каждый.</p>
+
+            <h3>Фото бизнеса</h3>
+            <div id="photos" class="grid"></div>
+            <div class="upload-row">
+              <select id="photo-tag"></select>
+              <input type="file" id="photo-file" accept="image/*" multiple>
+            </div>
+            <p class="hint">Помещение, ваши работы, команда, товар или услуга. Подойдут фото от 450 пикселей по короткой стороне, до 15 МБ. Не больше 20 фото.</p>
+
+            <h3>Логотип</h3>
+            <div id="logo-box" class="logo-box"></div>
+            <input type="file" id="logo-file" accept="image/*">
+            <label class="check"><input type="checkbox" id="logo-remove-bg"> Убрать фон у логотипа при загрузке (ИИ, меньше цента)</label>
+            <p class="hint"><b>Требования к логотипу:</b> лучше всего PNG на прозрачном фоне, чёткий, шириной от 400 пикселей, без мелких надписей (адрес, телефон) и без фоновой картинки. JPG и WEBP тоже подойдут. По умолчанию логотип остаётся как есть, фон не убирается. Отметьте галочку выше, если логотип лежит на сплошном фоне и его нужно вырезать. Галочка действует на следующую загрузку. Логотип ставится на шаблонные баннеры; на баннеры, которые делает ИИ из фото, он пока не добавляется.</p>
+
+            <h3>Скриншот приложения или сайта</h3>
+            <div id="screens" class="grid"></div>
+            <input type="file" id="screen-file" accept="image/*">
+            <p class="hint">Для приложения, игры или сервиса: настоящий скриншот (лучше вертикальный, как с телефона). Загрузите его сейчас: он сохранится, а вставка в экран телефона на баннерах включится после доработки (сейчас баннеры делаются из ваших фото). Используется последний загруженный.</p>
+
+            <h3>Видео</h3>
+            <div id="videos" class="grid"></div>
+            <input type="file" id="video-file" accept="video/mp4,video/quicktime,video/webm">
+            <p class="hint">MP4, MOV или WEBM до 100 МБ. Не больше 3 видео.</p>
+            <p id="files-status" class="status" role="status"></p>
+          </div>
+        </div>
+
         <div class="card" id="metrika-card" hidden>
           <h2>Обращения с сайта (Яндекс Метрика)</h2>
           <p id="metrika-howto" class="hint"></p>
@@ -244,44 +285,6 @@
             <button id="m-clear" class="small secondary" hidden>Отключить</button>
           </div>
           <p id="metrika-status" class="status" role="status"></p>
-        </div>
-
-        <div class="card" id="files-card">
-          <h2>Фото и видео для рекламы</h2>
-          <p id="files-locked" class="hint">Сначала сохраните описание бизнеса, потом сможете загрузить файлы.</p>
-          <div id="files" hidden>
-            <p class="hint">Чем больше настоящих фото, тем лучше получится реклама. Мы приведём их к нужным размерам сами.</p>
-            <div class="upload-row">
-              <button id="photos-check" class="small secondary">Проверить фото и логотип ИИ</button>
-              <span id="photos-check-status" class="hint"></span>
-            </div>
-            <p class="hint">ИИ определит, что на фото (помещение, работы, люди), оценит качество и предупредит о чужих вывесках, водяных знаках и узнаваемых лицах. Стоит около 1 цента за файл. Варианты рекламы строятся из разных типов кадров, по два на каждый.</p>
-
-            <h3>Логотип</h3>
-            <div id="logo-box" class="logo-box"></div>
-            <input type="file" id="logo-file" accept="image/*">
-            <label class="check"><input type="checkbox" id="logo-remove-bg"> Убрать фон у логотипа при загрузке (ИИ, меньше цента)</label>
-            <p class="hint"><b>Требования к логотипу:</b> лучше всего PNG на прозрачном фоне, чёткий, шириной от 400 пикселей, без мелких надписей (адрес, телефон) и без фоновой картинки. JPG и WEBP тоже подойдут. По умолчанию логотип остаётся как есть, фон не убирается. Отметьте галочку выше, если логотип лежит на сплошном фоне и его нужно вырезать. Галочка действует на следующую загрузку.</p>
-
-            <h3>Скриншот приложения или сайта</h3>
-            <div id="screens" class="grid"></div>
-            <input type="file" id="screen-file" accept="image/*">
-            <p class="hint">Для приложения, игры или сервиса: загрузите настоящий скриншот (лучше вертикальный, как с телефона). На баннерах, которые рисует ИИ, он вставится в экран телефона ровно, без искажений. Можно загрузить несколько, используется последний.</p>
-
-            <h3>Фото бизнеса</h3>
-            <div id="photos" class="grid"></div>
-            <div class="upload-row">
-              <select id="photo-tag"></select>
-              <input type="file" id="photo-file" accept="image/*" multiple>
-            </div>
-            <p class="hint">Помещение, ваши работы, команда, товар или услуга. Подойдут фото от 450 пикселей по короткой стороне, до 15 МБ. Не больше 20 фото.</p>
-
-            <h3>Видео</h3>
-            <div id="videos" class="grid"></div>
-            <input type="file" id="video-file" accept="video/mp4,video/quicktime,video/webm">
-            <p class="hint">MP4, MOV или WEBM до 100 МБ. Не больше 3 видео.</p>
-            <p id="files-status" class="status" role="status"></p>
-          </div>
         </div>
       </div>
 
@@ -307,7 +310,8 @@
           </div>
 
           <div class="card">
-            <h2>Картинки</h2>
+            <h2>Фоновые картинки</h2>
+            <p class="hint">Если своих фото мало, ИИ нарисует картинки по описанию бизнеса. Отметьте нужные кнопкой «Выбрать»: они станут основой баннеров.</p>
             <p id="cr-image-note" class="notice" hidden></p>
             <div id="cr-image-form">
               <div class="upload-row">
@@ -364,7 +368,10 @@
           <p class="hint" id="stats-sync"></p>
           <div class="card">
             <h2>Объявления</h2>
-            <p id="units-empty" class="hint" hidden>Объявлений пока нет. Создайте рекламу на главной странице.</p>
+            <div id="units-empty" hidden>
+              <p class="hint">Запущенной рекламы пока нет, поэтому показывать нечего. Здесь появятся показы, расход, обращения и цена клиента по каждому объявлению.</p>
+              <button id="units-empty-go" class="small">Подготовить объявления</button>
+            </div>
             <div class="table-wrap">
               <table id="units-table" hidden>
                 <thead><tr><th>Объявление</th><th>Оценка</th><th>Бюджет в неделю</th><th>Расход</th><th>Обращения</th><th>Клиенты</th><th>Цена клиента</th></tr></thead>

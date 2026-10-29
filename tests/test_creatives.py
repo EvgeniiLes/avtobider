@@ -745,6 +745,45 @@ def test_address_is_saved_goes_to_texts_and_is_not_an_invented_fact(monkeypatch)
     assert any("Тверская, 12" in v["text"] for v in draft_variants({**row, "kind": "Маникюр", "name": "Лотос"}, 6))
 
 
+def test_discounts_from_the_description_are_off_by_default_and_can_be_enabled():
+    from app.creative.angles import available, effective_description
+    from app.creative.texts_ai import build_prompt, facts_of, parse_variants
+    from app.direct.launch import text_candidates
+    from app.direct.texts import draft_variants
+    desc = "Стрижка и мытьё для собак. Работаем с 9 до 21. Первым клиентам скидка 15%. Есть парковка."
+    off = {"name": "Л", "kind": "Груминг", "city": "Москва", "description": desc, "tone": "", "address": "", "allow_promo": 0, "id": 1}
+    on = {**off, "allow_promo": 1}
+    assert "скидк" not in effective_description(off) and "парковка" in effective_description(off) and "15%" in effective_description(on)
+    assert "promo" not in available(facts_of(off)) and "promo" in available(facts_of(on))
+    assert "скидк" not in build_prompt(off, 3).split("Не предлагай")[0] and "Не предлагай скидки" in build_prompt(off, 3)
+    raw = json.dumps([{"title": "Скидка 15% первым клиентам", "text": "Запишитесь онлайн", "angle": "promo"}], ensure_ascii=False)
+    assert parse_variants(raw, facts_of(off)) == [] and len(parse_variants(raw, facts_of(on))) == 1
+    assert all("скидк" not in (v["title"] + v["text"]).lower() for v in draft_variants(off, 6))
+
+    with TestClient(app) as http:                                        # ранее придуманный черновик со скидкой в рекламу не идёт
+        bid = setup(http)
+        base = f"/api/businesses/{bid}"
+        cur = http.get(base).json()
+        body = {k: cur[k] for k in ("name", "kind", "city", "site_url", "maps_url", "tone", "color_main", "color_extra")}
+        body.update(description=desc, avg_check=0, target_cpa=0, weekly_budget=cur.get("weekly_budget", 0) or 0)
+        assert http.put(base, json=body).json()["allow_promo"] is False   # по умолчанию выключено
+        http.post(f"{base}/creatives/texts", json={"title": "Маникюр", "body": "Запишитесь онлайн"})
+        from app.config import get_settings
+        from app.db import connect
+        conn = connect(get_settings().db_path)
+        conn.execute("INSERT INTO creatives (business_id, kind, title, body, status, source, angle) VALUES (?, 'text', 'Скидка 15% первым клиентам', "
+                     "'Запишитесь онлайн', 'draft', 'claude', 'promo')", (bid,))
+        conn.commit()
+        row = conn.execute("SELECT * FROM businesses WHERE id = ?", (bid,)).fetchone()
+        assert all("Скидка" not in c["title"] for c in text_candidates(conn, row))
+        conn.execute("UPDATE businesses SET allow_promo = 1 WHERE id = ?", (bid,))
+        conn.commit()
+        row = conn.execute("SELECT * FROM businesses WHERE id = ?", (bid,)).fetchone()
+        assert any("Скидка" in c["title"] for c in text_candidates(conn, row))
+        assert http.put(base, json={**body, "allow_promo": True}).json()["allow_promo"] is True
+        conn.close()
+
+
 def test_region_is_found_even_when_the_city_field_has_an_address():
     import asyncio
     from app.direct.client import DirectClient

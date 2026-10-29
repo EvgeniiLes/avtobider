@@ -58,7 +58,8 @@ async def art_direction(biz, variant: dict, index: int, others: list[str], logo:
     logo_line = ("Логотипа нет, поле logo всегда false." if logo is None else
                  f"Логотип есть: пропорции {logo.get('ratio', 2.5):.1f}:1, оценка читаемости {logo.get('score') or 'не проверялась'} из 5"
                  + (f", замечания: {logo['note']}" if logo.get("note") else "") + ".")
-    user = (f"Бизнес: {biz['kind']}, «{biz['name']}». Описание владельца: {(biz['description'] or '')[:500]}\n"
+    from app.creative.angles import effective_description
+    user = (f"Бизнес: {biz['kind']}, «{biz['name']}». Описание владельца: {effective_description(biz)[:500]}\n"
             + (f"Пожелание к картинкам: {biz['visual_hint']}\n" if _field(biz, "visual_hint") else "")
             + f"Заголовок объявления: {variant['title']}\n"
             + (f"Угол подачи: {variant.get('angle')}\n" if variant.get("angle") else "")

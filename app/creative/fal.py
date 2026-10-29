@@ -73,7 +73,8 @@ def _visual_rules(biz) -> str:
         hint = (biz["visual_hint"] or "").strip()
     except (KeyError, IndexError):
         hint = ""
-    description = (biz["description"] or "").strip()[:500]
+    from app.creative.angles import effective_description  # здесь, чтобы модули не импортировали друг друга по кругу
+    description = effective_description(biz).strip()[:500]
     rules = (f"About the business (use only this, do not invent anything): {description}. "
              "Depict exactly what the business really offers and how clients use it. Never replace the real product with a physical "
              "equivalent: if the description says it is online or used on a phone, show people with a smartphone, not real-world objects. ")
