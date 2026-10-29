@@ -438,23 +438,6 @@
           </div>
         </div>
 
-        <div class="card">
-          <h2>Подключить кабинет</h2>
-          <p>Нажмите кнопку и разрешите Автобидеру вести рекламу в вашем кабинете Директа. Пароль и токен вводить не нужно: Яндекс покажет короткий код, его нужно ввести на странице Яндекса.</p>
-          <p id="connect-status" class="status" role="status"></p>
-          <button id="connect-direct" class="big">Подключить Яндекс Директ</button>
-          <div id="connect-panel" class="launch" hidden>
-            <ol class="steps">
-              <li>Откройте <a id="connect-url" target="_blank" rel="noopener">страницу Яндекса</a> (откроется в новой вкладке).</li>
-              <li>Войдите в аккаунт, где находится ваш рекламный кабинет, и введите код: <strong id="connect-code" class="code"></strong></li>
-              <li>Нажмите «Разрешить» и вернитесь сюда. Страница сама увидит подтверждение.</li>
-            </ol>
-            <p class="hint" id="connect-wait">Ждём подтверждения от Яндекса…</p>
-            <button id="connect-cancel" class="small secondary">Отмена</button>
-          </div>
-          <p id="connect-off" class="hint" hidden>Подключение кабинетов ещё не настроено на сервере: нужны ключи приложения Яндекса.</p>
-        </div>
-
         <div class="card" id="marking-card">
           <h2>Данные рекламодателя (маркировка)</h2>
           <p class="hint">Закон требует маркировать интернет-рекламу. Директ делает это сам, но ему нужны данные того, кто размещает рекламу: вид плательщика, ИНН и имя или название. Внесите их здесь, мы передадим их в ваш кабинет Яндекс Директа. На нашем сервере ИНН не сохраняется.</p>
@@ -472,6 +455,23 @@
             <button id="mk-save">Передать в Директ</button>
             <span id="mk-status" class="hint"></span>
           </div>
+        </div>
+
+        <div class="card">
+          <h2 id="connect-title">Подключить кабинет</h2>
+          <p>Нажмите кнопку и разрешите Автобидеру вести рекламу в вашем кабинете Директа. Пароль и токен вводить не нужно: Яндекс покажет короткий код, его нужно ввести на странице Яндекса.</p>
+          <p id="connect-status" class="status" role="status"></p>
+          <button id="connect-direct" class="big">Подключить Яндекс Директ</button>
+          <div id="connect-panel" class="launch" hidden>
+            <ol class="steps">
+              <li>Откройте <a id="connect-url" target="_blank" rel="noopener">страницу Яндекса</a> (откроется в новой вкладке).</li>
+              <li>Войдите в аккаунт, где находится ваш рекламный кабинет, и введите код: <strong id="connect-code" class="code"></strong></li>
+              <li>Нажмите «Разрешить» и вернитесь сюда. Страница сама увидит подтверждение.</li>
+            </ol>
+            <p class="hint" id="connect-wait">Ждём подтверждения от Яндекса…</p>
+            <button id="connect-cancel" class="small secondary">Отмена</button>
+          </div>
+          <p id="connect-off" class="hint" hidden>Подключение кабинетов ещё не настроено на сервере: нужны ключи приложения Яндекса.</p>
         </div>
 
         <details class="card" id="manual-card" hidden>

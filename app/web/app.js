@@ -1132,6 +1132,7 @@ async function loadAccounts() {
   list.replaceChildren();
   const accounts = result.ok ? result.data.accounts : [];
   accountsList = accounts;
+  $("connect-title").textContent = accounts.length ? "Подключить ещё один кабинет" : "Подключить кабинет";
   $("accounts-empty").hidden = accounts.length > 0;
   for (const account of accounts) {
     const info = el("div", {}, el("strong", { textContent: account.title }), el("span", { className: "hint", textContent: ` ${account.platform}` }));
