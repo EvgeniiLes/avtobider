@@ -644,7 +644,9 @@ function renderFiles() {
     logoBox.append(el("span", { className: "hint", textContent: "Логотип пока не загружен." }));
   }
 
-  fillGrid($("photos"), assets.filter((a) => a.kind === "photo"), (a) =>
+  fillGrid($("screens"), assets.filter((a) => a.kind === "photo" && a.tag === "screen"), (a) =>
+    el("img", { src: a.url, alt: "Скриншот", loading: "lazy" }));
+  fillGrid($("photos"), assets.filter((a) => a.kind === "photo" && a.tag !== "screen"), (a) =>
     el("img", { src: a.url, alt: a.caption || a.tag_label, loading: "lazy" }));
   fillGrid($("videos"), assets.filter((a) => a.kind === "video"), (a) =>
     el("video", { src: a.url, controls: true, preload: "metadata" }));
@@ -1307,6 +1309,7 @@ async function start() {
     button.addEventListener("click", () => setColor(button.dataset.clear, ""));
   }
   $("logo-file").addEventListener("change", async (e) => { await uploadFiles([...e.target.files], "logo"); e.target.value = ""; });
+  $("screen-file").addEventListener("change", async (e) => { await uploadFiles([...e.target.files], "photo", "screen"); e.target.value = ""; });
   $("photo-file").addEventListener("change", async (e) => { await uploadFiles([...e.target.files], "photo", $("photo-tag").value); e.target.value = ""; });
   $("video-file").addEventListener("change", async (e) => { await uploadFiles([...e.target.files], "video"); e.target.value = ""; });
 
