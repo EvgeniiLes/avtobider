@@ -192,8 +192,9 @@ def insert_logo(banner: bytes, logo: bytes) -> bytes | None:
     bg_light = 0.299 * around[0] + 0.587 * around[1] + 0.114 * around[2]
     solid = mark.getchannel("A").point(lambda v: 255 if v > 128 else 0)
     mark_light = ImageStat.Stat(mark.convert("L"), mask=solid).mean[0] if solid.getbbox() else bg_light
+    opaque = mark.getchannel("A").getextrema()[0] > 240   # логотип с собственным фоном (JPG): он сам себе плашка, без полей и без рамки слота
     fill = around
-    if abs(mark_light - bg_light) < 110:  # логотип слился бы с фоном: слот заливаем контрастным тоном (чистая плашка-бейдж)
+    if not opaque and abs(mark_light - bg_light) < 110:  # логотип слился бы с фоном: слот заливаем контрастным тоном (чистая плашка-бейдж)
         fill = (250, 250, 250) if mark_light < 128 else (20, 20, 20)
     out = base.copy()
     near = (max(0, x0 - 40), max(0, y0 - 40), min(w, x1 + 40), min(h, y1 + 40))  # остатки зелёной заглушки рядом со слотом (метки по углам и т.п.)
@@ -201,7 +202,8 @@ def insert_logo(banner: bytes, logo: bytes) -> bytes | None:
     out.paste(Image.new("RGB", leftovers.size, around), near[:2], leftovers)
     ImageDraw.Draw(out).rounded_rectangle(box, radius=(y1 - y0) // 6, fill=fill)
     inner = mark.copy()
-    inner.thumbnail((int((x1 - x0) * 0.92), int((y1 - y0) * 0.92)))
+    share = 1.0 if opaque else 0.92
+    inner.thumbnail((int((x1 - x0 + 6) * share), int((y1 - y0 + 6) * share)))
     out.paste(inner, ((x0 + x1 - inner.width) // 2, (y0 + y1 - inner.height) // 2), inner)
     buf = BytesIO()
     out.save(buf, "JPEG", quality=92)
@@ -248,6 +250,12 @@ def insert_screenshot(banner: bytes, screenshot: bytes) -> bytes | None:
     cover = region.filter(ImageFilter.MaxFilter(7)).filter(ImageFilter.GaussianBlur(0.8))  # чуть шире заглушки: без пурпурной каймы
     out = base.copy()
     out.paste(layer, (0, 0), cover)
+    # куски заглушки, отделённые от экрана пальцем, тоже закрашиваем (тёмным цветом экрана), но только рядом с телефоном
+    xs, ys = [p[0] for p in pts], [p[1] for p in pts]
+    pad_x, pad_y = int((max(xs) - min(xs)) * 0.35) + 10, int((max(ys) - min(ys)) * 0.35) + 10
+    near = (max(0, min(xs) - pad_x), max(0, min(ys) - pad_y), min(w, max(xs) + pad_x), min(h, max(ys) + pad_y))
+    stray = ImageChops.subtract(_key_mask(base), cover.filter(ImageFilter.MaxFilter(9))).crop(near).filter(ImageFilter.MaxFilter(5))  # без самого экрана
+    out.paste(Image.new("RGB", stray.size, (14, 14, 18)), near[:2], stray)
     buf = BytesIO()
     out.save(buf, "JPEG", quality=92)
     return buf.getvalue()

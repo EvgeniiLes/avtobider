@@ -109,7 +109,7 @@ def banner_prompt(biz, title: str, price: str, cta: str, logo_corner: bool = Fal
             + (f"Scene, follow it closely: {scene}. " if scene else "") +
             "Landscape 4:3, modern professional layout, lots of clean space around the text. Visual direction: " + DIRECTIONS[index % len(DIRECTIONS)] + ". "
             "Text in Russian, exactly as written, large and perfectly legible: " + ", ".join(parts) + ". "
-            "No other text, no extra letters. Never draw any logo, emblem, badge, mascot, icon or brand mark of any company, including "
+            "No other text, no extra letters, no website addresses, no URLs, no domain names, no phone numbers. Never draw any logo, emblem, badge, mascot, icon or brand mark of any company, including "
             "the advertiser: the real logo is added later by the designer. "
             + ("" if screen else "Never invent an app or website interface: any phone or monitor in the scene must show no readable interface, "
                "no text and no faces, so show it from the back or at an angle where the screen is not visible, or with a plain softly glowing blank screen. ")
@@ -137,6 +137,8 @@ def image_payload(model: str, prompt: str) -> dict:
     """Параметры у моделей разные (схемы сверены по каталогу fal): подбираем под выбранную."""
     if "gpt-image" in model:
         return {"prompt": prompt, "image_size": "landscape_4_3", "quality": "medium", "num_images": 1, "output_format": "jpeg"}
+    if "seedream" in model:   # у Seedream 5 Pro минимум 921 600 пикселей, поэтому размер задаём числами (4:3)
+        return {"prompt": prompt, "image_size": {"width": 1280, "height": 960}, "num_images": 1, "output_format": "jpeg"}
     if "nano-banana" in model:
         return {"prompt": prompt, "aspect_ratio": "4:3", "resolution": "1K", "num_images": 1, "output_format": "jpeg"}
     return {"prompt": prompt, "image_size": "square_hd", "num_images": 1}  # FLUX и похожие

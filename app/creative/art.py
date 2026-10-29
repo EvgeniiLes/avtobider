@@ -102,7 +102,7 @@ async def review_banner(image_url: str, brief: str, fal_key: str, model: str,
                         transport: httpx.AsyncBaseTransport | None = None) -> dict | None:
     """Самопроверка готового баннера моделью со зрением. None, если оценить не удалось (тогда баннер не отбраковываем)."""
     body = {"model": model, "max_tokens": 500, "image_urls": [image_url],
-            "messages": [{"role": "system", "content": REVIEW_SYSTEM}, {"role": "user", "content": f"Бизнес и задание: {brief[:600]}"}]}
+            "messages": [{"role": "system", "content": REVIEW_SYSTEM}, {"role": "user", "content": f"Бизнес и задание: {brief[:1200]}"}]}
     try:
         async with httpx.AsyncClient(timeout=90, transport=transport) as http:
             r = await http.post(FAL_CHAT_URL, json=body, headers={"Authorization": f"Key {fal_key}", "Content-Type": "application/json"})

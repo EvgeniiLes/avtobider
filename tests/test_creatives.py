@@ -453,6 +453,20 @@ def test_art_director_gives_different_scenes_and_decides_about_the_logo():
     assert asyncio.run(review_banner("data:image/jpeg;base64,AA==", "бизнес", "k", "m", answer("ничего"))) is None
 
 
+def test_stray_magenta_piece_next_to_the_screen_is_painted_over():
+    from app.creative.screen import insert_screenshot
+    from PIL import Image as PILImage, ImageDraw
+    img = PILImage.new("RGB", (1024, 768), (60, 40, 30))
+    d = ImageDraw.Draw(img)
+    d.rectangle((500, 250, 640, 520), fill=(255, 0, 255))     # экран
+    d.rectangle((520, 540, 560, 570), fill=(255, 0, 255))     # кусок заглушки ниже, отделённый «пальцем»
+    base = BytesIO(); img.save(base, "JPEG", quality=95)
+    shot = BytesIO(); PILImage.new("RGB", (600, 1300), (20, 90, 160)).save(shot, "PNG")
+    out = PILImage.open(BytesIO(insert_screenshot(base.getvalue(), shot.getvalue()))).convert("RGB")
+    r, g, b = out.getpixel((540, 555))
+    assert not (r > 200 and b > 200 and g < 90)                # пурпурного не осталось
+
+
 def test_narrow_vertical_screen_gets_sane_corners():
     from app.creative.screen import _corners, _key_mask, _largest_region
     from PIL import Image as PILImage, ImageDraw

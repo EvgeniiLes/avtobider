@@ -20,7 +20,7 @@ from app.assets import PHOTO_TAGS
 from app.creative.compose import add_logo, find_price, prepare_for_direct, style_for
 from app.creative.art import art_direction, review_banner, scene_label
 from app.creative.screen import insert_logo, insert_screenshot
-from app.creative.texts_ai import check_photo, generate_texts, missing_phrases, read_image_text
+from app.creative.texts_ai import check_photo, generate_texts, invented_links, missing_phrases, read_image_text
 from app.db import get_db
 from app.deps import creative_transport, current_user
 from app.direct.launch import banner_layout, choose_variants, logo_for, media_typed, photo_for, render_banner, start_split, text_candidates
@@ -115,6 +115,11 @@ def _refresh_working(conn, business_id: int, transport) -> None:
             if wrong:
                 conn.execute("UPDATE creatives SET status = 'failed', error = ? WHERE id = ?",
                              (f"На картинке ошибки в тексте: {', '.join(wrong)}. Нажмите «Нарисовать» ещё раз.", r["id"]))
+                continue
+            links = invented_links(read or [])
+            if links:
+                conn.execute("UPDATE creatives SET status = 'failed', error = ? WHERE id = ?",
+                             (f"Нейросеть дописала на картинке адрес сайта: {', '.join(links)}. Нажмите «Другой баннер».", r["id"]))
                 continue
         try:
             data = asyncio.run(fal.download(value, transport))
@@ -327,10 +332,13 @@ def _order_banner(conn, biz, variants: list[dict], index: int, key: str, transpo
                                logo_ratio=_logo_ratio(logo), scene=art["scene"])
     job = asyncio.run(fal.start_image(prompt, key, s.fal_banner_model, transport))
     meta = {"expect": expected, "logo": use_logo, "concept": art["concept"], "audience": art["audience"], "scene": art["scene"],
-            "logo_reason": art["logo_reason"], "brief": f"{biz['kind']} «{biz['name']}». Сюжет: {art['label']}. {art['scene']}"
-                     + (" На экране телефона вставлен НАСТОЯЩИЙ скриншот приложения владельца: это не выдумка нейросети и не недостаток, интерфейс на экране оценивать не нужно."
-                        if screen else " Экран телефона намеренно не показан: настоящего скриншота нет, интерфейс придумывать нельзя, это не недостаток.")
-                     + (" Логотип вставлен позже из файла владельца, это нормально." if use_logo else "")}
+            "logo_reason": art["logo_reason"],
+            "brief": ("ВАЖНО: на экране телефона вставлен НАСТОЯЩИЙ скриншот приложения владельца. Это не выдумка нейросети и не недостаток: "
+                      "интерфейс на экране, его вид и надписи на нём не оценивай и не снижай за них оценку. "
+                      if screen else
+                      "ВАЖНО: экран телефона намеренно не показан, настоящего скриншота нет, это не недостаток. ")
+                     + ("Логотип вставлен позже из файла владельца, это нормально. " if use_logo else "")
+                     + f"{biz['kind']} «{biz['name']}». Сюжет: {art['label']}. {art['scene']}"}
     conn.execute("INSERT INTO creatives (business_id, kind, title, body, prompt, status, source, external_id) VALUES (?, 'ai_banner', ?, ?, ?, 'working', 'fal', ?)",
                  (business_id, v["title"], v["text"], json.dumps(meta, ensure_ascii=False), json.dumps(job)))
     return art["scene"]

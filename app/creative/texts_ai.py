@@ -185,6 +185,14 @@ def _norm(text: str) -> str:
     return re.sub(r"[^0-9a-zа-я]", "", (text or "").lower().replace("ё", "е"))
 
 
+URL_LIKE = re.compile(r"(https?://|www\.|\b[\w-]+\.(?:ru|com|net|org|io|рф)\b)", re.I)
+
+
+def invented_links(read: list[str]) -> list[str]:
+    """Адреса сайтов, которые нейросеть сама написала на баннере (их в задании не было: домен мог оказаться выдуманным)."""
+    return [line for line in read if URL_LIKE.search(line)]
+
+
 def missing_phrases(expected: list[str], read: list[str]) -> list[str]:
     """Какие нужные надписи не найдены на картинке (регистр, кавычки и пробелы не важны)."""
     haystack = _norm(" ".join(read))
