@@ -453,6 +453,29 @@ def test_art_director_gives_different_scenes_and_decides_about_the_logo():
     assert asyncio.run(review_banner("data:image/jpeg;base64,AA==", "бизнес", "k", "m", answer("ничего"))) is None
 
 
+def test_narrow_vertical_screen_gets_sane_corners():
+    from app.creative.screen import _corners, _key_mask, _largest_region
+    from PIL import Image as PILImage, ImageDraw
+    img = PILImage.new("RGB", (1024, 768), (30, 30, 30))
+    d = ImageDraw.Draw(img)
+    d.rounded_rectangle((560, 330, 610, 470), radius=10, fill=(255, 0, 255))      # узкий высокий экран, как у телефона в руке
+    quad = _corners(_largest_region(_key_mask(img)))
+    assert all(540 <= x <= 630 and 310 <= y <= 490 for x, y in quad)               # углы рядом с экраном, а не за тысячи пикселей
+
+
+def test_portrait_screenshot_in_a_landscape_phone_is_fitted_not_cropped():
+    from app.creative.screen import insert_screenshot
+    from PIL import Image as PILImage, ImageDraw
+    img = PILImage.new("RGB", (1200, 900), (30, 30, 30))
+    ImageDraw.Draw(img).rectangle((500, 300, 900, 500), fill=(255, 0, 255))      # горизонтальный экран 400x200
+    base = BytesIO(); img.save(base, "JPEG", quality=95)
+    shot_img = PILImage.new("RGB", (600, 1300), (10, 10, 10))                    # вертикальный скриншот: яркое только по краям
+    d = ImageDraw.Draw(shot_img); d.rectangle((0, 0, 600, 200), fill=(250, 250, 80)); d.rectangle((0, 1100, 600, 1300), fill=(80, 250, 250))
+    shot = BytesIO(); shot_img.save(shot, "PNG")
+    out = PILImage.open(BytesIO(insert_screenshot(base.getvalue(), shot.getvalue()))).convert("RGB")
+    assert out.getpixel((700, 310))[0] > 150 and out.getpixel((700, 490))[2] > 150     # видны и верх, и низ скриншота, середину не вырезали
+
+
 def test_green_leftovers_around_the_slot_are_cleaned():
     from app.creative.screen import insert_logo
     from PIL import Image as PILImage, ImageDraw

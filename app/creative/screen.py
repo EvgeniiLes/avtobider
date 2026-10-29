@@ -127,7 +127,11 @@ def _corners(pts: list[tuple[int, int]]) -> list[tuple[float, float]]:
                 break
             cs.append(c)
         if len(cs) == 4:
-            quad = cs
+            xs, ys = [p[0] for p in pts], [p[1] for p in pts]
+            bw, bh = max(xs) - min(xs), max(ys) - min(ys)
+            near = all(min(xs) - 0.2 * bw <= c[0] <= max(xs) + 0.2 * bw and min(ys) - 0.2 * bh <= c[1] <= max(ys) + 0.2 * bh for c in cs)
+            if near:   # у узкого экрана почти параллельные стороны дают пересечения «в космосе»: такой результат не берём
+                quad = cs
     if quad is None:
         tl = min(pts, key=lambda p: p[0] + p[1])
         br = max(pts, key=lambda p: p[0] + p[1])
@@ -211,18 +215,23 @@ def insert_screenshot(banner: bytes, screenshot: bytes) -> bytes | None:
     w, h = base.size
     mask = _key_mask(base)
     pts = _largest_region(mask)
-    if not pts or len(pts) < w * h * 0.012:
+    if not pts or len(pts) < w * h * 0.003:   # экран в сцене с людьми бывает небольшим, но скриншот на нём всё равно должен встать
         return None
     quad = _corners(pts)
     top, bottom = (quad[1][0] - quad[0][0], quad[1][1] - quad[0][1]), (quad[2][0] - quad[3][0], quad[2][1] - quad[3][1])
     left, right = (quad[3][0] - quad[0][0], quad[3][1] - quad[0][1]), (quad[2][0] - quad[1][0], quad[2][1] - quad[1][1])
     width = (abs(top[0]) + abs(bottom[0])) / 2 + (abs(top[1]) + abs(bottom[1])) / 2
     height = (abs(left[1]) + abs(right[1])) / 2 + (abs(left[0]) + abs(right[0])) / 2
-    if width < 40 or height < 40 or not 0.25 < width / height < 4:
+    if width < 24 or height < 24 or not 0.25 < width / height < 4:
         return None
     # скриншот подрезаем по центру под пропорции экрана и сразу готовим к перспективной вставке
     ratio = width / height
     sw, sh = shot.size
+    if max(ratio / (sw / sh), (sw / sh) / ratio) > 1.35:   # телефон повёрнут иначе, чем скриншот: вписываем целиком, а не режем середину
+        fitted = Image.new("RGB", (max(sw, int(sh * ratio)), max(sh, int(sw / ratio))), (0, 0, 0))
+        fitted.paste(shot, ((fitted.width - sw) // 2, (fitted.height - sh) // 2))
+        shot = fitted
+        sw, sh = shot.size
     if sw / sh > ratio:
         new_w = int(sh * ratio)
         shot = shot.crop(((sw - new_w) // 2, 0, (sw - new_w) // 2 + new_w, sh))

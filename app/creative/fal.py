@@ -82,7 +82,8 @@ def _visual_rules(biz) -> str:
     return rules
 
 
-SCREEN_RULE = (" The scene includes a modern smartphone whose screen faces the viewer and is clearly visible (the screen at least 20% of the banner height), slightly angled. IMPORTANT: the phone screen must be one completely flat, solid, pure "
+SCREEN_RULE = (" The scene includes a modern smartphone held in a hand, upright in portrait orientation (vertical, never lying on a table, never horizontal), "
+               "its screen facing the viewer and clearly visible (the screen at least 20% of the banner height), slightly angled. IMPORTANT: the phone screen must be one completely flat, solid, pure "
                "magenta (#FF00FF) rectangle filling the whole screen, with no interface, no text, no reflections, no gradient. "
                "Do not use magenta or hot pink anywhere else in the banner.")
 
