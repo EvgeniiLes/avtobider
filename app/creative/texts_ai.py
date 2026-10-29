@@ -108,7 +108,10 @@ async def _ask_fal(http: httpx.AsyncClient, prompt: str, fal_key: str, model: st
 
 PHOTO_CHECK_SYSTEM = (
     "Ты помогаешь малому бизнесу выбирать фотографии для рекламы в Яндекс Директе. Оцени фото и верни только JSON-объект "
-    "{\"type\": \"interior|hands|people|product|other\", \"score\": число от 1 до 5, \"issues\": [\"...\"], \"summary\": \"одно предложение\"}. "
+    "{\"type\": \"interior|hands|people|product|other\", \"score\": число от 1 до 5, \"issues\": [\"...\"], \"summary\": \"одно предложение\", "
+    "\"focus\": {\"x\": число от 0 до 1, \"y\": число от 0 до 1}}. "
+    "focus: где центр главного объекта кадра (морда животного, лицо человека, товар, главная деталь), в долях от левого верхнего угла: "
+    "x по ширине, y по высоте. По нему кадр обрезают, чтобы главное не отрезалось. Если главного объекта нет, верни 0.5 и 0.5. "
     "type: interior (помещение, интерьер, витрина), hands (руки или результат работы крупным планом), people (мастер, команда, клиент), "
     "product (товар, предметы), other. score: насколько фото подходит для рекламы (резкость, свет, композиция, свободное место для текста). "
     "В issues перечисли реальные проблемы по-русски коротко: чужие читаемые вывески, бренды или логотипы, водяные знаки, посторонний текст, "
@@ -153,7 +156,12 @@ async def check_photo(image_data_url: str, fal_key: str, model: str, transport: 
         score = 3
     issues = [str(i)[:120] for i in (data.get("issues") or []) if i][:4]
     note = (str(data.get("summary") or "")[:200] + (" Проблемы: " + "; ".join(issues) + "." if issues else "")).strip()
-    return {"type": kind, "score": score, "note": note}
+    focus = data.get("focus") if isinstance(data.get("focus"), dict) else {}
+    try:
+        fx, fy = (max(0.05, min(0.95, float(focus["x"]))), max(0.05, min(0.95, float(focus["y"]))))
+    except (KeyError, TypeError, ValueError):
+        fx = fy = 0.5   # модель не назвала точку: режем по центру, как раньше
+    return {"type": kind, "score": score, "note": note, "fx": fx, "fy": fy}
 
 
 ANALYSIS_SYSTEM = (

@@ -293,6 +293,17 @@
         <div class="page-head"><h1>Объявления</h1></div>
         <p id="cr-empty" class="hint" hidden>Сначала опишите бизнес на странице «Бизнес».</p>
         <div id="cr-body" hidden>
+          <div class="card" id="briefs-card">
+            <h2>Идеи для проверки</h2>
+            <p class="hint">Стратег предложит несколько разных идей: для какой аудитории, с каким заголовком, на каком вашем фото и в каком оформлении. Берите в рекламу понравившиеся: так сравнение покажет, что работает лучше.</p>
+            <div class="upload-row">
+              <select id="briefs-count"><option value="3">3 идеи</option><option value="4" selected>4 идеи</option><option value="5">5 идей</option></select>
+              <button id="briefs-gen" class="small">Предложить идеи (около 3 центов)</button>
+            </div>
+            <p id="briefs-status" class="status" role="status"></p>
+            <div id="briefs" class="briefs"></div>
+          </div>
+
           <div class="card">
             <h2>Готовые объявления</h2>
             <p class="hint" id="ads-summary"></p>

@@ -174,23 +174,38 @@ def _file(business_id: int, stored_name: str) -> bytes:
     return (get_settings().uploads_dir / str(business_id) / stored_name).read_bytes()
 
 
+class Photo(bytes):
+    """Файл фото, который знает свой номер (asset_id) и точку главного объекта (focus): шаблоны режут кадр по ней, а не по центру."""
+
+    def __new__(cls, data: bytes, asset_id: int | None = None, fx: float | None = None, fy: float | None = None):
+        obj = super().__new__(cls, data)
+        obj.asset_id = asset_id
+        obj.focus = (fx, fy) if fx is not None and fy is not None else None
+        return obj
+
+
 TYPE_ORDER = ("interior", "work", "product", "team", "other")  # порядок типов кадра: помещение, работы (руки), товар, люди, прочее
+
+
+def usable_photos(conn: sqlite3.Connection, biz) -> list[sqlite3.Row]:
+    """Фото, из которых можно делать баннеры: выбранные владельцем сгенерированные картинки и загруженные фото.
+    Кадры, у которых ИИ нашёл серьёзные проблемы (оценка 1–2), и скриншоты приложения не берём."""
+    rows = conn.execute(
+        "SELECT a.id, a.stored_name, a.ai_type, a.tag, a.ai_score, a.ai_note, a.ai_fx, a.ai_fy FROM creatives c JOIN business_assets a ON a.id = c.asset_id "
+        "WHERE c.business_id = ? AND c.kind = 'image' AND c.status = 'approved' ORDER BY c.id", (biz["id"],)
+    ).fetchall() + conn.execute(
+        "SELECT id, stored_name, ai_type, tag, ai_score, ai_note, ai_fx, ai_fy FROM business_assets WHERE business_id = ? AND kind = 'photo' AND tag != 'screen' ORDER BY id LIMIT 12", (biz["id"],)
+    ).fetchall()
+    return [r for r in rows if not 0 < r["ai_score"] < 3]
 
 
 def media_typed(conn: sqlite3.Connection, biz) -> tuple[list[tuple[str, bytes]], bytes | None]:
     """Картинки для баннеров вместе с типом кадра (помещение, работы…). Тип: по оценке ИИ, иначе по выбору владельца."""
-    # выбранные владельцем сгенерированные картинки и загруженные фото вместе; кадры, у которых ИИ нашёл серьёзные проблемы (оценка 1–2), не берём
-    rows = conn.execute(
-        "SELECT a.stored_name, a.ai_type, a.tag, a.ai_score FROM creatives c JOIN business_assets a ON a.id = c.asset_id "
-        "WHERE c.business_id = ? AND c.kind = 'image' AND c.status = 'approved' ORDER BY c.id", (biz["id"],)
-    ).fetchall() + conn.execute(
-        "SELECT stored_name, ai_type, tag, ai_score FROM business_assets WHERE business_id = ? AND kind = 'photo' AND tag != 'screen' ORDER BY id LIMIT 12", (biz["id"],)
-    ).fetchall()
-    rows = [r for r in rows if not 0 < r["ai_score"] < 3]
+    rows = usable_photos(conn, biz)
     photos = []
     for r in rows:
         try:
-            photos.append((r["ai_type"] or r["tag"] or "other", _file(biz["id"], r["stored_name"])))
+            photos.append((r["ai_type"] or r["tag"] or "other", Photo(_file(biz["id"], r["stored_name"]), r["id"], r["ai_fx"], r["ai_fy"])))
         except OSError:
             continue
     return photos, logo_for(conn, biz)

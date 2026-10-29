@@ -171,6 +171,23 @@ CREATE TABLE IF NOT EXISTS creatives (
 );
 CREATE INDEX IF NOT EXISTS idx_creatives_business ON creatives (business_id, kind);
 
+-- Идеи стратега для A/B-теста: гипотеза, аудитория, угол, текст, фото и оформление баннера.
+CREATE TABLE IF NOT EXISTS briefs (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    business_id INTEGER NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+    hypothesis  TEXT NOT NULL DEFAULT '',
+    audience    TEXT NOT NULL DEFAULT '',
+    angle       TEXT NOT NULL DEFAULT '',
+    title       TEXT NOT NULL,
+    body        TEXT NOT NULL DEFAULT '',
+    asset_id    INTEGER,                       -- выбранное фото (business_assets)
+    look        INTEGER NOT NULL DEFAULT 0,    -- оформление баннера: номер из PHOTO_LOOKS
+    prompt      TEXT NOT NULL DEFAULT '',      -- промпт баннера, его можно править
+    status      TEXT NOT NULL DEFAULT 'idea',  -- idea, used
+    created_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_briefs_business ON briefs (business_id);
+
 -- Расходы на генерацию (в центах доллара), чтобы не выйти за лимит.
 CREATE TABLE IF NOT EXISTS generations (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -235,6 +252,8 @@ ADDED_COLUMNS = [
     ("businesses", "visual_hint", "TEXT NOT NULL DEFAULT ''"),
     ("businesses", "address", "TEXT NOT NULL DEFAULT ''"),
     ("businesses", "allow_promo", "INTEGER NOT NULL DEFAULT 0"),   # можно ли писать в рекламе про скидки и акции из описания
+    ("business_assets", "ai_fx", "REAL"),   # где главный объект на фото (доли ширины и высоты), по нему шаблоны обрезают кадр; NULL: ещё не смотрели
+    ("business_assets", "ai_fy", "REAL"),
     ("creatives", "angle", "TEXT NOT NULL DEFAULT ''"),
     ("business_assets", "ai_type", "TEXT NOT NULL DEFAULT ''"),
     ("business_assets", "ai_score", "INTEGER NOT NULL DEFAULT 0"),

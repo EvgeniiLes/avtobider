@@ -7,7 +7,7 @@ import httpx
 
 QUEUE = "https://queue.fal.run"
 # Примерная стоимость в центах доллара: нужна, чтобы не выйти за лимит расходов на генерацию.
-COST_CENTS = {"text": 1, "image": 8, "video": 70, "ai_banner": 7, "check": 1, "logo_cut": 1}  # ai_banner: GPT Image 2 (4:3, среднее качество) 3.7 цента, арт-директор, проверка текста и самопроверка по 1 центу
+COST_CENTS = {"text": 1, "image": 8, "video": 70, "ai_banner": 7, "check": 1, "logo_cut": 1, "strategist": 3}  # ai_banner: GPT Image 2 (4:3, среднее качество) 3.7 цента, арт-директор, проверка текста и самопроверка по 1 центу
 
 
 class FalError(Exception):
@@ -159,7 +159,7 @@ PHOTO_LOOKS = (
 )
 
 
-def photo_banner_prompt(biz, title: str, price: str, cta: str, index: int = 0) -> str:
+def photo_banner_prompt(biz, title: str, price: str, cta: str, index: int = 0, mood: str = "") -> str:
     """Запрос «сделай баннер из этого фото»: фото владельца остаётся настоящим, меняется только оформление и текст."""
     text = f'a large bold headline «{title}»'
     if price:
@@ -169,7 +169,8 @@ def photo_banner_prompt(biz, title: str, price: str, cta: str, index: int = 0) -
             "this is context only, do not write it on the banner). "
             "Keep the real photo natural and unaltered (the same people, animals, objects and place); you may crop it and extend its background for the layout. "
             f"Add text in Russian, spelled exactly as written, nothing added or changed: {text}, and a solid rounded button «{cta}». "
-            f"Visual direction: {look}. Strong contrast, text is easy to read and never covers faces or the main subject. "
+            f"Visual direction: {look}. " + (f"Audience and mood: {mood}. " if mood else "")
+            + "Strong contrast, text is easy to read and never covers faces or the main subject. "
             "Do not write the business name, website addresses, domain names, phone numbers or any other text. "
             "Do not add logos, emblems, icons, watermarks, decorative frames, ornaments, sparkles or glow.")
 

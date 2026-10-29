@@ -27,16 +27,38 @@ def _font(size: int) -> ImageFont.ImageFont:
     return ImageFont.load_default()
 
 
-def prepare_for_direct(data: bytes) -> bytes:
-    """Обрезает по центру до 4:3, приводит к 1200×900 и сжимает до допустимого веса (JPEG)."""
+def crop_window(size: tuple[int, int], ratio: float, focus: tuple[float, float] | None) -> tuple[tuple[int, int, int, int], tuple[float, float]]:
+    """Окно обрезки до нужных пропорций так, чтобы главный объект (focus, доли от угла) остался в кадре, а не обрезался по центру.
+    Возвращает рамку (left, top, right, bottom) и новое положение объекта внутри обрезанного кадра. Без focus режет почти по центру."""
+    W, H = size
+    fx, fy = focus if focus else (0.5, 0.45)
+    if W / H > ratio:   # шире нужного: убираем с боков
+        wc, hc = round(H * ratio), H
+        left = min(max(round(fx * W - wc / 2), 0), W - wc)
+        top = 0
+    else:               # выше нужного: убираем сверху и снизу
+        wc, hc = W, round(W / ratio)
+        left = 0
+        top = min(max(round(fy * H - hc / 2), 0), H - hc)
+    return (left, top, left + wc, top + hc), ((fx * W - left) / wc, (fy * H - top) / hc)
+
+
+def prepare_with_focus(data: bytes, focus: tuple[float, float] | None = None) -> tuple[bytes, tuple[float, float]]:
+    """Обрезает до 4:3 по главному объекту, приводит к 1200×900 и сжимает до допустимого веса (JPEG). Вторым значением: где объект в итоге."""
     img = ImageOps.exif_transpose(Image.open(BytesIO(data))).convert("RGB")
-    img = ImageOps.fit(img, TARGET, method=Image.LANCZOS, centering=(0.5, 0.45))
+    box, new_focus = crop_window(img.size, TARGET[0] / TARGET[1], focus)
+    img = img.crop(box).resize(TARGET, Image.LANCZOS)
     for quality in (90, 80, 70, 55):
         out = BytesIO()
         img.save(out, "JPEG", quality=quality, optimize=True)
         if out.tell() <= MAX_BYTES:
-            return out.getvalue()
-    return out.getvalue()
+            return out.getvalue(), new_focus
+    return out.getvalue(), new_focus
+
+
+def prepare_for_direct(data: bytes, focus: tuple[float, float] | None = None) -> bytes:
+    """Обрезает до 4:3 (по главному объекту, если он известен), приводит к 1200×900 и сжимает до допустимого веса (JPEG)."""
+    return prepare_with_focus(data, focus)[0]
 
 
 def _wrap(draw: ImageDraw.ImageDraw, text: str, font, width: int) -> list[str]:
@@ -147,10 +169,12 @@ def _pill(d, x, y, text, font, bg, fg, pad_x=38, h=76, outline=None) -> int:
     return x + w
 
 
-def _shaped_photo(canvas: Image.Image, photo: Image.Image, box: tuple, shape: str, radius: int = 40) -> None:
+def _shaped_photo(canvas: Image.Image, photo: Image.Image, box: tuple, shape: str, radius: int = 40,
+                  focus: tuple[float, float] | None = None) -> None:
     x0, y0, x1, y1 = box
     w, h = x1 - x0, y1 - y0
-    fitted = ImageOps.fit(photo, (w, h), Image.LANCZOS, centering=(0.5, 0.45)).convert("RGBA")
+    crop, _ = crop_window(photo.size, w / h, focus)
+    fitted = photo.crop(crop).resize((w, h), Image.LANCZOS).convert("RGBA")
     mask = Image.new("L", (w, h), 0)
     md = ImageDraw.Draw(mask)
     if shape == "circle":
@@ -227,7 +251,8 @@ def _points(body: str) -> list[str]:
 
 
 def _banner_styled(style: str, photo: bytes, title: str, color_main: str, logo: bytes | None, brand: str, badge: str, cta: str, body: str) -> bytes:
-    pic = Image.open(BytesIO(prepare_for_direct(photo))).convert("RGB")
+    prepared, pic_focus = prepare_with_focus(photo, getattr(photo, "focus", None))   # кадр режется по главному объекту фото
+    pic = Image.open(BytesIO(prepared)).convert("RGB")
     W, H = pic.size
     d_default = {"luxe": (201, 164, 92), "pastel": (214, 120, 140), "bold": (214, 51, 132), "card": (46, 150, 120)}[style]
     accent = _hex(color_main, d_default)
@@ -240,7 +265,7 @@ def _banner_styled(style: str, photo: bytes, title: str, color_main: str, logo: 
         canvas = Image.new("RGBA", (W, H), bg + (255,))
         d = ImageDraw.Draw(canvas)
         d.rectangle((22, 22, W - 23, H - 23), outline=accent + (255,), width=2)
-        _shaped_photo(canvas, pic, (560, 120, 1150, 710), "circle")
+        _shaped_photo(canvas, pic, (560, 120, 1150, 710), "circle", focus=pic_focus)
         d.ellipse((548, 108, 1162, 722), outline=accent + (255,), width=3)
         x, y = 80, 150
         if brand:
@@ -256,7 +281,7 @@ def _banner_styled(style: str, photo: bytes, title: str, color_main: str, logo: 
         bg = _mix(accent, (255, 255, 255), 0.86) if color_main else (253, 238, 232)
         canvas = Image.new("RGBA", (W, H), bg + (255,))
         d = ImageDraw.Draw(canvas)
-        _shaped_photo(canvas, pic, (660, 70, 1130, 830), "arch")
+        _shaped_photo(canvas, pic, (660, 70, 1130, 830), "arch", focus=pic_focus)
         ink = (52, 38, 44)
         x, y = 76, 190
         if brand:
@@ -279,7 +304,7 @@ def _banner_styled(style: str, photo: bytes, title: str, color_main: str, logo: 
     elif style == "bold":
         canvas = Image.new("RGBA", (W, H), accent + (255,))
         d = ImageDraw.Draw(canvas)
-        _shaped_photo(canvas, pic, (590, 250, 1150, 810), "circle")
+        _shaped_photo(canvas, pic, (590, 250, 1150, 810), "circle", focus=pic_focus)
         d.ellipse((580, 240, 1160, 820), outline=(255, 255, 255, 255), width=8)
         x, y = 70, 190
         if brand:
@@ -305,7 +330,7 @@ def _banner_styled(style: str, photo: bytes, title: str, color_main: str, logo: 
     else:  # card: светлая карточка
         canvas = Image.new("RGBA", (W, H), (250, 244, 235, 255))
         d = ImageDraw.Draw(canvas)
-        _shaped_photo(canvas, pic, (44, 44, 1156, 520), "round", 40)
+        _shaped_photo(canvas, pic, (44, 44, 1156, 520), "round", 40, focus=pic_focus)
         ink = (40, 36, 34)
         x, y = 70, 560
         if brand:
@@ -335,7 +360,7 @@ def make_banner(photo: bytes, title: str, color_main: str = "", logo: bytes | No
         style = "card"
     if style in ("luxe", "pastel", "bold", "card"):
         return _banner_styled(style, photo, title, color_main, logo, brand, badge, cta, body)
-    base = Image.open(BytesIO(prepare_for_direct(photo))).convert("RGB")
+    base = Image.open(BytesIO(prepare_for_direct(photo, getattr(photo, "focus", None)))).convert("RGB")
     w, h = base.size
     accent = _hex(color_main, (255, 255, 255))
     on_accent = (20, 20, 20) if sum(accent) / 3 > 150 else (255, 255, 255)

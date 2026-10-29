@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 from app.assets import AssetError, prepare_image, prepare_video
 from app.config import get_settings
 from app.creative import fal
-from app.creative.angles import label as angle_label, profile
+from app.creative.angles import effective_description, label as angle_label, profile
 from app.assets import PHOTO_TAGS
 from app.creative.compose import add_logo, find_price, prepare_for_direct, style_for
 from app.creative.art import art_direction, review_banner, scene_label
@@ -258,9 +258,12 @@ def ads(business_id: int, user: sqlite3.Row = Depends(current_user), conn: sqlit
             photo_type = meta["concept"]
             ai.update({"scene": meta["scene"] if meta.get("mode") == "photo" else scene_label(photo_type), "audience": meta.get("audience", ""),
                        "logo": "placed" if meta.get("logo") else "skipped", "logo_reason": meta.get("logo_reason", "")})
+        brief = _brief_for(conn, business_id, v)
+        if brief:   # объявление сделано по идее стратега: показываем, что именно проверяем
+            ai.update({"hypothesis": brief["hypothesis"], "audience": brief["audience"]})
         if photos and not _extras():   # промпт, по которому рисуется баннер из фото: виден и правится на карточке
-            ai["prompt"] = meta.get("prompt_text") or fal.photo_banner_prompt(
-                biz, v["title"], find_price(v["title"], v["text"], biz["description"]), profile(biz)["cta"], i)
+            ai["prompt"] = meta.get("prompt_text") or (brief["prompt"] if brief and brief["prompt"] else fal.photo_banner_prompt(
+                biz, v["title"], find_price(v["title"], v["text"], effective_description(biz)), profile(biz)["cta"], brief["look"] if brief else i))
         if state == "ready":
             banner = f"/api/businesses/{business_id}/creatives/ads/{i}/banner.jpg"   # готовый ИИ-баннер важнее шаблона
         elif style == "ai":
@@ -334,6 +337,12 @@ def _other_scenes(conn, business_id: int, variants: list[dict], skip: int) -> li
     return scenes
 
 
+def _brief_for(conn, business_id: int, variant: dict):
+    """Идея стратега, по которой сделано это объявление (если владелец выбрал её в рекламу)."""
+    return conn.execute("SELECT * FROM briefs WHERE business_id = ? AND title = ? AND body = ? AND status = 'used' ORDER BY id DESC LIMIT 1",
+                        (business_id, variant["title"], variant["text"])).fetchone()
+
+
 def _order_banner(conn, biz, variants: list[dict], index: int, key: str, transport, others: list[str], custom_prompt: str = "") -> str:
     """Заказывает один ИИ-баннер. Есть фото владельца: модель делает баннер из этого фото (оформление у каждого объявления своё).
     Фото нет: арт-директор придумывает сцену, художник рисует с нуля. custom_prompt: промпт, который владелец поправил сам. Возвращает описание."""
@@ -346,12 +355,17 @@ def _order_banner(conn, biz, variants: list[dict], index: int, key: str, transpo
     extras = _extras()   # экран со скриншотом и логотип в слоте: пока выключены, сначала добиваемся хорошего базового баннера
     photos, _logo = media_typed(conn, biz)
     if photos and not extras:   # главный путь: настоящее фото владельца отдаётся модели вместе с промптом про оформление
+        brief = _brief_for(conn, business_id, v)   # идея стратега: у неё своё фото, оформление и промпт
         kind, data = photo_for(photos, index)
-        look = fal.PHOTO_LOOKS[index % len(fal.PHOTO_LOOKS)][0]
-        prompt = custom_prompt or fal.photo_banner_prompt(biz, v["title"], price, cta, index)
+        if brief and brief["asset_id"]:
+            kind, data = next(((k, d) for k, d in photos if getattr(d, "asset_id", None) == brief["asset_id"]), (kind, data))
+        look_no = brief["look"] if brief else index
+        look = fal.PHOTO_LOOKS[look_no % len(fal.PHOTO_LOOKS)][0]
+        prompt = custom_prompt or (brief["prompt"] if brief and brief["prompt"] else fal.photo_banner_prompt(biz, v["title"], price, cta, look_no))
         job = asyncio.run(fal.start_edit(prompt, [_bytes_url(data, 1280)], key, s.fal_banner_model, transport))
         what = f"фото «{PHOTO_TAGS.get(kind, kind)}», оформление: {look}"
-        meta = {"expect": expected, "logo": False, "screen": False, "mode": "photo", "concept": kind, "look": look, "audience": "", "scene": what,
+        meta = {"expect": expected, "logo": False, "screen": False, "mode": "photo", "concept": kind, "look": look,
+                "audience": brief["audience"] if brief else "", "hypothesis": brief["hypothesis"] if brief else "", "scene": what,
                 "logo_reason": "", "prompt_text": prompt,
                 "brief": f"ВАЖНО: основа баннера настоящее фото владельца, его нужно принимать как есть. Оформление: {look}. {biz['kind']}."}
         conn.execute("INSERT INTO creatives (business_id, kind, title, body, prompt, status, source, external_id) VALUES (?, 'ai_banner', ?, ?, ?, 'working', 'fal', ?)",
@@ -527,7 +541,7 @@ def check_photos(business_id: int, force: bool = False, user: sqlite3.Row = Depe
     rows = conn.execute(
         "SELECT * FROM business_assets WHERE business_id = ? AND kind IN ('photo', 'logo', 'generated') AND tag != 'screen' "
         "AND id NOT IN (SELECT asset_id FROM creatives WHERE kind = 'ai_banner' AND asset_id IS NOT NULL) "
-        + ("" if force else "AND ai_score = 0 ") + "ORDER BY id LIMIT 10", (business_id,)).fetchall()
+        + ("" if force else "AND (ai_score = 0 OR (kind != 'logo' AND ai_fx IS NULL)) ") + "ORDER BY id LIMIT 10", (business_id,)).fetchall()
     checked = failed = 0
     for r in rows:
         _charge(conn, business_id, "check")
@@ -540,8 +554,8 @@ def check_photos(business_id: int, force: bool = False, user: sqlite3.Row = Depe
             conn.execute("DELETE FROM generations WHERE id = (SELECT MAX(id) FROM generations WHERE business_id = ? AND kind = 'check')", (business_id,))
             failed += 1
             continue
-        conn.execute("UPDATE business_assets SET ai_type = ?, ai_score = ?, ai_note = ? WHERE id = ?",
-                     (result["type"], result["score"], result["note"], r["id"]))
+        conn.execute("UPDATE business_assets SET ai_type = ?, ai_score = ?, ai_note = ?, ai_fx = ?, ai_fy = ? WHERE id = ?",
+                     (result["type"], result["score"], result["note"], result.get("fx"), result.get("fy"), r["id"]))
         checked += 1
     conn.commit()
     return {"checked": checked, "failed": failed}

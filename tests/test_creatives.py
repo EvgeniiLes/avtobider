@@ -745,6 +745,47 @@ def test_address_is_saved_goes_to_texts_and_is_not_an_invented_fact(monkeypatch)
     assert any("Тверская, 12" in v["text"] for v in draft_variants({**row, "kind": "Маникюр", "name": "Лотос"}, 6))
 
 
+def test_smart_crop_keeps_the_main_subject_in_the_frame():
+    from app.creative.compose import crop_window, make_banner, prepare_with_focus
+    from app.direct.launch import Photo
+    from PIL import Image as PILImage, ImageDraw
+    # широкое фото 3000×1000: собака (красный круг) у правого края
+    img = PILImage.new("RGB", (3000, 1000), (200, 200, 200))
+    ImageDraw.Draw(img).ellipse((2600, 350, 2800, 650), fill=(255, 0, 0))
+    buf = BytesIO(); img.save(buf, "JPEG", quality=92)
+    center, _ = crop_window((3000, 1000), 4 / 3, None)
+    focused, new_focus = crop_window((3000, 1000), 4 / 3, (2700 / 3000, 0.5))
+    assert center[0] > 800 and center[2] < 2300                                   # по центру собаки в кадре нет
+    assert focused[0] <= 2600 and focused[2] >= 2800 and focused[2] == 3000        # по фокусу кадр сдвинут к правому краю
+    assert 0.5 < new_focus[0] < 1 and abs(new_focus[1] - 0.5) < 0.01
+    plain, _ = prepare_with_focus(buf.getvalue(), None)
+    kept, _ = prepare_with_focus(buf.getvalue(), (0.9, 0.5))
+    red = lambda data: sum(1 for p in PILImage.open(BytesIO(data)).convert("RGB").resize((120, 90)).getdata() if p[0] > 200 and p[1] < 80)
+    assert red(plain) == 0 and red(kept) > 20                                      # без фокуса собаки не видно, с фокусом видно
+    shaped = make_banner(Photo(buf.getvalue(), 1, 0.9, 0.5), "Заголовок", style="bold")   # и шаблон «круг» берёт фокус
+    plain_shape = make_banner(buf.getvalue(), "Заголовок", style="bold")
+    assert red(shaped) > red(plain_shape)
+
+
+def test_photo_check_returns_the_focus_point_and_it_is_saved(monkeypatch):
+    import asyncio
+    import httpx
+    from app.creative.texts_ai import check_photo
+    ok = json.dumps({"type": "product", "score": 4, "issues": [], "summary": "Хорошо", "focus": {"x": 0.8, "y": 0.4}})
+
+    def answer(content):
+        return httpx.MockTransport(lambda req: httpx.Response(200, json={"choices": [{"message": {"content": content}}]}))
+
+    r = asyncio.run(check_photo("data:image/jpeg;base64,AA==", "k", "m", answer(ok)))
+    assert (r["fx"], r["fy"]) == (0.8, 0.4)
+    bad = json.dumps({"type": "product", "score": 4, "issues": [], "summary": "x", "focus": {"x": "слева"}})
+    r = asyncio.run(check_photo("data:image/jpeg;base64,AA==", "k", "m", answer(bad)))
+    assert (r["fx"], r["fy"]) == (0.5, 0.5)                                       # непонятный ответ: по центру
+    far = json.dumps({"type": "product", "score": 4, "issues": [], "summary": "x", "focus": {"x": 3, "y": -1}})
+    r = asyncio.run(check_photo("data:image/jpeg;base64,AA==", "k", "m", answer(far)))
+    assert (r["fx"], r["fy"]) == (0.95, 0.05)                                     # за краем: зажимается
+
+
 def test_discounts_from_the_description_are_off_by_default_and_can_be_enabled():
     from app.creative.angles import available, effective_description
     from app.creative.texts_ai import build_prompt, facts_of, parse_variants

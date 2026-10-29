@@ -267,6 +267,15 @@ tr.off td { color: var(--muted); }
 .creative-grid .thumb img, .creative-grid .thumb video { height: 150px; }
 .creative-grid .wait { height: 150px; display: flex; align-items: center; justify-content: center; text-align: center; padding: 8px; color: var(--muted); font-size: 13px; }
 .ad > details.own-text { margin: 0 14px 14px; }
+.briefs { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; margin-top: 12px; }
+.brief { border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-2); overflow: hidden; display: flex; flex-direction: column; }
+.brief img { display: block; width: 100%; height: 150px; object-fit: cover; }
+.brief .brief-body { padding: 12px; display: flex; flex-direction: column; gap: 6px; flex: 1; }
+.brief .brief-hyp { font-weight: 700; }
+.brief .brief-title { font-weight: 600; color: var(--accent); }
+.brief .brief-acts { display: flex; gap: 6px; flex-wrap: wrap; padding: 0 12px 12px; }
+.brief textarea { font-size: 13px; }
+.brief.used { outline: 2px solid var(--ok); }
 .history-grid { grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); }
 .history-grid .thumb img, .history-grid .wait { height: 172px; }
 .history-grid .wait { overflow: hidden; font-size: 12px; }
