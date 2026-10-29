@@ -399,19 +399,26 @@ async function loadAds() {
     const action = a.own
       ? el("button", { className: "small secondary", textContent: "Не использовать" })
       : el("button", { className: "small", textContent: "Использовать этот" });
-    action.addEventListener("click", async () => {
+    const changeText = async (status) => {
       let id = a.creative_id;
-      if (!a.own) {
+      if (!id) {  // шаблонный текст: сначала сохраняем его как свой
         const added = await creativeCall("POST", "/texts", { title: a.title, body: a.text });
         if (!added.ok) { say(errorText(added), "err"); return; }
         id = added.data.id;
       }
-      const r = await creativeCall("PUT", `/${id}`, { status: a.own ? "rejected" : "approved" });
+      const r = await creativeCall("PUT", `/${id}`, { status });
       if (!r.ok) { say(errorText(r), "err"); return; }
       await loadCreatives();
-    });
-    const badge = el("span", { className: "badge " + (a.own ? "good" : ""), textContent: a.own ? "Ваш выбор" : "Подставит сервис" });
+    };
+    action.addEventListener("click", () => changeText(a.own ? "rejected" : "approved"));
+    const badge = el("span", { className: "badge " + (a.own ? "good" : a.text_status === "draft" ? "moderation" : ""),
+      textContent: a.own ? "Ваш выбор" : a.text_status === "draft" ? "Предложил ИИ" : "Подставит сервис" });
     const foot = el("div", { className: "ad-foot" }, badge, action);
+    if (a.text_status === "draft") {  // предложение ИИ можно убрать, тогда в это место встанет другой вариант
+      const drop = el("button", { className: "small secondary", textContent: "Убрать" });
+      drop.addEventListener("click", () => changeText("rejected"));
+      foot.append(drop);
+    }
     if (a.photo_label) foot.prepend(el("span", { className: "badge", textContent: `Фото: ${a.photo_label}` }));
     if (a.ai && a.ai.status !== "working") {
       const draw = el("button", { className: "small secondary", textContent: a.ai.status === "ready" ? "Перерисовать ИИ" : "Нарисовать ИИ-баннер" });

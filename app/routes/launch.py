@@ -10,7 +10,7 @@ from app.config import get_settings
 from app.db import get_db
 from app.deps import client_factory, current_user
 from app.direct.client import DirectError
-from app.direct.launch import STATE_LABELS, launch, plan_launch
+from app.direct.launch import STATE_LABELS, launch, plan_launch, text_candidates
 from app.direct.runner import account_token, sync_and_run
 from app.engine.util import EngineError, MICRO
 from app.platforms.simulator import reset_demo
@@ -50,10 +50,7 @@ def _plan_for(conn, user, biz, account_id, factory):
 
     region, minimum = asyncio.run(go())
     kwargs = {"min_weekly_micro": minimum} if minimum else {}
-    approved = conn.execute(
-        "SELECT title, body, angle FROM creatives WHERE business_id = ? AND kind = 'text' AND status = 'approved' ORDER BY id", (biz["id"],)
-    ).fetchall()
-    custom = [{"title": r["title"], "text": r["body"], "angle": r["angle"]} for r in approved]
+    custom = text_candidates(conn, biz)
     return account, token, login, plan_launch(biz, region, custom=custom, **kwargs)
 
 

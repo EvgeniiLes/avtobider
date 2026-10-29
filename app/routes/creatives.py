@@ -21,7 +21,7 @@ from app.creative.compose import add_logo, find_price, prepare_for_direct, style
 from app.creative.texts_ai import check_photo, generate_texts, missing_phrases, read_image_text
 from app.db import get_db
 from app.deps import creative_transport, current_user
-from app.direct.launch import banner_layout, choose_variants, logo_for, media_typed, photo_for, render_banner, start_split
+from app.direct.launch import banner_layout, choose_variants, logo_for, media_typed, photo_for, render_banner, start_split, text_candidates
 from app.direct.texts import TEXT_MAX, TITLE_MAX, check, draft_variants
 from app.routes.businesses import _asset_path, _own
 
@@ -174,15 +174,15 @@ def generate(business_id: int, data: TextsIn, user: sqlite3.Row = Depends(curren
 
 def _ad_variants(conn, biz) -> tuple[list[dict], int, int]:
     """Объявления, которые будут созданы при запуске: те же тексты и то же число, что в плане запуска."""
-    approved = conn.execute(
-        "SELECT id, title, body, angle FROM creatives WHERE business_id = ? AND kind = 'text' AND status = 'approved' ORDER BY id",
-        (biz["id"],)).fetchall()
+    candidates = text_candidates(conn, biz)
     pool, count = start_split(biz)
     shown = count or 3  # бюджет слишком мал для запуска: всё равно показываем, как будет выглядеть
-    variants, _ = choose_variants(biz, [{"title": r["title"], "text": r["body"], "angle": r["angle"]} for r in approved], shown)
-    ids = {r["title"].lower(): r["id"] for r in approved}
+    variants, _ = choose_variants(biz, candidates, shown)
+    known = {c["title"].lower(): c for c in candidates}
     for v in variants:
-        v["creative_id"] = ids.get(v["title"].lower())
+        c = known.get(v["title"].lower())
+        v["creative_id"] = c["id"] if c else None
+        v["status"] = c["status"] if c else "template"
     return variants, count, pool
 
 
@@ -203,8 +203,8 @@ def ads(business_id: int, user: sqlite3.Row = Depends(current_user), conn: sqlit
             state = "none" if row is None else "working" if row["status"] == "working" else "failed" if row["status"] == "failed" else "ready"
             ai = {"status": state, "error": row["error"] if row is not None and state == "failed" else ""}
             banner = f"/api/businesses/{business_id}/creatives/ads/{i}/banner.jpg" if state == "ready" else ""
-        items.append({"index": i, "title": v["title"], "text": v["text"], "own": v["creative_id"] is not None,
-                      "creative_id": v["creative_id"], "style": style, "ai": ai, "banner_url": banner,
+        items.append({"index": i, "title": v["title"], "text": v["text"], "own": v["status"] == "approved",
+                      "creative_id": v["creative_id"], "text_status": v["status"], "style": style, "ai": ai, "banner_url": banner,
                       "angle": v.get("angle", ""), "angle_label": angle_label(v.get("angle", "")),
                       "photo_type": photo_type, "photo_label": PHOTO_TAGS.get(photo_type, "")})
     return {

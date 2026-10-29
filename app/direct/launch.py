@@ -50,6 +50,22 @@ def _maps_id(biz) -> int | None:
     return int(value) if value else None
 
 
+def text_candidates(conn: sqlite3.Connection, biz) -> list[dict]:
+    """Тексты для объявлений по порядку: сначала одобренные владельцем, затем предложенные ИИ (по одному на угол подачи), потом шаблоны.
+    Отклонённые не берём. Так новые тексты от ИИ попадают в рекламу, не дожидаясь одобрения, а владелец может их убрать."""
+    rows = conn.execute(
+        "SELECT id, title, body, angle, status, source FROM creatives WHERE business_id = ? AND kind = 'text' "
+        "AND status IN ('approved', 'draft') ORDER BY id", (biz["id"],)).fetchall()
+    chosen = [{"id": r["id"], "title": r["title"], "text": r["body"], "angle": r["angle"], "status": "approved"} for r in rows if r["status"] == "approved"]
+    angles = {c["angle"] for c in chosen if c["angle"]}
+    for r in reversed([r for r in rows if r["status"] == "draft" and r["source"] == "claude"]):  # новые сначала
+        if r["angle"] and r["angle"] in angles:
+            continue
+        angles.add(r["angle"])
+        chosen.append({"id": r["id"], "title": r["title"], "text": r["body"], "angle": r["angle"], "status": "draft"})
+    return chosen
+
+
 def start_split(biz, min_weekly_micro: int = MIN_WEEKLY) -> tuple[int, int]:
     """Сколько денег раздаём сразу и на сколько объявлений их хватает."""
     start_pool = int(int(biz["weekly_budget_micro"] * (1 - RESERVE)) * START_SHARE)

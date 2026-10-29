@@ -435,6 +435,27 @@ def test_angles_depend_on_facts_in_the_description():
     assert "price:" in prompt_block(FACTS) and "price:" not in prompt_block("Небольшая студия")
 
 
+def test_ai_proposals_go_into_ads_before_templates(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+    Fakes(claude_text=json.dumps([
+        {"title": "Покрытие держится до 4 недель", "text": "Инструменты в крафт-пакетах", "angle": "durability"},
+        {"title": "Маникюр от 2 200 ₽", "text": "Запись онлайн", "angle": "price"}], ensure_ascii=False))
+    with TestClient(app) as http:
+        bid = setup(http, description=FACTS)
+        base = f"/api/businesses/{bid}/creatives"
+        http.post(f"{base}/texts/generate", json={"count": 2})
+        ads = http.get(f"{base}/ads").json()["ads"]
+        assert [a["title"] for a in ads[:2]] == ["Маникюр от 2 200 ₽", "Покрытие держится до 4 недель"]   # новые первыми
+        assert all(a["text_status"] == "draft" and not a["own"] and a["creative_id"] for a in ads[:2])
+        assert all(a["text_status"] == "template" for a in ads[2:])
+        ai = ads[0]["creative_id"]
+        http.put(f"{base}/{ai}", json={"status": "approved"})
+        assert http.get(f"{base}/ads").json()["ads"][0]["own"] is True                              # одобренный: «ваш выбор»
+        http.put(f"{base}/{ads[1]['creative_id']}", json={"status": "rejected"})
+        titles = [a["title"] for a in http.get(f"{base}/ads").json()["ads"]]
+        assert "Покрытие держится до 4 недель" not in titles                                         # убранный не возвращается
+
+
 def test_generated_texts_keep_their_angle(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
     Fakes(claude_text=json.dumps([{"title": "Покрытие держится до 4 недель", "text": "Инструменты в крафт-пакетах", "angle": "durability"}], ensure_ascii=False))
