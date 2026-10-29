@@ -230,6 +230,8 @@ def test_image_is_queued_then_collected_and_stored(monkeypatch):
 
 def test_fal_payloads_follow_each_models_schema():
     from app.creative import fal
+    gpt = fal.image_payload("openai/gpt-image-2", "п")
+    assert gpt["image_size"] == "landscape_4_3" and gpt["quality"] == "medium" and "aspect_ratio" not in gpt
     nb = fal.image_payload("fal-ai/nano-banana-2", "п")
     assert nb["aspect_ratio"] == "4:3" and "image_size" not in nb
     assert "image_size" in fal.image_payload("fal-ai/flux-pro/v1.1", "п")
@@ -299,11 +301,12 @@ def test_ai_banner_is_ordered_checked_and_used(monkeypatch):
         base = f"/api/businesses/{bid}/creatives"
         ad = _ai_ad(http, bid)
         assert ad["ai"]["status"] == "none" and ad["banner_url"] == ""
-        assert http.post(f"{base}/ads/0/ai-banner").status_code == 400      # у остальных стилей ИИ-баннера нет
+        assert http.post(f"{base}/ads/99/ai-banner").status_code == 400     # такого объявления нет
         assert http.post(f"{base}/ads/4/ai-banner").json() == {"started": True}
         assert http.post(f"{base}/ads/4/ai-banner").status_code == 400      # второй раз, пока рисуется, нельзя
         host, path, body = fakes.requests[0]
-        assert host == "queue.fal.run" and "nano-banana-pro" in path
+        assert host == "queue.fal.run" and "gpt-image-2" in path
+        assert b"landscape_4_3" in body and b"medium" in body and b"Visual direction" in body
         http.get(base)
         assert _ai_ad(http, bid)["ai"]["status"] == "working"
 
@@ -315,7 +318,22 @@ def test_ai_banner_is_ordered_checked_and_used(monkeypatch):
         banner = http.get(ready["banner_url"])
         assert banner.status_code == 200 and banner.headers["content-type"] == "image/jpeg"
         assert http.get(f"{base}/ads/4/banner.jpg").status_code == 200
-        assert http.get(base).json()["spend"]["spent_usd"] == 0.16
+        assert http.get(base).json()["spend"]["spent_usd"] == 0.05
+
+
+def test_all_ai_banners_are_ordered_once_each_with_different_directions(monkeypatch):
+    monkeypatch.setenv("FAL_KEY", "fal-test")
+    fakes = Fakes(fal_done=False)
+    with TestClient(app) as http:
+        bid = setup(http)
+        base = f"/api/businesses/{bid}/creatives"
+        assert http.post(f"{base}/ads/ai-banners").json() == {"started": 6}
+        assert http.post(f"{base}/ads/ai-banners").json() == {"started": 0}        # повторно не платим за то, что уже рисуется
+        prompts = [b.decode(errors="ignore") for h, _, b in fakes.requests if h == "queue.fal.run"]
+        assert len(prompts) == 6 and len({p.split("Visual direction:")[1][:40] for p in prompts}) == 5   # пять разных направлений на шесть баннеров
+        ads = http.get(f"{base}/ads").json()["ads"]
+        assert all(a["ai"]["status"] == "working" for a in ads)
+        assert http.get(base).json()["spend"]["spent_usd"] == 0.30
 
 
 def test_ai_banner_with_typos_is_rejected(monkeypatch):

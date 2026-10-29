@@ -207,13 +207,21 @@ function fillForm(b) {
   setStatus("files-status", "");
 }
 
+function rememberedBusiness() {
+  try { return Number(localStorage.getItem("autobider.business")) || null; } catch (_) { return null; }
+}
+
+function rememberBusiness(id) {
+  try { localStorage.setItem("autobider.business", String(id)); } catch (_) { /* без памяти браузера живём как раньше */ }
+}
+
 async function loadBusinesses(selectId) {
   const result = await api("GET", "/api/businesses");
   if (result.status === 401) { showAuth(); return; }
   const list = result.ok ? result.data.businesses : [];
   const box = $("business-list");
   box.replaceChildren();
-  let wanted = selectId ?? (currentBusiness ? currentBusiness.id : null);
+  let wanted = selectId ?? (currentBusiness ? currentBusiness.id : rememberedBusiness());
   if (!list.some((b) => b.id === wanted)) wanted = list[0] ? list[0].id : null;
   for (const b of list) {
     const chip = el("button", { className: "chip" + (b.id === wanted ? " active" : ""), textContent: b.name });
@@ -247,6 +255,7 @@ async function selectBusiness(id, refreshList = true) {
   const result = await api("GET", `/api/businesses/${id}`);
   if (!result.ok) return;
   currentBusiness = result.data;
+  rememberBusiness(currentBusiness.id);
   fillForm(currentBusiness);
   renderFiles();
   refreshStopbar();
@@ -376,10 +385,24 @@ async function loadCreatives() {
 }
 
 // Готовые объявления: текст вместе с картинкой, как они уйдут в Директ.
+let lastAds = [];
+
+async function makeAllBanners() {
+  const need = lastAds.filter((a) => a.ai && a.ai.status !== "ready" && a.ai.status !== "working").length;
+  if (!need) { say("Все баннеры уже нарисованы или рисуются."); return; }
+  const price = usd(need * (creativePrices.ai_banner || 0.05));
+  if (!(await askConfirm("Нарисовать баннеры ИИ?", `Баннеров: ${need}, это платно: около ${price}. Нейросеть рисует каждый целиком, текст на них сервис проверит сам. Готовятся около минуты.`, "Нарисовать"))) return;
+  const r = await creativeCall("POST", "/ads/ai-banners");
+  if (!r.ok) { say(errorText(r), "err"); return; }
+  say(`Заказано баннеров: ${r.data.started}. Они появятся на карточках сами.`);
+  await loadCreatives();
+}
+
 async function loadAds() {
   const result = await creativeCall("GET", "/ads");
   if (!result.ok) return;
   const { ads, count, per_unit, site, has_maps, has_images, rejected_photos } = result.data;
+  lastAds = ads;
   const target = site || (has_maps ? "вашу страницу в Яндекс Картах" : "");
   $("ads-summary").textContent = !count
     ? "Бюджет слишком мал для запуска: увеличьте его на странице «Бизнес». Так будут выглядеть объявления."
@@ -434,7 +457,7 @@ async function loadAds() {
     if (a.ai && a.ai.status !== "working") {
       const draw = el("button", { className: "small secondary", textContent: a.ai.status === "ready" ? "Перерисовать ИИ" : "Нарисовать ИИ-баннер" });
       draw.addEventListener("click", async () => {
-        if (!(await askConfirm("Нарисовать ИИ-баннер?", `Это платно: около ${usd(creativePrices.ai_banner || 0.16)}. Нейросеть рисует баннер целиком, текст на нём сервис проверит сам. Готовится около минуты.`, "Нарисовать"))) return;
+        if (!(await askConfirm("Нарисовать ИИ-баннер?", `Это платно: около ${usd(creativePrices.ai_banner || 0.05)}. Нейросеть рисует баннер целиком, текст на нём сервис проверит сам. Готовится около минуты.`, "Нарисовать"))) return;
         const r = await creativeCall("POST", `/ads/${a.index}/ai-banner`);
         if (!r.ok) { say(errorText(r), "err"); return; }
         await loadCreatives();
@@ -1227,6 +1250,7 @@ async function start() {
   $("nav-stats").addEventListener("click", () => showPage("stats"));
   $("nav-creatives").addEventListener("click", () => showPage("creatives"));
   $("ads-launch").addEventListener("click", () => { showPage("home"); openLaunch(); });
+  $("ads-ai-all").addEventListener("click", makeAllBanners);
   $("cr-gen-texts").addEventListener("click", () => generateTexts());
   $("photos-check").addEventListener("click", checkPhotos);
   $("insights-ai").addEventListener("click", analyzeResults);

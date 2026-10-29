@@ -198,11 +198,13 @@ def ads(business_id: int, user: sqlite3.Row = Depends(current_user), conn: sqlit
         ai = None
         photo_type = photo_for(photos, i)[0] if photos and style != "ai" else ""
         banner = f"/api/businesses/{business_id}/creatives/ads/{i}/banner.jpg" if photos else ""
-        if style == "ai":
-            row = _ai_row(conn, business_id, v)
-            state = "none" if row is None else "working" if row["status"] == "working" else "failed" if row["status"] == "failed" else "ready"
-            ai = {"status": state, "error": row["error"] if row is not None and state == "failed" else ""}
-            banner = f"/api/businesses/{business_id}/creatives/ads/{i}/banner.jpg" if state == "ready" else ""
+        row = _ai_row(conn, business_id, v)
+        state = "none" if row is None else "working" if row["status"] == "working" else "failed" if row["status"] == "failed" else "ready"
+        ai = {"status": state, "error": row["error"] if row is not None and state == "failed" else ""}
+        if state == "ready":
+            banner = f"/api/businesses/{business_id}/creatives/ads/{i}/banner.jpg"   # готовый ИИ-баннер важнее шаблона
+        elif style == "ai":
+            banner = ""
         items.append({"index": i, "title": v["title"], "text": v["text"], "own": v["status"] == "approved",
                       "creative_id": v["creative_id"], "text_status": v["status"], "style": style, "ai": ai, "banner_url": banner,
                       "angle": v.get("angle", ""), "angle_label": angle_label(v.get("angle", "")),
@@ -234,8 +236,8 @@ def make_ai_banner(business_id: int, index: int, user: sqlite3.Row = Depends(cur
     biz = _own(conn, user, business_id)
     key = _need_fal()
     variants, _count, _pool = _ad_variants(conn, biz)
-    if not 0 <= index < len(variants) or style_for(index) != "ai":
-        raise HTTPException(400, detail={"message": "Для этого объявления ИИ-баннер не предусмотрен."})
+    if not 0 <= index < len(variants):
+        raise HTTPException(400, detail={"message": "Такого объявления нет."})
     v = variants[index]
     old = _ai_row(conn, business_id, v)
     if old is not None and old["status"] == "working":
@@ -245,7 +247,7 @@ def make_ai_banner(business_id: int, index: int, user: sqlite3.Row = Depends(cur
     cta = profile(biz)["cta"]
     expected = [v["title"], biz["name"], cta] + ([price] if price else [])
     try:
-        job = asyncio.run(fal.start_image(fal.banner_prompt(biz, v["title"], price, cta, logo_corner=logo_for(conn, biz) is not None), key, get_settings().fal_banner_model, transport))
+        job = asyncio.run(fal.start_image(fal.banner_prompt(biz, v["title"], price, cta, logo_corner=logo_for(conn, biz) is not None, index=index), key, get_settings().fal_banner_model, transport))
     except fal.FalError as e:
         conn.rollback()
         raise HTTPException(502, detail={"message": e.message})
@@ -253,6 +255,38 @@ def make_ai_banner(business_id: int, index: int, user: sqlite3.Row = Depends(cur
                  (business_id, v["title"], v["text"], json.dumps({"expect": expected}, ensure_ascii=False), json.dumps(job)))
     conn.commit()
     return {"started": True}
+
+
+@router.post("/ads/ai-banners")
+def make_all_ai_banners(business_id: int, user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connection = Depends(get_db),
+                        transport=Depends(creative_transport)):
+    """Заказывает ИИ-баннеры для всех объявлений, у которых готового баннера ещё нет. Платно: сайт заранее показывает общую цену."""
+    biz = _own(conn, user, business_id)
+    key = _need_fal()
+    variants, _count, _pool = _ad_variants(conn, biz)
+    cta = profile(biz)["cta"]
+    logo = logo_for(conn, biz) is not None
+    started = 0
+    for index, v in enumerate(variants):
+        old = _ai_row(conn, business_id, v)
+        if old is not None and old["status"] in ("working", "draft", "approved"):
+            continue
+        _charge(conn, business_id, "ai_banner")
+        price = find_price(v["title"], v["text"], biz["description"])
+        expected = [v["title"], biz["name"], cta] + ([price] if price else [])
+        try:
+            job = asyncio.run(fal.start_image(fal.banner_prompt(biz, v["title"], price, cta, logo_corner=logo, index=index), key,
+                                              get_settings().fal_banner_model, transport))
+        except fal.FalError as e:
+            conn.rollback()
+            if started:
+                conn.commit()
+            raise HTTPException(502, detail={"message": e.message})
+        conn.execute("INSERT INTO creatives (business_id, kind, title, body, prompt, status, source, external_id) VALUES (?, 'ai_banner', ?, ?, ?, 'working', 'fal', ?)",
+                     (business_id, v["title"], v["text"], json.dumps({"expect": expected}, ensure_ascii=False), json.dumps(job)))
+        started += 1
+    conn.commit()
+    return {"started": started}
 
 
 _BANNERS: dict[tuple, bytes] = {}  # готовые баннеры: сборка занимает около секунды, а страницу открывают часто
@@ -263,11 +297,13 @@ def ad_banner(business_id: int, index: int, user: sqlite3.Row = Depends(current_
     biz = _own(conn, user, business_id)
     variants, _count, _pool = _ad_variants(conn, biz)
     photos, logo = media_typed(conn, biz)
-    if 0 <= index < len(variants) and style_for(index) == "ai":
-        row = _ai_row(conn, business_id, variants[index])
-        asset = conn.execute("SELECT stored_name FROM business_assets WHERE id = ?", (row["asset_id"],)).fetchone() if row and row["asset_id"] else None
-        if asset is None or row["status"] not in ("draft", "approved"):
+    ai_row = _ai_row(conn, business_id, variants[index]) if 0 <= index < len(variants) else None
+    asset = conn.execute("SELECT stored_name FROM business_assets WHERE id = ?", (ai_row["asset_id"],)).fetchone() if ai_row and ai_row["asset_id"] else None
+    ready = asset is not None and ai_row["status"] in ("draft", "approved")
+    if 0 <= index < len(variants) and (ready or style_for(index) == "ai"):
+        if not ready:
             raise HTTPException(404, detail={"message": "ИИ-баннер ещё не готов."})
+        row = ai_row
         return Response(add_logo(prepare_for_direct(_asset_path(business_id, asset["stored_name"]).read_bytes()), logo),
                         media_type="image/jpeg", headers={"Cache-Control": "private, max-age=60"})
     if not photos or not 0 <= index < len(variants):

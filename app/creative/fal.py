@@ -7,7 +7,7 @@ import httpx
 
 QUEUE = "https://queue.fal.run"
 # Примерная стоимость в центах доллара: нужна, чтобы не выйти за лимит расходов на генерацию.
-COST_CENTS = {"text": 1, "image": 8, "video": 70, "ai_banner": 16, "check": 1}  # ai_banner: Nano Banana Pro 15 центов и проверка текста
+COST_CENTS = {"text": 1, "image": 8, "video": 70, "ai_banner": 5, "check": 1}  # ai_banner: GPT Image 2 (4:3, среднее качество) 3.7 цента и проверка текста 1 цент
 
 
 class FalError(Exception):
@@ -46,7 +46,16 @@ def image_prompt(biz, idea: str = "", style: int = 0) -> str:
             "Без текста, букв, логотипов, узнаваемых брендов на упаковке и водяных знаков.")
 
 
-def banner_prompt(biz, title: str, price: str, cta: str, logo_corner: bool = False) -> str:
+DIRECTIONS = (
+    "bright clean minimal look, soft natural light, close-up of the main subject, white and light pastel colors",
+    "dark premium look, deep charcoal background, gold accents, elegant serif headline",
+    "vivid saturated colors, bold sans-serif headline, energetic modern layout, colorful background",
+    "soft pastel colors, rounded shapes, airy layout, gentle gradient background",
+    "warm realistic photo of people and place, cozy atmosphere, headline over a calm area of the photo",
+)
+
+
+def banner_prompt(biz, title: str, price: str, cta: str, logo_corner: bool = False, index: int = 0) -> str:
     """Запрос на баннер целиком: русский текст пишет сама модель, поэтому он короткий и в точных кавычках."""
     first = (biz["description"] or "").strip().split(".")[0][:160]
     parts = [f'headline "{title}"']
@@ -54,7 +63,7 @@ def banner_prompt(biz, title: str, price: str, cta: str, logo_corner: bool = Fal
         parts.append(f'price badge "{price.replace(chr(160), " ")}"')
     parts += [f'button "{cta}"', f'small caption "{biz["name"]}"']
     return (f"Advertising banner for a business: {biz['kind']}. {first}. Landscape 4:3, modern professional layout with a real-looking "
-            "photo relevant to the business on one side, harmonious soft palette, lots of clean space around the text. "
+            "photo relevant to the business on one side, lots of clean space around the text. Visual direction: " + DIRECTIONS[index % len(DIRECTIONS)] + ". "
             "Text in Russian, exactly as written, large and perfectly legible: " + ", ".join(parts) + ". "
             "No other text, no extra letters, no third-party brand logos."
             + (" Keep the top-right corner plain and empty: a logo will be placed there." if logo_corner else ""))
@@ -76,6 +85,8 @@ async def _submit(http: httpx.AsyncClient, model: str, key: str, payload: dict) 
 
 def image_payload(model: str, prompt: str) -> dict:
     """Параметры у моделей разные (схемы сверены по каталогу fal): подбираем под выбранную."""
+    if "gpt-image" in model:
+        return {"prompt": prompt, "image_size": "landscape_4_3", "quality": "medium", "num_images": 1, "output_format": "jpeg"}
     if "nano-banana" in model:
         return {"prompt": prompt, "aspect_ratio": "4:3", "resolution": "1K", "num_images": 1, "output_format": "jpeg"}
     return {"prompt": prompt, "image_size": "square_hd", "num_images": 1}  # FLUX и похожие
