@@ -154,7 +154,10 @@ function showPage(name, push = true) {
   if (name === "creatives") loadCreatives();
   if (name === "home" || name === "stats") loadStats();
   if (name === "history") { setStatus("history-status", ""); loadHistory(); }
-  if (name === "accounts" && accountsList.length) showCampaigns(accountsList[0].id);  // кампании кабинета видны сразу
+  if (name === "accounts") {
+    loadMarking();
+    if (accountsList.length) showCampaigns(accountsList[0].id);  // кампании кабинета видны сразу
+  }
 }
 
 /* ---------- Бизнес ---------- */
@@ -979,9 +982,6 @@ async function openLaunch() {
     const mk = await api("GET", `/api/businesses/${currentBusiness.id}/marking`);
     if (mk.ok) {
       confirmed = mk.data.filled;
-      if (!$("mk-kind").options.length) {
-        $("mk-kind").replaceChildren(...Object.entries(mk.data.kinds).map(([v, t]) => el("option", { value: v, textContent: t })));
-      }
     }
   }
   $("marking-ok").checked = confirmed;
@@ -989,6 +989,30 @@ async function openLaunch() {
   $("launch-go").disabled = !confirmed;
   $("launch-card").hidden = false;
   $("launch-card").scrollIntoView({ block: "nearest" });
+}
+
+async function loadMarking() {
+  const state = $("mk-state");
+  if (!currentBusiness || !accountsList.length) {
+    state.hidden = false;
+    state.className = "notice";
+    state.textContent = !currentBusiness
+      ? "Сначала опишите бизнес на странице «Бизнес»."
+      : "Сначала подключите рекламный кабинет Яндекс Директа (кнопка «Подключить Яндекс Директ» выше): данные рекламодателя вносятся в него.";
+    $("mk-form").hidden = true;
+    return;
+  }
+  $("mk-form").hidden = false;
+  const mk = await api("GET", `/api/businesses/${currentBusiness.id}/marking`);
+  if (!mk.ok) { $("mk-state").hidden = false; $("mk-state").textContent = errorText(mk); return; }
+  if (!$("mk-kind").options.length) {
+    $("mk-kind").replaceChildren(...Object.entries(mk.data.kinds).map(([v, t]) => el("option", { value: v, textContent: t })));
+  }
+  state.hidden = false;
+  state.className = "notice " + (mk.data.filled ? "proposals" : "");
+  state.textContent = mk.data.filled
+    ? `Данные внесены: ${mk.data.name}. Можно запускать рекламу. Чтобы изменить, заполните форму ниже ещё раз.`
+    : "Данные ещё не внесены. Без них Директ не сможет промаркировать рекламу, и запустить её не получится.";
 }
 
 async function saveMarking() {
@@ -1002,7 +1026,9 @@ async function saveMarking() {
   if (!r.ok) { say(errorText(r), "err"); return; }
   $("mk-tin").value = "";  // ИНН на странице не оставляем
   say(r.data.message, r.data.filled ? "" : "err");
+  $("mk-name").value = "";
   if (r.data.filled) { $("marking-ok").checked = true; $("marking-box").hidden = true; $("launch-go").disabled = false; }
+  await loadMarking();
 }
 
 async function confirmLaunch() {
@@ -1206,6 +1232,7 @@ async function start() {
   $("marking-ok").addEventListener("change", () => { $("launch-go").disabled = !$("marking-ok").checked; });
   $("launch-go").addEventListener("click", confirmLaunch);
   $("mk-save").addEventListener("click", saveMarking);
+  $("mk-open").addEventListener("click", () => showPage("accounts"));
   $("launch-cancel").addEventListener("click", () => { $("launch-card").hidden = true; });
   $("sync-now").addEventListener("click", syncNow);
   $("clients-save").addEventListener("click", saveClients);
@@ -1298,6 +1325,7 @@ async function connectDirect() {
       setStatus("connect-status", `Кабинет «${result.data.login}» подключён.`, "ok");
       await loadAccounts();
       loadMetrika();
+      loadMarking();
       return;
     }
     if (result.data.status === "failed") { stopConnect(); setStatus("connect-status", result.data.message, "err"); return; }
