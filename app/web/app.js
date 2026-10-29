@@ -680,6 +680,7 @@ async function uploadFiles(files, kind, tag) {
       break;
     }
     done += 1;
+    if (kind === "logo" && result.data && result.data.bg_removed && result.data.bg_removed !== "none") toast("Фон логотипа убран.");
   }
   await refreshAssets();
   if (kind !== "video") api("POST", `/api/businesses/${currentBusiness.id}/creatives/photos/check`).then(refreshAssets);  // ИИ сам проверит загруженное (около 1 цента за файл)

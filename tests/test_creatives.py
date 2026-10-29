@@ -358,7 +358,7 @@ def test_photo_check_tags_photos_and_rates_the_logo(monkeypatch):
         bid = setup(http)
         base = f"/api/businesses/{bid}"
         http.post(f"{base}/assets", data={"kind": "photo", "tag": ""}, files={"file": ("a.png", png(), "image/png")})
-        http.post(f"{base}/assets", data={"kind": "logo", "tag": ""}, files={"file": ("l.png", png(), "image/png")})
+        http.post(f"{base}/assets", data={"kind": "logo", "tag": ""}, files={"file": ("l.png", _logo_on_background((0, 0, 0, 0)), "image/png")})
         assert http.post(f"{base}/creatives/photos/check").json() == {"checked": 2, "failed": 0}
         assert http.post(f"{base}/creatives/photos/check").json() == {"checked": 0, "failed": 0}  # уже проверено, повторно не платим
         photo = next(a for a in http.get(base).json()["assets"] if a["kind"] == "photo")
@@ -392,7 +392,7 @@ def test_logo_with_bad_rating_is_not_put_on_banners(isolated=None):
     from app.direct.launch import logo_for
     with TestClient(app) as http:
         bid = setup(http)
-        http.post(f"/api/businesses/{bid}/assets", data={"kind": "logo", "tag": ""}, files={"file": ("l.png", png(), "image/png")})
+        http.post(f"/api/businesses/{bid}/assets", data={"kind": "logo", "tag": ""}, files={"file": ("l.png", _logo_on_background((0, 0, 0, 0)), "image/png")})
         conn = connect(get_settings().db_path)
         biz = conn.execute("SELECT * FROM businesses WHERE id = ?", (bid,)).fetchone()
         assert logo_for(conn, biz) is not None                                   # не проверен: берём
@@ -465,6 +465,43 @@ def test_green_leftovers_around_the_slot_are_cleaned():
     logo = BytesIO(); PILImage.new("RGBA", (300, 100), (255, 200, 0, 255)).save(logo, "PNG")
     out = PILImage.open(BytesIO(insert_logo(base.getvalue(), logo.getvalue()))).convert("RGB")
     assert all(out.getpixel(p)[1] < 120 for p in ((106, 686), (446, 686), (106, 826), (446, 826)))
+
+
+def _logo_on_background(bg):
+    from PIL import Image as PILImage, ImageDraw
+    img = PILImage.new("RGBA", (400, 120), bg)
+    d = ImageDraw.Draw(img)
+    d.rounded_rectangle((20, 20, 140, 100), radius=14, fill=(30, 200, 230, 255))
+    d.rectangle((170, 30, 380, 90), fill=(255, 255, 255, 255))
+    out = BytesIO(); img.save(out, "PNG")
+    return out.getvalue()
+
+
+def test_logo_background_detection_and_code_fallback():
+    from app.creative.logo import has_transparency, knockout_background
+    from PIL import Image as PILImage
+    opaque = _logo_on_background((5, 6, 11, 255))
+    clear = _logo_on_background((0, 0, 0, 0))
+    assert has_transparency(clear) and not has_transparency(opaque)
+    from app.creative.logo import _kept_everything
+    assert _kept_everything(opaque, knockout_background(opaque))                    # знак цел
+    assert not _kept_everything(opaque, opaque)                                      # фон не убран
+    cut = knockout_background(opaque)
+    assert cut is not None and has_transparency(cut)
+    img = PILImage.open(BytesIO(cut)).convert("RGBA")
+    assert img.getpixel((2, 2))[3] == 0 and img.getpixel((80, 60))[3] == 255        # фон прозрачный, знак цел
+    noisy = PILImage.effect_noise((200, 100), 90).convert("RGBA"); buf = BytesIO(); noisy.save(buf, "PNG")
+    assert knockout_background(buf.getvalue()) is None                              # не однотонный фон не трогаем
+
+
+def test_logo_upload_removes_an_opaque_background(monkeypatch):
+    monkeypatch.delenv("FAL_KEY", raising=False)         # без ключа работает вырезание кодом
+    with TestClient(app) as http:
+        bid = setup(http)
+        up = http.post(f"/api/businesses/{bid}/assets", data={"kind": "logo", "tag": ""}, files={"file": ("l.png", _logo_on_background((5, 6, 11, 255)), "image/png")})
+        assert up.status_code == 200 and up.json()["bg_removed"] == "code"
+        again = http.post(f"/api/businesses/{bid}/assets", data={"kind": "logo", "tag": ""}, files={"file": ("l.png", _logo_on_background((0, 0, 0, 0)), "image/png")})
+        assert again.json()["bg_removed"] == "none"      # прозрачный логотип не трогаем
 
 
 def test_logo_slot_rule_reaches_the_prompt():

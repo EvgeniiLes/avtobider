@@ -7,7 +7,7 @@ import httpx
 
 QUEUE = "https://queue.fal.run"
 # Примерная стоимость в центах доллара: нужна, чтобы не выйти за лимит расходов на генерацию.
-COST_CENTS = {"text": 1, "image": 8, "video": 70, "ai_banner": 7, "check": 1}  # ai_banner: GPT Image 2 (4:3, среднее качество) 3.7 цента, арт-директор, проверка текста и самопроверка по 1 центу
+COST_CENTS = {"text": 1, "image": 8, "video": 70, "ai_banner": 7, "check": 1, "logo_cut": 1}  # ai_banner: GPT Image 2 (4:3, среднее качество) 3.7 цента, арт-директор, проверка текста и самопроверка по 1 центу
 
 
 class FalError(Exception):
@@ -171,7 +171,8 @@ async def poll(job: dict, key: str, transport=None) -> tuple[str, str]:
             return "working", ""  # временный сбой: спросим ещё раз
     if status.get("error"):
         return "failed", "Генератор не справился с заданием."
-    url = (result.get("video") or {}).get("url") or next((i.get("url") for i in result.get("images", []) if i.get("url")), "")
+    url = ((result.get("video") or {}).get("url") or (result.get("image") or {}).get("url")
+           or next((i.get("url") for i in result.get("images", []) if i.get("url")), ""))
     return ("done", url) if url else ("failed", "Генератор не вернул результат.")
 
 

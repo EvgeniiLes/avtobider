@@ -22,7 +22,8 @@ from app.assets import (
 )
 from app.config import get_settings
 from app.db import get_db
-from app.deps import current_user
+from app.creative.logo import has_transparency, remove_background
+from app.deps import creative_transport, current_user
 
 router = APIRouter(prefix="/api/businesses", tags=["businesses"])
 
@@ -262,6 +263,7 @@ async def upload_asset(
     file: UploadFile = File(...),
     user: sqlite3.Row = Depends(current_user),
     conn: sqlite3.Connection = Depends(get_db),
+    transport=Depends(creative_transport),
 ):
     _own(conn, user, business_id)
     if kind not in KINDS:
@@ -282,6 +284,22 @@ async def upload_asset(
         prepared = prepare_video(data) if kind == "video" else prepare_image(data, kind)
     except AssetError as e:
         raise HTTPException(400, detail={"message": str(e)})
+
+    cut_by = "none"
+    if kind == "logo" and not has_transparency(prepared.data):  # логотип на сплошном фоне: фон убирает GPT, при неудаче код
+        key = get_settings().fal_key
+        if key:
+            from app.routes.creatives import _charge  # здесь, чтобы модули не импортировали друг друга по кругу
+            try:
+                _charge(conn, business_id, "logo_cut")
+            except HTTPException:
+                key = ""
+        cut, cut_by = await remove_background(prepared.data, key, transport)
+        if cut_by != "none":
+            try:
+                prepared = prepare_image(cut, "logo")
+            except AssetError:
+                cut_by = "none"
 
     stored_name = f"{secrets.token_hex(16)}.{prepared.ext}"
     path = _asset_path(business_id, stored_name)
@@ -304,7 +322,7 @@ async def upload_asset(
     )
     conn.commit()
     row = conn.execute("SELECT * FROM business_assets WHERE id = ?", (cur.lastrowid,)).fetchone()
-    return _asset(row)
+    return {**_asset(row), "bg_removed": cut_by}
 
 
 def _own_asset(conn: sqlite3.Connection, user: sqlite3.Row, business_id: int, asset_id: int) -> sqlite3.Row:
