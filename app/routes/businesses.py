@@ -53,6 +53,7 @@ class BusinessIn(BaseModel):
     kind: str = Field(min_length=1, max_length=80)
     description: str = Field(default="", max_length=2000)
     city: str = Field(default="", max_length=100)
+    address: str = Field(default="", max_length=300)   # подробный адрес и как найти: улица, дом, этаж, ориентир (город отдельно, он нужен для региона)
     site_url: str = Field(default="", max_length=300)
     maps_url: str = Field(default="", max_length=500)
     visual_hint: str = Field(default="", max_length=300)
@@ -75,7 +76,7 @@ class BusinessIn(BaseModel):
             raise ValueError("Нужна ссылка на вашу организацию в Яндекс Картах, например https://yandex.ru/maps/org/...")
         return v
 
-    @field_validator("name", "kind", "description", "city", "site_url")
+    @field_validator("name", "kind", "description", "city", "address", "site_url")
     @classmethod
     def _strip(cls, v: str) -> str:
         return v.strip()
@@ -137,6 +138,7 @@ def _business(row: sqlite3.Row, assets: list[sqlite3.Row] | None = None) -> dict
         "kind": row["kind"],
         "description": row["description"],
         "city": row["city"],
+        "address": row["address"],
         "site_url": row["site_url"],
         "maps_url": row["maps_url"],
         "visual_hint": row["visual_hint"],
@@ -194,11 +196,11 @@ def create_business(data: BusinessIn, user: sqlite3.Row = Depends(current_user),
         raise HTTPException(400, detail={"message": f"Можно добавить не больше {MAX_BUSINESSES} бизнесов."})
     cur = conn.execute(
         "INSERT INTO businesses (user_id, name, kind, description, city, site_url, maps_url, tone, color_main, color_extra, "
-        "avg_check_micro, target_cpa_micro, weekly_budget_micro, client_share, mode, visual_hint) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "avg_check_micro, target_cpa_micro, weekly_budget_micro, client_share, mode, visual_hint, address) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (
             user["id"], data.name, data.kind, data.description, data.city, data.site_url, data.maps_url, data.tone,
             data.color_main, data.color_extra, _micro(data.avg_check), _micro(data.target_cpa), _micro(data.weekly_budget),
-            data.client_share_percent / 100, data.mode, data.visual_hint.strip(),
+            data.client_share_percent / 100, data.mode, data.visual_hint.strip(), data.address,
         ),
     )
     conn.commit()
@@ -221,11 +223,11 @@ def update_business(
     _own(conn, user, business_id)
     conn.execute(
         "UPDATE businesses SET name=?, kind=?, description=?, city=?, site_url=?, maps_url=?, tone=?, color_main=?, color_extra=?, "
-        "avg_check_micro=?, target_cpa_micro=?, weekly_budget_micro=?, client_share=?, mode=?, visual_hint=? WHERE id=?",
+        "avg_check_micro=?, target_cpa_micro=?, weekly_budget_micro=?, client_share=?, mode=?, visual_hint=?, address=? WHERE id=?",
         (
             data.name, data.kind, data.description, data.city, data.site_url, data.maps_url, data.tone, data.color_main,
             data.color_extra, _micro(data.avg_check), _micro(data.target_cpa), _micro(data.weekly_budget),
-            data.client_share_percent / 100, data.mode, data.visual_hint.strip(), business_id,
+            data.client_share_percent / 100, data.mode, data.visual_hint.strip(), data.address, business_id,
         ),
     )
     conn.commit()

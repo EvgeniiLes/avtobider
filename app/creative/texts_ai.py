@@ -21,18 +21,32 @@ SYSTEM = (
 )
 
 
+def facts_of(biz) -> str:
+    """Всё, что владелец сам рассказал о бизнесе: описание и адрес. Только это можно упоминать в рекламе."""
+    try:
+        address = (biz["address"] or "").strip()
+    except (KeyError, IndexError):
+        address = ""
+    return f"{biz['description'] or ''} {address}".strip()
+
+
 def build_prompt(biz, count: int, hint: str = "") -> str:
     parts = [
         f"Бизнес: {biz['name']}", f"Чем занимается: {biz['kind']}", f"Город: {biz['city'] or 'не указан'}",
         f"Описание от владельца: {biz['description'] or 'нет'}",
     ]
+    try:
+        if (biz["address"] or "").strip():
+            parts.append(f"Адрес (можно упоминать улицу и дом, как написал владелец): {biz['address'].strip()}")
+    except (KeyError, IndexError):
+        pass
     tones = {"gentle": "нежный", "calm": "спокойный", "energetic": "энергичный", "strict": "строгий", "friendly": "дружелюбный"}
     if biz["tone"]:
         parts.append(f"Желаемый тон: {tones.get(biz['tone'], biz['tone'])}")
     if hint.strip():
         parts.append(f"Пожелание владельца: {hint.strip()[:300]}")
     parts.append(business_block(biz))
-    parts.append(prompt_block(biz["description"]))
+    parts.append(prompt_block(facts_of(biz)))
     parts.append(f"Нужно вариантов: {count}.")
     return "\n".join(parts)
 
@@ -216,4 +230,4 @@ async def generate_texts(biz, count: int, api_key: str, model: str, hint: str = 
                 raw = ""
             if raw:
                 break
-    return parse_variants(raw, biz["description"] or "") if raw else []
+    return parse_variants(raw, facts_of(biz)) if raw else []

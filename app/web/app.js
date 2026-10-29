@@ -191,6 +191,7 @@ function fillForm(b) {
   $("b-kind").value = b ? b.kind : "";
   $("b-description").value = b ? b.description : "";
   $("b-city").value = b ? b.city : "";
+  $("b-address").value = b ? (b.address || "") : "";
   $("b-site").value = b ? b.site_url : "";
   $("b-maps").value = b ? b.maps_url : "";
   $("b-tone").value = b ? b.tone : "";
@@ -285,6 +286,7 @@ function readForm() {
     kind: $("b-kind").value,
     description: $("b-description").value,
     city: $("b-city").value,
+    address: $("b-address").value,
     site_url: $("b-site").value,
     maps_url: $("b-maps").value,
     visual_hint: $("b-visual").value,

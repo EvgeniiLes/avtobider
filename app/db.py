@@ -233,6 +233,7 @@ ADDED_COLUMNS = [
     ("ad_units", "photo_type", "TEXT NOT NULL DEFAULT ''"),
     ("ad_units", "angle", "TEXT NOT NULL DEFAULT ''"),
     ("businesses", "visual_hint", "TEXT NOT NULL DEFAULT ''"),
+    ("businesses", "address", "TEXT NOT NULL DEFAULT ''"),
     ("creatives", "angle", "TEXT NOT NULL DEFAULT ''"),
     ("business_assets", "ai_type", "TEXT NOT NULL DEFAULT ''"),
     ("business_assets", "ai_score", "INTEGER NOT NULL DEFAULT 0"),

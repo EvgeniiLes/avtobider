@@ -703,6 +703,38 @@ def test_rewrite_puts_a_new_text_in_the_same_place(monkeypatch):
         assert http.post(f"{base}/ads/99/rewrite").status_code == 400
 
 
+def test_address_is_saved_goes_to_texts_and_is_not_an_invented_fact(monkeypatch):
+    from app.creative.texts_ai import build_prompt, facts_of, parse_variants
+    from app.direct.texts import draft_variants
+    with TestClient(app) as http:
+        bid = setup(http)
+        base = f"/api/businesses/{bid}"
+        cur = http.get(base).json()
+        body = {k: cur[k] for k in ("name", "kind", "description", "city", "site_url", "maps_url", "tone", "color_main", "color_extra")}
+        body.update(avg_check=0, target_cpa=0, weekly_budget=cur.get("weekly_budget", 0) or 0, address="ул. Тверская, 12, вход со двора, 2 этаж")
+        assert http.put(base, json=body).status_code == 200
+        saved = http.get(base).json()
+        assert saved["address"] == "ул. Тверская, 12, вход со двора, 2 этаж"
+    row = {"name": "Лотос", "kind": "Маникюр", "city": "Москва", "description": "Маникюр.", "tone": "", "address": "ул. Тверская, 12"}
+    assert "ул. Тверская, 12" in build_prompt(row, 3) and "12" in facts_of(row)
+    raw = json.dumps([{"title": "Маникюр на Тверской, 12", "text": "Запишитесь онлайн", "angle": "location"}], ensure_ascii=False)
+    assert parse_variants(raw, facts_of(row)) and not parse_variants(raw, row["description"])     # номер дома из адреса не выдумка, без адреса был бы
+    assert any("Тверская, 12" in v["text"] for v in draft_variants({**row, "kind": "Маникюр", "name": "Лотос"}, 6))
+
+
+def test_region_is_found_even_when_the_city_field_has_an_address():
+    import asyncio
+    from app.direct.client import DirectClient
+
+    class Fake(DirectClient):
+        def __init__(self): pass
+        async def call(self, *a, **k):
+            return {"GeoRegions": [{"GeoRegionName": "Москва", "GeoRegionType": "City", "GeoRegionId": 213}]}
+
+    assert asyncio.run(Fake().find_region_id("Москва, ул. Тверская, 12")) == 213
+    assert asyncio.run(Fake().find_region_id("г. Москва")) == 213
+
+
 def test_visual_hint_reaches_the_banner_prompt_and_is_saved(monkeypatch):
     from app.creative import fal
     monkeypatch.setenv("FAL_KEY", "fal-test")

@@ -168,6 +168,11 @@
 
             <label for="b-city">Город</label>
             <input type="text" id="b-city" maxlength="100" placeholder="Например, Москва">
+            <p class="hint">Только название города: по нему сервис выбирает, где показывать рекламу.</p>
+
+            <label for="b-address">Адрес <span class="hint">(необязательно, но лучше указать)</span></label>
+            <textarea id="b-address" rows="2" maxlength="300" placeholder="Улица, дом, этаж или офис, как найти: например, ул. Тверская, 12, вход со двора, 2 этаж, 3 минуты от метро Пушкинская"></textarea>
+            <p class="hint">Подробный адрес и подсказки, как добраться. Сервис использует его в текстах объявлений («на Тверской, 12»), только то, что вы написали.</p>
 
             <label for="b-site">Сайт <span class="hint">(необязательно)</span></label>
             <input type="text" id="b-site" maxlength="300" placeholder="salon.ru">

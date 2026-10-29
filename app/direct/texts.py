@@ -88,11 +88,16 @@ def draft_variants(biz, count: int = 6) -> list[dict]:
     kind_l = kind[:1].lower() + kind[1:]
     own = _first_sentence(biz["description"], TEXT_MAX)
     act, where = pr["cta_sentence"], (f" в городе {city}" if city and pr["local"] else "")
+    try:
+        address = (biz["address"] or "").strip()
+    except (KeyError, IndexError):
+        address = ""
+    place = address if (address and pr["local"]) else ""   # адрес, который владелец написал сам: «ул. Тверская, 12»
     options = [
-        ((f"{kind}, {city}" if city and pr["local"] else kind), f"{act}. {name}", "location" if pr["local"] else "booking"),
+        ((f"{kind}, {city}" if city and pr["local"] else kind), f"{place}. {act}" if place else f"{act}. {name}", "location" if pr["local"] else "booking"),
         (f"{name}: {kind_l}", own or f"{act}. {kind}{where}", "choice"),
         ((f"{kind} рядом с вами" if pr["local"] else f"{kind}: подробности на сайте"), f"{name}. {act}", "booking"),
-        ((f"{kind}: запись на сегодня" if pr["appointment"] else f"{name}: {act.lower()}"), f"{name}{', ' + city if city and pr['local'] else ''}. {act}", "booking"),
+        ((f"{kind}: запись на сегодня" if pr["appointment"] else f"{name}: {act.lower()}"), f"{name}{', ' + (place or city) if (place or city) and pr['local'] else ''}. {act}", "booking"),
         (f"{kind}: удобно и понятно", f"{name}. Выберите подходящее и {act[0].lower() + act[1:]}", "comfort"),
         (f"{name}: узнайте подробнее", f"{kind}{where}. {act}", "choice"),
     ]

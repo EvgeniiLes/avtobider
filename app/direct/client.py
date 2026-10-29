@@ -5,6 +5,7 @@
 повторяет запрос при сбоях на стороне Директа. Токен нигде не пишется в логи.
 """
 import asyncio
+import re
 from dataclasses import dataclass
 
 import httpx
@@ -354,7 +355,7 @@ class DirectClient:
     async def find_region_id(self, city: str) -> int | None:
         """Номер региона Директа по названию города (Москва = 213). None, если не нашли."""
         result = await self.call("dictionaries", "get", {"DictionaryNames": ["GeoRegions"]})
-        wanted = city.strip().lower()
+        wanted = re.sub(r"^(?:г\.?|город)\s+", "", city.split(",")[0].strip().lower())   # «Москва, ул. Тверская» и «г. Москва» → «москва»
         for region in result.get("GeoRegions", []):
             if region.get("GeoRegionName", "").strip().lower() == wanted and region.get("GeoRegionType") in ("City", "Town", "Village", "Region"):
                 return int(region["GeoRegionId"])
