@@ -6,9 +6,15 @@
 from collections import deque
 from io import BytesIO
 
-from PIL import Image, ImageChops, ImageFilter, ImageOps
+from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageOps, ImageStat
 
 KEY = (255, 0, 255)  # цвет заглушки на экране телефона
+
+
+def _green_mask(img: Image.Image) -> Image.Image:
+    r, g, b = img.split()
+    return ImageChops.multiply(ImageChops.multiply(g.point(lambda v: 255 if v > 170 else 0), r.point(lambda v: 255 if v < 110 else 0)),
+                               b.point(lambda v: 255 if v < 110 else 0))
 
 
 def _key_mask(img: Image.Image) -> Image.Image:
@@ -156,6 +162,43 @@ def _perspective_coeffs(dest: list[tuple[float, float]], src: list[tuple[float, 
     for i in reversed(range(n)):
         x[i] = (a[i][n] - sum(a[i][c] * x[c] for c in range(i + 1, n))) / a[i][i]
     return x
+
+
+def insert_logo(banner: bytes, logo: bytes) -> bytes | None:
+    """Вставляет настоящий логотип в зелёный прямоугольник, который нейросеть оставила под него. None, если слот не найден."""
+    base = Image.open(BytesIO(banner)).convert("RGB")
+    mark = Image.open(BytesIO(logo)).convert("RGBA")
+    w, h = base.size
+    pts = _largest_region(_green_mask(base))
+    if not pts or len(pts) < w * h * 0.004:
+        return None
+    x0, x1 = min(p[0] for p in pts), max(p[0] for p in pts) + 1
+    y0, y1 = min(p[1] for p in pts), max(p[1] for p in pts) + 1
+    if len(pts) < (x1 - x0) * (y1 - y0) * 0.8:  # не прямоугольник: это не слот, а случайное зелёное место
+        return None
+    box = (x0 - 3, y0 - 3, x1 + 3, y1 + 3)
+    gray = base.convert("L")
+    ring = [(max(0, x0 - 12), max(0, y0 - 12), min(w, x1 + 12), max(0, y0 - 4)), (max(0, x0 - 12), min(h, y1 + 4), min(w, x1 + 12), min(h, y1 + 12)),
+            (max(0, x0 - 12), y0, max(0, x0 - 4), y1), (min(w, x1 + 4), y0, min(w, x1 + 12), y1)]
+    ring = [r for r in ring if r[2] > r[0] and r[3] > r[1]]
+    if not ring:
+        return None
+    shades = [ImageStat.Stat(base.crop(r)).mean for r in ring]
+    around = tuple(int(sum(s[i] for s in shades) / len(shades)) for i in range(3))
+    bg_light = sum(ImageStat.Stat(gray.crop(r)).mean[0] for r in ring) / len(ring)
+    solid = mark.getchannel("A").point(lambda v: 255 if v > 128 else 0)
+    mark_light = ImageStat.Stat(mark.convert("L"), mask=solid).mean[0] if solid.getbbox() else bg_light
+    fill = around
+    if abs(mark_light - bg_light) < 70:  # логотип слился бы с фоном: слот заливаем контрастным тоном
+        fill = (245, 245, 245) if bg_light < 128 else (24, 24, 24)
+    out = base.copy()
+    ImageDraw.Draw(out).rounded_rectangle(box, radius=(y1 - y0) // 6, fill=fill)
+    inner = mark.copy()
+    inner.thumbnail((int((x1 - x0) * 0.92), int((y1 - y0) * 0.92)))
+    out.paste(inner, ((x0 + x1 - inner.width) // 2, (y0 + y1 - inner.height) // 2), inner)
+    buf = BytesIO()
+    out.save(buf, "JPEG", quality=92)
+    return buf.getvalue()
 
 
 def insert_screenshot(banner: bytes, screenshot: bytes) -> bytes | None:

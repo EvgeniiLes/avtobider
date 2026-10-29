@@ -87,7 +87,14 @@ SCREEN_RULE = (" Include a large modern smartphone (about 60% of the banner heig
                "Do not use magenta or hot pink anywhere else in the banner.")
 
 
-def banner_prompt(biz, title: str, price: str, cta: str, logo_corner: bool = False, index: int = 0, screen: bool = False) -> str:
+LOGO_RULE = (" The company logo is part of the layout: reserve one clean, flat, solid pure green (#00FF00) rectangle for it, width to height "
+             "about {ratio:.1f} to 1, no text or gradient inside, about a quarter of the banner width, on a calm plain area of the background. "
+             "Choose the place yourself so that it looks designed, for example next to the headline or in a lower corner, not squeezed into an edge. "
+             "Do not use green anywhere else in the banner.")
+
+
+def banner_prompt(biz, title: str, price: str, cta: str, logo_corner: bool = False, index: int = 0, screen: bool = False,
+                  logo_ratio: float | None = None) -> str:
     """Запрос на баннер целиком: русский текст пишет сама модель, поэтому он короткий и в точных кавычках."""
     parts = [f'headline "{title}"']
     if price:
@@ -99,7 +106,7 @@ def banner_prompt(biz, title: str, price: str, cta: str, logo_corner: bool = Fal
             "No other text, no extra letters, no third-party brand logos. "
             "No decorative frames, ornaments, hexagon or diamond shapes, golden dust, sparkles, bokeh, lens flare or glow effects: "
             "a confident, simple layout with a big readable headline and one clear subject."
-            + (" Keep the top-right corner plain and empty: a logo will be placed there." if logo_corner else "")
+            + (LOGO_RULE.format(ratio=logo_ratio or 2.5) if logo_corner else "")
             + (SCREEN_RULE if screen else ""))
 
 async def _submit(http: httpx.AsyncClient, model: str, key: str, payload: dict) -> dict:

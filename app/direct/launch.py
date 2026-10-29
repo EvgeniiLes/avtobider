@@ -4,6 +4,7 @@
 внутри одна группа (автотаргетинг включается сам, ключевые фразы не нужны) и одно объявление.
 Так бюджет делится между объявлениями жёстко, и сервис может усиливать или останавливать каждое отдельно.
 """
+import json
 import sqlite3
 from dataclasses import dataclass
 from datetime import date, timedelta
@@ -242,11 +243,16 @@ def ai_banners_for(conn: sqlite3.Connection, biz) -> dict[tuple, bytes]:
     found: dict[tuple, bytes] = {}
     logo = logo_for(conn, biz)
     rows = conn.execute(
-        "SELECT c.title, c.body, a.stored_name FROM creatives c JOIN business_assets a ON a.id = c.asset_id "
+        "SELECT c.title, c.body, c.prompt, a.stored_name FROM creatives c JOIN business_assets a ON a.id = c.asset_id "
         "WHERE c.business_id = ? AND c.kind = 'ai_banner' AND c.status IN ('draft', 'approved') ORDER BY c.id", (biz["id"],)).fetchall()
     for r in rows:  # более поздний заказ перекрывает ранний
         try:
-            found[(r["title"], r["body"])] = add_logo(prepare_for_direct(_file(biz["id"], r["stored_name"])), logo)
+            picture = prepare_for_direct(_file(biz["id"], r["stored_name"]))
+            try:
+                baked = json.loads(r["prompt"] or "{}").get("baked")
+            except ValueError:
+                baked = False
+            found[(r["title"], r["body"])] = picture if baked else add_logo(picture, logo)  # у новых баннеров логотип уже вшит в макет
         except (OSError, ValueError):
             continue
     return found

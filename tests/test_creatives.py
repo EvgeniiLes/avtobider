@@ -413,6 +413,28 @@ def test_ai_banner_gets_the_logo_corner(monkeypatch):
     assert add_logo(base.getvalue(), None) == base.getvalue()
 
 
+def test_logo_is_inserted_into_the_green_slot_the_ai_left():
+    from app.creative.screen import insert_logo
+    from PIL import Image as PILImage, ImageDraw
+    img = PILImage.new("RGB", (1200, 900), (20, 20, 40))
+    ImageDraw.Draw(img).rectangle((120, 700, 420, 800), fill=(0, 255, 0))  # слот 300x100 слева внизу
+    base = BytesIO(); img.save(base, "JPEG", quality=95)
+    logo = BytesIO(); PILImage.new("RGBA", (300, 100), (255, 200, 0, 255)).save(logo, "PNG")
+    out = PILImage.open(BytesIO(insert_logo(base.getvalue(), logo.getvalue()))).convert("RGB")
+    r, g, b = out.getpixel((270, 750))
+    assert r > 200 and g > 150 and b < 80  # на месте слота настоящий логотип
+    assert out.getpixel((270, 805))[1] < 100  # зелёного не осталось
+    plain = BytesIO(); PILImage.new("RGB", (1200, 900), (20, 20, 40)).save(plain, "JPEG")
+    assert insert_logo(plain.getvalue(), logo.getvalue()) is None  # слота нет: вызывающий код поставит логотип в угол
+
+
+def test_logo_slot_rule_reaches_the_prompt():
+    from app.creative import fal
+    row = {"kind": "Игры", "name": "М", "description": "Онлайн игры", "visual_hint": ""}
+    assert "#00FF00" in fal.banner_prompt(row, "З", "", "Играть", logo_corner=True, logo_ratio=2.0)
+    assert "#00FF00" not in fal.banner_prompt(row, "З", "", "Играть")
+
+
 def test_logo_goes_to_the_calmest_corner_without_white_frame():
     from app.creative.compose import add_logo
     from PIL import Image as PILImage, ImageDraw
