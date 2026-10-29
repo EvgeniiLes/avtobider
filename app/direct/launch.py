@@ -263,7 +263,8 @@ def ai_banners_for(conn: sqlite3.Connection, biz) -> dict[tuple, bytes]:
         try:
             picture = prepare_for_direct(_file(biz["id"], r["stored_name"]))
             try:
-                baked = json.loads(r["prompt"] or "{}").get("baked")
+                made = json.loads(r["prompt"] or "{}")
+                baked = made.get("baked") or "concept" in made   # у новых баннеров решение про логотип принято при заказе
             except ValueError:
                 baked = False
             found[(r["title"], r["body"])] = picture if baked else add_logo(picture, logo)  # у новых баннеров логотип уже вшит в макет

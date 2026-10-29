@@ -88,7 +88,7 @@ SCREEN_RULE = (" The scene includes a modern smartphone whose screen faces the v
 
 
 LOGO_RULE = (" The company logo is part of the layout: reserve one clean, flat, solid pure green (#00FF00) rectangle for it, width to height "
-             "about {ratio:.1f} to 1, completely empty inside (no text, no letters, no gradient), at least 28% of the banner width, on a calm plain area "
+             "about {ratio:.1f} to 1, completely empty inside (no text, no letters, no gradient), at least {width}% of the banner width, on a calm plain area "
              "of the background with a clear margin of at least 4% of the banner width from the headline, the button and the edges. "
              "Choose the place yourself so that it looks designed, for example next to the headline or in a lower corner, not squeezed into an edge. "
              "Do not use green anywhere else in the banner.")
@@ -115,7 +115,7 @@ def banner_prompt(biz, title: str, price: str, cta: str, logo_corner: bool = Fal
             +
             "No decorative frames, ornaments, hexagon or diamond shapes, golden dust, sparkles, bokeh, lens flare or glow effects: "
             "a confident, simple layout with a big readable headline and one clear subject."
-            + (LOGO_RULE.format(ratio=logo_ratio or 2.5) if logo_corner else "")
+            + (LOGO_RULE.format(ratio=logo_ratio or 2.5, width=36 if (logo_ratio or 2.5) >= 3 else 28) if logo_corner else "")
             + (SCREEN_RULE if screen else ""))
 
 async def _submit(http: httpx.AsyncClient, model: str, key: str, payload: dict) -> dict:

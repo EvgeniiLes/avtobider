@@ -434,7 +434,8 @@ def ad_banner(business_id: int, index: int, user: sqlite3.Row = Depends(current_
             raise HTTPException(404, detail={"message": "ИИ-баннер ещё не готов."})
         row = ai_row
         picture = prepare_for_direct(_asset_path(business_id, asset["stored_name"]).read_bytes())
-        if not json.loads(row["prompt"] or "{}").get("baked"):  # старые баннеры без вшитого логотипа
+        made = json.loads(row["prompt"] or "{}")
+        if not made.get("baked") and "concept" not in made:  # только старые баннеры: у новых решение про логотип принято при заказе
             picture = add_logo(picture, logo)
         return Response(picture, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=60"})
     if not photos or not 0 <= index < len(variants):
