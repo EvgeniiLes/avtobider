@@ -425,7 +425,9 @@ async function loadAds() {
     }[a.ai.status];
     const pic = a.banner_url
       ? el("img", { src: `${a.banner_url}?t=${stamp}`, alt: a.title, loading: "lazy" })
-      : el("div", { className: "no-pic", textContent: aiText || "Без картинки" });
+      : a.ai && a.ai.status === "working"
+        ? el("div", { className: "no-pic loading" }, el("div", { className: "spinner" }), el("div", { textContent: aiText }))
+        : el("div", { className: "no-pic", textContent: aiText || "Без картинки" });
     const host = (site || (has_maps ? "yandex.ru/maps" : "ваш-сайт.ru")).replace(/^https?:\/\//, "").replace(/\/.*$/, "");
     const body = el("div", { className: "ad-body" },
       el("div", { className: "ad-title", textContent: a.title }),
@@ -462,8 +464,9 @@ async function loadAds() {
     again.addEventListener("click", async () => {
       again.disabled = true;
       again.textContent = "Пишем…";
+      card.classList.add("busy");  // на карточке крутится индикатор, пока ИИ пишет
       const r = await creativeCall("POST", `/ads/${a.index}/rewrite`);
-      if (!r.ok) { say(errorText(r), "err"); again.disabled = false; again.textContent = "↻ Другой текст"; return; }
+      if (!r.ok) { card.classList.remove("busy"); say(errorText(r), "err"); again.disabled = false; again.textContent = "↻ Другой текст"; return; }
       say(`Новый текст: «${r.data.title}». Баннер к нему можно перерисовать.`);
       await loadCreatives();
     });
@@ -475,7 +478,9 @@ async function loadAds() {
       if (!r.ok) { say(errorText(r), "err"); return; }
       await loadCreatives();
     });
-    return el("div", { className: "ad" }, pic, body, foot, el("div", { className: "ad-foot ad-redo" }, again, redraw));
+    const card = el("div", { className: "ad" + (working ? " is-working" : "") }, pic, body, foot, el("div", { className: "ad-foot ad-redo" }, again, redraw));
+    card.append(el("div", { className: "busy-layer" }, el("div", { className: "spinner" })));
+    return card;
   }));
 }
 
@@ -512,7 +517,8 @@ function renderMedia(grid, items, canMakeVideo) {
   grid.replaceChildren();
   for (const c of items) {
     const tile = el("div", { className: `thumb ${c.status}` });
-    if (c.status === "working") tile.append(el("div", { className: "wait", textContent: c.kind === "video" ? "Готовим видео… это займёт несколько минут" : "Рисуем… около минуты" }));
+    if (c.status === "working") tile.append(el("div", { className: "wait" }, el("div", { className: "spinner" }),
+      el("div", { textContent: c.kind === "video" ? "Готовим видео… это займёт несколько минут" : "Рисуем… около минуты" })));
     else if (c.status === "failed") tile.append(el("div", { className: "wait", textContent: c.error || "Не получилось. Попробуйте ещё раз." }));
     else tile.append(c.kind === "video" ? el("video", { src: c.url, controls: true, preload: "metadata" }) : el("img", { src: c.url, alt: "Картинка", loading: "lazy" }));
     const acts = el("div", { className: "acts" });
