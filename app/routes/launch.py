@@ -26,11 +26,11 @@ def _fail(e: EngineError | DirectError) -> HTTPException:
 
 def _pick_account(conn: sqlite3.Connection, user, biz, account_id: int | None) -> sqlite3.Row:
     if account_id:
-        row = conn.execute("SELECT * FROM ad_accounts WHERE id = ? AND user_id = ?", (account_id, user["id"])).fetchone()
+        row = conn.execute("SELECT * FROM ad_accounts WHERE id = ? AND user_id = ? AND platform = 'yandex_direct'", (account_id, user["id"])).fetchone()
     elif biz["account_id"]:
-        row = conn.execute("SELECT * FROM ad_accounts WHERE id = ? AND user_id = ?", (biz["account_id"], user["id"])).fetchone()
+        row = conn.execute("SELECT * FROM ad_accounts WHERE id = ? AND user_id = ? AND platform = 'yandex_direct'", (biz["account_id"], user["id"])).fetchone()
     else:
-        row = conn.execute("SELECT * FROM ad_accounts WHERE user_id = ? ORDER BY id LIMIT 1", (user["id"],)).fetchone()
+        row = conn.execute("SELECT * FROM ad_accounts WHERE user_id = ? AND platform = 'yandex_direct' ORDER BY id LIMIT 1", (user["id"],)).fetchone()
     if row is None:
         raise HTTPException(400, detail={"message": "Сначала подключите рекламный кабинет Яндекс Директа на вкладке «Рекламные кабинеты».", "code": "no_account"})
     return row

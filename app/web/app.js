@@ -1251,6 +1251,7 @@ async function loadAccounts() {
   const accounts = result.ok ? result.data.accounts : [];
   accountsList = accounts;
   $("connect-title").textContent = accounts.length ? "Подключить ещё один кабинет" : "Подключить кабинет";
+  if (!$("platforms-list").children.length) loadPlatforms();
   $("accounts-empty").hidden = accounts.length > 0;
   for (const account of accounts) {
     const info = el("div", {}, el("strong", { textContent: account.title }), el("span", { className: "hint", textContent: ` ${account.platform}` }));
@@ -1288,8 +1289,39 @@ async function showCampaigns(id) {
   }
 }
 
+// VK Реклама и Авито: форма с ключами API под каждой площадкой, список и подсказки приходят с сервера
+async function loadPlatforms() {
+  const result = await api("GET", "/api/accounts/platforms");
+  if (!result.ok) return;
+  const list = result.data.platforms.filter((p) => p.keys);
+  $("platforms-card").hidden = list.length === 0;
+  $("platforms-list").replaceChildren(...list.map((p) => {
+    const id = el("input", { type: "text", autocomplete: "off", placeholder: "client_id" });
+    const secret = el("input", { type: "password", autocomplete: "off", placeholder: "client_secret" });
+    const title = el("input", { type: "text", placeholder: "Название кабинета (для себя, необязательно)" });
+    const status = el("p", { className: "status", role: "status" });
+    const go = el("button", { type: "submit", textContent: `Подключить ${p.label}` });
+    const form = el("form", {}, el("p", { className: "hint", textContent: p.can }), el("p", { className: "hint", textContent: p.where }),
+      title, id, secret, el("p"), go, status);
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      go.disabled = true;
+      status.className = "status";
+      status.textContent = "Проверяем ключи…";
+      const r = await api("POST", "/api/accounts/keys", { platform: p.id, title: title.value, client_id: id.value, client_secret: secret.value });
+      go.disabled = false;
+      if (!r.ok) { status.className = "status err"; status.textContent = errorText(r); return; }
+      status.className = "status ok";
+      status.textContent = `Подключено. Найдено: ${r.data.campaigns_count}.`;
+      id.value = ""; secret.value = ""; title.value = "";
+      await loadAccounts();
+    });
+    return el("details", { className: "own-text" }, el("summary", { textContent: `${p.label}${p.ready ? "" : " (подключение и просмотр)"}` }), form);
+  }));
+}
+
 async function removeAccount(account) {
-  if (!(await askConfirm("Удалить кабинет?", `«${account.title}» исчезнет из Автобидера. В самом Яндекс Директе ничего не изменится.`, "Удалить"))) return;
+  if (!(await askConfirm("Удалить кабинет?", `«${account.title}» исчезнет из Автобидера. В самом кабинете (${account.platform}) ничего не изменится.`, "Удалить"))) return;
   await api("DELETE", `/api/accounts/${account.id}`);
   $("campaigns-card").hidden = true;
   await loadAccounts();

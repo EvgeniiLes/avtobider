@@ -19,6 +19,11 @@ def creative_transport():
     return None
 
 
+def platform_transport():
+    """Транспорт для запросов к VK Рекламе и Авито. В тестах подменяется заглушкой."""
+    return None
+
+
 def yandex_http():
     """HTTP-клиент для запросов к Яндекс ID. В тестах подменяется заглушкой."""
     return httpx.AsyncClient(timeout=15.0)

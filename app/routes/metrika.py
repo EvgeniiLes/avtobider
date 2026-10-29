@@ -27,7 +27,7 @@ HOW_TO = (
 def _token(conn, user, biz) -> str:
     account = biz["account_id"]
     if not account:
-        row = conn.execute("SELECT id FROM ad_accounts WHERE user_id = ? ORDER BY id LIMIT 1", (user["id"],)).fetchone()
+        row = conn.execute("SELECT id FROM ad_accounts WHERE user_id = ? AND platform = 'yandex_direct' ORDER BY id LIMIT 1", (user["id"],)).fetchone()
         account = row["id"] if row else None
     if not account:
         raise HTTPException(400, detail={"message": "Сначала подключите рекламный кабинет Яндекс Директа: через него сервис получает доступ и к Метрике."})

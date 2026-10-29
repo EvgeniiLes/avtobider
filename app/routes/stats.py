@@ -94,7 +94,7 @@ def overview(business_id: int, user: sqlite3.Row = Depends(current_user), conn: 
     result = {"example": bool(sim_today), "real": real, "today": today, "units": [], "totals": None, "budget": None, "needs": "",
               "mode": biz["mode"], "target_cpa": _rub(biz["target_cpa_micro"]), "proposals": 0, "stopped": False, "notices": [],
               "sync": {"at": biz["last_sync_at"], "error": biz["last_sync_error"]},
-              "has_account": bool(conn.execute("SELECT 1 FROM ad_accounts WHERE user_id = ?", (user["id"],)).fetchone())}
+              "has_account": bool(conn.execute("SELECT 1 FROM ad_accounts WHERE user_id = ? AND platform = 'yandex_direct'", (user["id"],)).fetchone())}
     try:
         target_cpa_micro(biz)
     except EngineError as e:
@@ -107,7 +107,7 @@ def overview(business_id: int, user: sqlite3.Row = Depends(current_user), conn: 
         "AND reverted_by IS NULL LIMIT 1", (business_id,)
     ).fetchone() is not None
     units_count = conn.execute("SELECT COUNT(*) FROM ad_units WHERE business_id = ?", (business_id,)).fetchone()[0]
-    accounts = conn.execute("SELECT COUNT(*) FROM ad_accounts WHERE user_id = ?", (user["id"],)).fetchone()[0]
+    accounts = conn.execute("SELECT COUNT(*) FROM ad_accounts WHERE user_id = ? AND platform = 'yandex_direct'", (user["id"],)).fetchone()[0]
     result["checklist"] = checklist(biz, accounts, units_count)
     if not today:
         return result
