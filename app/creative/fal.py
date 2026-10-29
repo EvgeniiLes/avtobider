@@ -58,7 +58,9 @@ def image_prompt(biz, idea: str = "", style: int = 0) -> str:
 
 DIRECTIONS = (
     "bright clean minimal look, soft natural light, close-up of the main subject, white and light pastel colors",
-    "dark premium look, deep charcoal background, gold accents, elegant serif headline",
+    "high-contrast dark poster: near-black background, ONE sharp neon accent color (acid lime or electric orange), huge heavy "
+    "condensed sans-serif headline on the left, the main subject very large and cropped by the canvas edge, hard-edged flat geometric "
+    "shapes, button as a plain solid accent rectangle. Flat graphic design like a real designer's work, NO gold, NO serif fonts",
     "vivid saturated colors, bold sans-serif headline, energetic modern layout, colorful background",
     "soft pastel colors, rounded shapes, airy layout, gentle gradient background",
     "warm realistic photo of people and place, cozy atmosphere, headline over a calm area of the photo",
@@ -80,7 +82,7 @@ def _visual_rules(biz) -> str:
     return rules
 
 
-SCREEN_RULE = (" Include a modern smartphone held at a slight angle. IMPORTANT: the phone screen must be one completely flat, solid, pure "
+SCREEN_RULE = (" Include a large modern smartphone (about 60% of the banner height) held at a slight angle. IMPORTANT: the phone screen must be one completely flat, solid, pure "
                "magenta (#FF00FF) rectangle filling the whole screen, with no interface, no text, no reflections, no gradient. "
                "Do not use magenta or hot pink anywhere else in the banner.")
 
@@ -94,7 +96,9 @@ def banner_prompt(biz, title: str, price: str, cta: str, logo_corner: bool = Fal
     return (f"Advertising banner for: {biz['kind']}, brand {biz['name']}. " + _visual_rules(biz) +
             "Landscape 4:3, modern professional layout, lots of clean space around the text. Visual direction: " + DIRECTIONS[index % len(DIRECTIONS)] + ". "
             "Text in Russian, exactly as written, large and perfectly legible: " + ", ".join(parts) + ". "
-            "No other text, no extra letters, no third-party brand logos."
+            "No other text, no extra letters, no third-party brand logos. "
+            "No decorative frames, ornaments, hexagon or diamond shapes, golden dust, sparkles, bokeh, lens flare or glow effects: "
+            "a confident, simple layout with a big readable headline and one clear subject."
             + (" Keep the top-right corner plain and empty: a logo will be placed there." if logo_corner else "")
             + (SCREEN_RULE if screen else ""))
 
