@@ -183,15 +183,18 @@ def insert_logo(banner: bytes, logo: bytes) -> bytes | None:
     ring = [r for r in ring if r[2] > r[0] and r[3] > r[1]]
     if not ring:
         return None
-    shades = [ImageStat.Stat(base.crop(r)).mean for r in ring]
-    around = tuple(int(sum(s[i] for s in shades) / len(shades)) for i in range(3))
-    bg_light = sum(ImageStat.Stat(gray.crop(r)).mean[0] for r in ring) / len(ring)
+    medians = [ImageStat.Stat(base.crop(r)).median for r in ring]  # цвет вокруг слота: медиана, а не среднее (иначе рядом буквы дают серую заплатку)
+    around = tuple(sorted(m[i] for m in medians)[len(medians) // 2] for i in range(3))
+    bg_light = 0.299 * around[0] + 0.587 * around[1] + 0.114 * around[2]
     solid = mark.getchannel("A").point(lambda v: 255 if v > 128 else 0)
     mark_light = ImageStat.Stat(mark.convert("L"), mask=solid).mean[0] if solid.getbbox() else bg_light
     fill = around
-    if abs(mark_light - bg_light) < 70:  # логотип слился бы с фоном: слот заливаем контрастным тоном
-        fill = (245, 245, 245) if bg_light < 128 else (24, 24, 24)
+    if abs(mark_light - bg_light) < 110:  # логотип слился бы с фоном: слот заливаем контрастным тоном (чистая плашка-бейдж)
+        fill = (250, 250, 250) if mark_light < 128 else (20, 20, 20)
     out = base.copy()
+    near = (max(0, x0 - 40), max(0, y0 - 40), min(w, x1 + 40), min(h, y1 + 40))  # остатки зелёной заглушки рядом со слотом (метки по углам и т.п.)
+    leftovers = _green_mask(base.crop(near)).filter(ImageFilter.MaxFilter(7))
+    out.paste(Image.new("RGB", leftovers.size, around), near[:2], leftovers)
     ImageDraw.Draw(out).rounded_rectangle(box, radius=(y1 - y0) // 6, fill=fill)
     inner = mark.copy()
     inner.thumbnail((int((x1 - x0) * 0.92), int((y1 - y0) * 0.92)))

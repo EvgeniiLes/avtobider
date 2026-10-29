@@ -305,9 +305,9 @@ def test_ai_banner_is_ordered_checked_and_used(monkeypatch):
         assert http.post(f"{base}/ads/99/ai-banner").status_code == 400     # такого объявления нет
         assert http.post(f"{base}/ads/4/ai-banner").json() == {"started": True}
         assert http.post(f"{base}/ads/4/ai-banner").status_code == 400      # второй раз, пока рисуется, нельзя
-        host, path, body = fakes.requests[0]
-        assert host == "queue.fal.run" and "gpt-image-2" in path
-        assert b"landscape_4_3" in body and b"medium" in body and b"Visual direction" in body
+        host, path, body = next(r for r in fakes.requests if r[0] == "queue.fal.run")   # перед рисованием арт-директор придумывает сцену
+        assert "gpt-image-2" in path
+        assert b"landscape_4_3" in body and b"medium" in body and b"Visual direction" in body and b"Scene, follow it closely" in body
         http.get(base)
         assert _ai_ad(http, bid)["ai"]["status"] == "working"
 
@@ -319,7 +319,7 @@ def test_ai_banner_is_ordered_checked_and_used(monkeypatch):
         banner = http.get(ready["banner_url"])
         assert banner.status_code == 200 and banner.headers["content-type"] == "image/jpeg"
         assert http.get(f"{base}/ads/4/banner.jpg").status_code == 200
-        assert http.get(base).json()["spend"]["spent_usd"] == 0.05
+        assert http.get(base).json()["spend"]["spent_usd"] == 0.07
 
 
 def test_all_ai_banners_are_ordered_once_each_with_different_directions(monkeypatch):
@@ -334,7 +334,7 @@ def test_all_ai_banners_are_ordered_once_each_with_different_directions(monkeypa
         assert len(prompts) == 6 and len({p.split("Visual direction:")[1][:40] for p in prompts}) == 5   # пять разных направлений на шесть баннеров
         ads = http.get(f"{base}/ads").json()["ads"]
         assert all(a["ai"]["status"] == "working" for a in ads)
-        assert http.get(base).json()["spend"]["spent_usd"] == 0.30
+        assert http.get(base).json()["spend"]["spent_usd"] == 0.42
 
 
 def test_ai_banner_with_typos_is_rejected(monkeypatch):
@@ -426,6 +426,45 @@ def test_logo_is_inserted_into_the_green_slot_the_ai_left():
     assert out.getpixel((270, 805))[1] < 100  # зелёного не осталось
     plain = BytesIO(); PILImage.new("RGB", (1200, 900), (20, 20, 40)).save(plain, "JPEG")
     assert insert_logo(plain.getvalue(), logo.getvalue()) is None  # слота нет: вызывающий код поставит логотип в угол
+
+
+def test_art_director_gives_different_scenes_and_decides_about_the_logo():
+    import asyncio
+    import httpx
+    from app.creative.art import art_direction, scene_key, review_banner
+    biz = {"kind": "Игры онлайн", "name": "М", "description": "Играйте в телефоне", "visual_hint": ""}
+    v = {"title": "Играйте", "text": "Присоединяйтесь", "angle": ""}
+    assert len({scene_key(i) for i in range(5)}) == 5 and scene_key(0) == scene_key(5)   # пять разных сюжетов по кругу
+
+    def answer(content):
+        return httpx.MockTransport(lambda req: httpx.Response(200, json={"choices": [{"message": {"content": content}}]}))
+
+    good = json.dumps({"audience": "друзья 20-35", "scene": "Four friends around a table look at a phone in the middle, warm evening light.",
+                       "logo": True, "logo_reason": "есть место"}, ensure_ascii=False)
+    art = asyncio.run(art_direction(biz, v, 0, [], {"ratio": 2.0, "score": 4}, False, "k", "m", answer(good)))
+    assert art["ai"] and art["logo"] is True and art["audience"] == "друзья 20-35" and "friends" in art["scene"]
+    no_logo = asyncio.run(art_direction(biz, v, 0, [], None, False, "k", "m", answer(good)))
+    assert no_logo["logo"] is False                                           # логотипа нет: ставить нечего
+    broken = asyncio.run(art_direction(biz, v, 1, [], None, False, "k", "m", answer("не json")))
+    assert broken["ai"] is False and broken["scene"] and broken["concept"] == scene_key(1)   # сбой модели: запасная сцена
+    assert asyncio.run(art_direction(biz, v, 2, [], None, False, "", "m"))["ai"] is False
+    verdict = asyncio.run(review_banner("data:image/jpeg;base64,AA==", "бизнес", "k", "m", answer('{"score": 2, "issues": ["кривые руки"]}')))
+    assert verdict == {"score": 2, "issues": ["кривые руки"]}
+    assert asyncio.run(review_banner("data:image/jpeg;base64,AA==", "бизнес", "k", "m", answer("ничего"))) is None
+
+
+def test_green_leftovers_around_the_slot_are_cleaned():
+    from app.creative.screen import insert_logo
+    from PIL import Image as PILImage, ImageDraw
+    img = PILImage.new("RGB", (1200, 900), (20, 20, 40))
+    d = ImageDraw.Draw(img)
+    d.rectangle((120, 700, 420, 800), fill=(0, 255, 0))
+    for cx, cy in ((100, 680), (440, 680), (100, 820), (440, 820)):   # уголки-метки, как рисует нейросеть
+        d.rectangle((cx - 4, cy - 4, cx + 14, cy + 14), fill=(0, 255, 0))
+    base = BytesIO(); img.save(base, "JPEG", quality=95)
+    logo = BytesIO(); PILImage.new("RGBA", (300, 100), (255, 200, 0, 255)).save(logo, "PNG")
+    out = PILImage.open(BytesIO(insert_logo(base.getvalue(), logo.getvalue()))).convert("RGB")
+    assert all(out.getpixel(p)[1] < 120 for p in ((106, 686), (446, 686), (106, 826), (446, 826)))
 
 
 def test_logo_slot_rule_reaches_the_prompt():

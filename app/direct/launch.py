@@ -237,6 +237,20 @@ def media_for(conn: sqlite3.Connection, biz) -> tuple[list[bytes], bytes | None]
         return photos, None
 
 
+def ai_scenes_for(conn: sqlite3.Connection, biz) -> dict[tuple, str]:
+    """Сюжет каждого готового ИИ-баннера (ключ как у ai_banners_for): для сравнения сцен в результатах."""
+    found: dict[tuple, str] = {}
+    for r in conn.execute("SELECT title, body, prompt FROM creatives WHERE business_id = ? AND kind = 'ai_banner' "
+                          "AND status IN ('draft', 'approved') ORDER BY id", (biz["id"],)):
+        try:
+            concept = json.loads(r["prompt"] or "{}").get("concept")
+        except ValueError:
+            concept = None
+        if concept:
+            found[(r["title"], r["body"])] = concept
+    return found
+
+
 def ai_banners_for(conn: sqlite3.Connection, biz) -> dict[tuple, bytes]:
     """Готовые ИИ-баннеры (стиль «ИИ-дизайн»), уже проверенные на ошибки в тексте: ключ (заголовок, текст)."""
     from app.creative.compose import add_logo, prepare_for_direct
@@ -287,6 +301,7 @@ async def launch(client: DirectClient, conn: sqlite3.Connection, biz, account_id
     created: list[dict] = []
     photos, logo = media_typed(conn, biz)
     ai_banners = ai_banners_for(conn, biz)
+    ai_scenes = ai_scenes_for(conn, biz)
     try:
         for i, variant in enumerate(plan.variants, start=1):
             ids = await create_unit(client, plan, variant, f"Автобидер: {biz['name']} #{i}", plan.per_unit_micro, start_date)
@@ -307,7 +322,8 @@ async def launch(client: DirectClient, conn: sqlite3.Connection, biz, account_id
     )
     unit_ids = [
         save_unit(conn, biz, account_id, row.lastrowid, c["variant"], c, plan.per_unit_micro, today, style=style_for(i),
-                  photo_type=photo_for(photos, i)[0] if photos else "", angle=c["variant"].get("angle", ""))
+                  photo_type=ai_scenes.get((c["variant"]["title"], c["variant"]["text"])) or (photo_for(photos, i)[0] if photos else ""),
+                  angle=c["variant"].get("angle", ""))
         for i, c in enumerate(created)
     ]
     if banner_problems:

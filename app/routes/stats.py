@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 import asyncio
 
 from app.assets import PHOTO_TAGS
+from app.creative.art import scene_label
 from app.creative import fal
 from app.creative.angles import label as angle_label
 from app.creative.texts_ai import analyze_results
@@ -242,7 +243,7 @@ def insights(business_id: int, user: sqlite3.Row = Depends(current_user), conn: 
         "FROM ad_units u LEFT JOIN stats_daily s ON s.unit_id = u.id WHERE u.business_id = ? AND u.photo_type != '' GROUP BY u.photo_type",
         (business_id,)).fetchall()
     type_groups = [{
-        "style": r["kind"], "label": PHOTO_TAGS.get(r["kind"], r["kind"]), "units": r["units"], "impressions": r["imp"],
+        "style": r["kind"], "label": PHOTO_TAGS.get(r["kind"]) or scene_label(r["kind"]) or r["kind"], "units": r["units"], "impressions": r["imp"],
         "clicks": r["clicks"], "spend": _rub(r["spend"]), "leads": r["leads"],
         "ctr": round(r["clicks"] / r["imp"] * 100, 2) if r["imp"] else None, "cost_per_lead": _ratio(r["spend"], r["leads"]),
     } for r in type_rows]
@@ -297,7 +298,7 @@ def analyze(business_id: int, user: sqlite3.Row = Depends(current_user), conn: s
         total_imp += st["impressions"]
         cpl = _ratio(st["spend"], st["leads"])
         lines.append(
-            f"- «{u['title']}»: угол подачи {angle_label(u['angle']) or 'не указан'}, стиль {STYLE_LABELS.get(u['style'], u['style'] or 'не указан')}, фото {PHOTO_TAGS.get(u['photo_type'], 'не указано')}, "
+            f"- «{u['title']}»: угол подачи {angle_label(u['angle']) or 'не указан'}, стиль {STYLE_LABELS.get(u['style'], u['style'] or 'не указан')}, фото или сцена {PHOTO_TAGS.get(u['photo_type']) or scene_label(u['photo_type']) or 'не указано'}, "
             f"состояние {u['state']}, показы {st['impressions']}, клики {st['clicks']}, обращения {st['leads']}, "
             f"расход {_rub(st['spend'])} ₽, цена обращения {cpl if cpl else 'нет данных'}.")
     lines.append(f"Правило: меньше {MIN_IMPRESSIONS} показов на стиль или меньше {MIN_LEADS} обращений на стиль считается слишком малыми данными.")

@@ -18,6 +18,7 @@ from app.creative import fal
 from app.creative.angles import label as angle_label, profile
 from app.assets import PHOTO_TAGS
 from app.creative.compose import add_logo, find_price, prepare_for_direct, style_for
+from app.creative.art import art_direction, review_banner, scene_label
 from app.creative.screen import insert_logo, insert_screenshot
 from app.creative.texts_ai import check_photo, generate_texts, missing_phrases, read_image_text
 from app.db import get_db
@@ -85,6 +86,15 @@ def _save_asset(conn, business_id: int, kind: str, data: bytes, name: str) -> in
     return cur.lastrowid
 
 
+def _bytes_url(data: bytes) -> str:
+    """Картинка в виде data-адреса для модели со зрением (уменьшенная: быстрее и дешевле)."""
+    img = Image.open(BytesIO(data)).convert("RGB")
+    img.thumbnail((1024, 1024))
+    buf = BytesIO()
+    img.save(buf, "JPEG", quality=85)
+    return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
+
+
 def _refresh_working(conn, business_id: int, transport) -> None:
     """Забирает готовые картинки и видео у генератора. Вызывается при каждом открытии списка."""
     key = get_settings().fal_key
@@ -124,6 +134,13 @@ def _refresh_working(conn, business_id: int, transport) -> None:
                 if mark:
                     data = insert_logo(data, mark) or add_logo(data, mark)
                     meta["baked"] = True
+            if r["kind"] == "ai_banner" and meta.get("brief"):  # самопроверка итоговой картинки: слабую не принимаем, чтобы не платить за неё рекламой
+                verdict = asyncio.run(review_banner(_bytes_url(data), meta["brief"], key, get_settings().fal_text_model, transport))
+                if verdict is not None and verdict["score"] <= 2:
+                    conn.execute("UPDATE creatives SET status = 'failed', error = ? WHERE id = ?",
+                                 ("Баннер получился слабым" + (": " + "; ".join(verdict["issues"]) if verdict["issues"] else "") + ". Нажмите «Другой баннер».", r["id"]))
+                    continue
+                meta["score"] = verdict["score"] if verdict else 0
             asset_id = _save_asset(conn, business_id, "image" if r["kind"] == "ai_banner" else r["kind"], data, f"creative-{r['id']}")
             conn.execute("UPDATE creatives SET status = 'draft', asset_id = ?, external_id = '', prompt = ? WHERE id = ?",
                          (asset_id, json.dumps(meta, ensure_ascii=False) if meta else r["prompt"], r["id"]))
@@ -219,6 +236,11 @@ def ads(business_id: int, user: sqlite3.Row = Depends(current_user), conn: sqlit
         row = _ai_row(conn, business_id, v)
         state = "none" if row is None else "working" if row["status"] == "working" else "failed" if row["status"] == "failed" else "ready"
         ai = {"status": state, "error": row["error"] if row is not None and state == "failed" else ""}
+        meta = json.loads(row["prompt"] or "{}") if row is not None and state != "none" else {}
+        if state == "ready" and meta.get("concept"):  # сюжет баннера: по нему потом сравниваем, какая сцена и ЦА работают лучше
+            photo_type = meta["concept"]
+            ai.update({"scene": scene_label(photo_type), "audience": meta.get("audience", ""),
+                       "logo": "placed" if meta.get("logo") else "skipped", "logo_reason": meta.get("logo_reason", "")})
         if state == "ready":
             banner = f"/api/businesses/{business_id}/creatives/ads/{i}/banner.jpg"   # готовый ИИ-баннер важнее шаблона
         elif style == "ai":
@@ -226,7 +248,7 @@ def ads(business_id: int, user: sqlite3.Row = Depends(current_user), conn: sqlit
         items.append({"index": i, "title": v["title"], "text": v["text"], "own": v["status"] == "approved",
                       "creative_id": v["creative_id"], "text_status": v["status"], "style": style, "ai": ai, "banner_url": banner,
                       "angle": v.get("angle", ""), "angle_label": angle_label(v.get("angle", "")),
-                      "photo_type": photo_type, "photo_label": PHOTO_TAGS.get(photo_type, "")})
+                      "photo_type": photo_type, "photo_label": PHOTO_TAGS.get(photo_type) or scene_label(photo_type)})
     return {
         "ads": items,
         "count": count,
@@ -268,6 +290,47 @@ def _ai_row(conn, business_id: int, variant: dict):
         (business_id, variant["title"], variant["text"])).fetchone()
 
 
+def _logo_info(conn, biz, logo: bytes | None) -> dict | None:
+    """Что арт-директору известно о логотипе: пропорции и оценка читаемости от ИИ-проверки."""
+    if logo is None:
+        return None
+    row = conn.execute("SELECT ai_score, ai_note FROM business_assets WHERE business_id = ? AND kind = 'logo'", (biz["id"],)).fetchone()
+    return {"ratio": _logo_ratio(logo) or 2.5, "score": row["ai_score"] if row else 0, "note": (row["ai_note"] if row else "")[:200]}
+
+
+def _other_scenes(conn, business_id: int, variants: list[dict], skip: int) -> list[str]:
+    scenes = []
+    for i, other in enumerate(variants):
+        row = _ai_row(conn, business_id, other) if i != skip else None
+        if row is not None and row["status"] != "failed":
+            scene = json.loads(row["prompt"] or "{}").get("scene")
+            if scene:
+                scenes.append(scene[:160])
+    return scenes
+
+
+def _order_banner(conn, biz, variants: list[dict], index: int, key: str, transport, others: list[str]) -> str:
+    """Заказывает один ИИ-баннер: арт-директор придумывает сцену и решает про логотип, потом рисует художник. Возвращает сцену."""
+    business_id = biz["id"]
+    v = variants[index]
+    s = get_settings()
+    price = find_price(v["title"], v["text"], biz["description"])
+    cta = profile(biz)["cta"]
+    expected = [v["title"], biz["name"], cta] + ([price] if price else [])
+    logo = logo_for(conn, biz)
+    screen = _screenshot(conn, business_id) is not None
+    art = asyncio.run(art_direction(biz, v, index, others, _logo_info(conn, biz, logo), screen, key, s.fal_text_model, transport))
+    use_logo = bool(art["logo"]) and logo is not None
+    prompt = fal.banner_prompt(biz, v["title"], price, cta, logo_corner=use_logo, index=index, screen=screen,
+                               logo_ratio=_logo_ratio(logo), scene=art["scene"])
+    job = asyncio.run(fal.start_image(prompt, key, s.fal_banner_model, transport))
+    meta = {"expect": expected, "logo": use_logo, "concept": art["concept"], "audience": art["audience"], "scene": art["scene"],
+            "logo_reason": art["logo_reason"], "brief": f"{biz['kind']} «{biz['name']}». Сюжет: {art['label']}. {art['scene']}"}
+    conn.execute("INSERT INTO creatives (business_id, kind, title, body, prompt, status, source, external_id) VALUES (?, 'ai_banner', ?, ?, ?, 'working', 'fal', ?)",
+                 (business_id, v["title"], v["text"], json.dumps(meta, ensure_ascii=False), json.dumps(job)))
+    return art["scene"]
+
+
 @router.post("/ads/{index}/ai-banner")
 def make_ai_banner(business_id: int, index: int, user: sqlite3.Row = Depends(current_user),
                    conn: sqlite3.Connection = Depends(get_db), transport=Depends(creative_transport)):
@@ -277,24 +340,15 @@ def make_ai_banner(business_id: int, index: int, user: sqlite3.Row = Depends(cur
     variants, _count, _pool = _ad_variants(conn, biz)
     if not 0 <= index < len(variants):
         raise HTTPException(400, detail={"message": "Такого объявления нет."})
-    v = variants[index]
-    old = _ai_row(conn, business_id, v)
+    old = _ai_row(conn, business_id, variants[index])
     if old is not None and old["status"] == "working":
         raise HTTPException(400, detail={"message": "Этот баннер уже рисуется. Подождите минуту."})
     _charge(conn, business_id, "ai_banner")
-    price = find_price(v["title"], v["text"], biz["description"])
-    cta = profile(biz)["cta"]
-    expected = [v["title"], biz["name"], cta] + ([price] if price else [])
     try:
-        logo = logo_for(conn, biz)
-        job = asyncio.run(fal.start_image(fal.banner_prompt(biz, v["title"], price, cta, logo_corner=logo is not None, index=index,
-                                                       screen=_screenshot(conn, business_id) is not None, logo_ratio=_logo_ratio(logo)),
-                                          key, get_settings().fal_banner_model, transport))
+        _order_banner(conn, biz, variants, index, key, transport, _other_scenes(conn, business_id, variants, index))
     except fal.FalError as e:
         conn.rollback()
         raise HTTPException(502, detail={"message": e.message})
-    conn.execute("INSERT INTO creatives (business_id, kind, title, body, prompt, status, source, external_id) VALUES (?, 'ai_banner', ?, ?, ?, 'working', 'fal', ?)",
-                 (business_id, v["title"], v["text"], json.dumps({"expect": expected, "logo": logo is not None}, ensure_ascii=False), json.dumps(job)))
     conn.commit()
     return {"started": True}
 
@@ -341,29 +395,20 @@ def make_all_ai_banners(business_id: int, user: sqlite3.Row = Depends(current_us
     biz = _own(conn, user, business_id)
     key = _need_fal()
     variants, _count, _pool = _ad_variants(conn, biz)
-    cta = profile(biz)["cta"]
-    logo_bytes = logo_for(conn, biz)
-    logo = logo_bytes is not None
-    ratio = _logo_ratio(logo_bytes)
-    screen = _screenshot(conn, business_id) is not None
+    others = _other_scenes(conn, business_id, variants, -1)
     started = 0
     for index, v in enumerate(variants):
         old = _ai_row(conn, business_id, v)
         if old is not None and old["status"] in ("working", "draft", "approved"):
             continue
         _charge(conn, business_id, "ai_banner")
-        price = find_price(v["title"], v["text"], biz["description"])
-        expected = [v["title"], biz["name"], cta] + ([price] if price else [])
         try:
-            job = asyncio.run(fal.start_image(fal.banner_prompt(biz, v["title"], price, cta, logo_corner=logo, index=index, screen=screen, logo_ratio=ratio), key,
-                                              get_settings().fal_banner_model, transport))
+            others.append(_order_banner(conn, biz, variants, index, key, transport, others[-6:])[:160])
         except fal.FalError as e:
             conn.rollback()
             if started:
                 conn.commit()
             raise HTTPException(502, detail={"message": e.message})
-        conn.execute("INSERT INTO creatives (business_id, kind, title, body, prompt, status, source, external_id) VALUES (?, 'ai_banner', ?, ?, ?, 'working', 'fal', ?)",
-                     (business_id, v["title"], v["text"], json.dumps({"expect": expected, "logo": logo}, ensure_ascii=False), json.dumps(job)))
         started += 1
     conn.commit()
     return {"started": started}

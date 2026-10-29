@@ -392,7 +392,7 @@ let lastAds = [];
 async function makeAllBanners() {
   const need = lastAds.filter((a) => a.ai && a.ai.status !== "ready" && a.ai.status !== "working").length;
   if (!need) { say("Все баннеры уже нарисованы или рисуются."); return; }
-  const price = usd(need * (creativePrices.ai_banner || 0.05));
+  const price = usd(need * (creativePrices.ai_banner || 0.07));
   if (!(await askConfirm("Нарисовать баннеры ИИ?", `Баннеров: ${need}, это платно: около ${price}. Нейросеть рисует каждый целиком, текст на них сервис проверит сам. Готовятся около минуты.`, "Нарисовать"))) return;
   const r = await creativeCall("POST", "/ads/ai-banners");
   if (!r.ok) { say(errorText(r), "err"); return; }
@@ -433,7 +433,9 @@ async function loadAds() {
       el("div", { className: "ad-title", textContent: a.title }),
       el("div", { className: "ad-text", textContent: a.text }),
       el("div", { className: "ad-site" }, el("b", { textContent: "Реклама" }), host),
-      a.angle_label ? el("div", { className: "hint", textContent: `Угол подачи: ${a.angle_label}` }) : "");
+      a.angle_label ? el("div", { className: "hint", textContent: `Угол подачи: ${a.angle_label}` }) : "",
+      a.ai && a.ai.scene ? el("div", { className: "hint", textContent: `Сцена: ${a.ai.scene}${a.ai.audience ? `. Для: ${a.ai.audience}` : ""}` }) : "",
+      a.ai && a.ai.scene ? el("div", { className: "hint", textContent: a.ai.logo === "placed" ? "Логотип на баннере" : `Без логотипа${a.ai.logo_reason ? `: ${a.ai.logo_reason}` : ""}` }) : "");
     const action = a.own
       ? el("button", { className: "small secondary", textContent: "Не использовать" })
       : el("button", { className: "small", textContent: "Использовать этот" });
@@ -473,7 +475,7 @@ async function loadAds() {
     const redraw = el("button", { className: "small secondary", textContent: working ? "Рисуем…" : a.ai && a.ai.status === "ready" ? "↻ Другой баннер" : "Нарисовать баннер ИИ" });
     redraw.disabled = working;
     redraw.addEventListener("click", async () => {
-      if (!(await askConfirm("Нарисовать баннер?", `Это платно: около ${usd(creativePrices.ai_banner || 0.05)}. Нейросеть рисует баннер целиком, текст на нём сервис проверит сам. Готовится около минуты.`, "Нарисовать"))) return;
+      if (!(await askConfirm("Нарисовать баннер?", `Это платно: около ${usd(creativePrices.ai_banner || 0.07)}. Нейросеть рисует баннер целиком, текст на нём сервис проверит сам. Готовится около минуты.`, "Нарисовать"))) return;
       const r = await creativeCall("POST", `/ads/${a.index}/ai-banner`);
       if (!r.ok) { say(errorText(r), "err"); return; }
       await loadCreatives();
