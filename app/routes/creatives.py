@@ -372,7 +372,10 @@ def _order_banner(conn, biz, variants: list[dict], index: int, key: str, transpo
                 "ref": brief["ref_id"] if ref_bytes else None,
                 "audience": brief["audience"] if brief else "", "hypothesis": brief["hypothesis"] if brief else "", "scene": what,
                 "logo_reason": "", "prompt_text": prompt,
-                "brief": f"ВАЖНО: основа баннера настоящее фото владельца, его нужно принимать как есть. Оформление: {look}. {biz['kind']}."}
+                "brief": ("ВАЖНО: основа баннера настоящее фото владельца, его нужно принимать как есть. "
+                          + (f"Баннер сделан по мотивам приёма «{refs.note(brief['ref_id'])}»: цвета и подача определяются этим приёмом, а не словами «светлое» "
+                             "или «тёмное»; огромный заголовок или слово, которое частично перекрывается объектом, это задумка, а не недостаток. "
+                             if ref_bytes else f"Оформление: {look}. ") + f"{biz['kind']}.")}
         conn.execute("INSERT INTO creatives (business_id, kind, title, body, prompt, status, source, external_id) VALUES (?, 'ai_banner', ?, ?, ?, 'working', 'fal', ?)",
                      (business_id, v["title"], v["text"], json.dumps(meta, ensure_ascii=False), json.dumps(job)))
         return what
