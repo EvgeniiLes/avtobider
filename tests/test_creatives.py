@@ -340,6 +340,29 @@ def test_ai_banner_is_ordered_checked_and_used(monkeypatch):
         assert http.get(base).json()["spend"]["spent_usd"] == 0.07
 
 
+def test_banner_is_made_from_the_owners_photo_with_an_editable_prompt(monkeypatch):
+    monkeypatch.setenv("FAL_KEY", "fal-test")
+    fakes = Fakes(fal_done=True)
+    with TestClient(app) as http:
+        bid = setup(http)
+        base = f"/api/businesses/{bid}"
+        http.post(f"{base}/assets", data={"kind": "photo", "tag": "work"}, files={"file": ("a.png", png(), "image/png")})
+        ad = http.get(f"{base}/creatives/ads").json()["ads"][0]
+        assert ad["ai"]["prompt"] and ad["title"] in ad["ai"]["prompt"] and "unaltered" in ad["ai"]["prompt"]     # промпт виден до заказа
+        fakes.claude_text = json.dumps([ad["title"], "Записаться"], ensure_ascii=False)
+        assert http.post(f"{base}/creatives/ads/0/ai-banner").status_code == 200
+        host, path, body = next(r for r in fakes.requests if r[0] == "queue.fal.run")
+        assert path.endswith("gpt-image-2/edit") and b"image_urls" in body and b"data:image/jpeg;base64" in body    # фото ушло модели
+        assert not any(r[0] == "fal.run" and b"\xd0\xa1\xd1\x86\xd0\xb5\xd0\xbd\xd0\xb0" in r[2] for r in fakes.requests)   # арт-директор не нужен
+        http.get(f"{base}/creatives")
+        ready = http.get(f"{base}/creatives/ads").json()["ads"][0]
+        assert ready["ai"]["status"] == "ready" and "оформление" in ready["ai"]["scene"] and ready["photo_label"] == "Наши работы"
+        mine = "Make a clean light banner from the attached photo. Headline «" + ad["title"] + "», button «Записаться». No other text."
+        assert http.post(f"{base}/creatives/ads/0/ai-banner", json={"prompt": mine}).status_code == 200
+        assert b"Make a clean light banner" in [b for h, p, b in fakes.requests if h == "queue.fal.run"][-1]       # свой промпт ушёл как есть
+        assert http.post(f"{base}/creatives/ads/1/ai-banner", json={"prompt": "коротко"}).status_code == 400
+
+
 def test_banner_history_and_restore(monkeypatch):
     monkeypatch.setenv("FAL_KEY", "fal-test")
     fakes = Fakes(fal_done=True)

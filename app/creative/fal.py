@@ -143,6 +143,46 @@ def image_payload(model: str, prompt: str) -> dict:
     return {"prompt": prompt, "image_size": "square_hd", "num_images": 1}  # FLUX и похожие
 
 
+# Баннер по настоящему фото владельца: модель получает фото и промпт про оформление. Оформления разные, чтобы варианты отличались для A/B.
+PHOTO_LOOKS = (
+    ("светлое", "airy light look: warm white and cream tones; the photo is large (you may extend its background to the whole banner); "
+                "dark headline on a calm area that never covers the main subject; a soft accent button"),
+    ("яркое", "bold colorful look: one saturated color field (turquoise, royal blue or violet); the photo unchanged inside a large rounded-corner "
+              "frame on one side; white heavy bold headline; yellow rounded button"),
+    ("тёмное", "dark premium-contrast look: deep charcoal; the photo full-bleed with a smooth dark gradient on one side for the text; "
+               "white headline; one bright accent color (orange or cyan, never gold) on the button"),
+    ("пастельное", "soft pastel look: gentle peach, mint or lilac background; the photo in a rounded or arch shape on one side; "
+                   "dark headline; rounded pastel button"),
+    ("фото во весь баннер", "photo-hero look: the photo fills the whole banner, the headline in large white letters on a darkened smooth "
+                            "gradient area of the photo, the button below it"),
+)
+
+
+def photo_banner_prompt(biz, title: str, price: str, cta: str, index: int = 0) -> str:
+    """Запрос «сделай баннер из этого фото»: фото владельца остаётся настоящим, меняется только оформление и текст."""
+    text = f'a large bold headline «{title}»'
+    if price:
+        text += f' and a price badge «{price.replace(chr(160), " ")}»'
+    name, look = PHOTO_LOOKS[index % len(PHOTO_LOOKS)]
+    return (f"Create a professional advertising banner, landscape 4:3, for: {biz['kind']}, using the attached photo as the main image. "
+            "Keep the real photo natural and unaltered (the same people, animals, objects and place); you may crop it and extend its background for the layout. "
+            f"Add text in Russian, spelled exactly as written, nothing added or changed: {text}, and a solid rounded button «{cta}». "
+            f"Visual direction: {look}. Strong contrast, text is easy to read and never covers faces or the main subject. "
+            "Do not write the business name, website addresses, domain names, phone numbers or any other text. "
+            "Do not add logos, emblems, icons, watermarks, decorative frames, ornaments, sparkles or glow.")
+
+
+def edit_model(model: str) -> str:
+    """Модель, которая умеет принимать фото: для GPT Image это тот же GPT Image в режиме edit."""
+    if model.endswith("/edit"):
+        return model
+    return (model if "gpt-image" in model else "openai/gpt-image-2") + "/edit"
+
+
+def edit_payload(prompt: str, image_urls: list[str]) -> dict:
+    return {"prompt": prompt, "image_urls": image_urls, "image_size": "landscape_4_3", "quality": "medium", "num_images": 1, "output_format": "jpeg"}
+
+
 def video_payload(model: str, image_url: str, prompt: str) -> dict:
     if "kling-video/v3" in model or "kling-video/o3" in model:
         return {"start_image_url": image_url, "prompt": prompt, "duration": "5", "generate_audio": False}  # звук дороже и в Директе не нужен
@@ -154,6 +194,11 @@ def video_payload(model: str, image_url: str, prompt: str) -> dict:
 async def start_image(prompt: str, key: str, model: str, transport=None) -> dict:
     async with httpx.AsyncClient(timeout=60, transport=transport) as http:
         return await _submit(http, model, key, image_payload(model, prompt))
+
+
+async def start_edit(prompt: str, image_urls: list[str], key: str, model: str, transport=None) -> dict:
+    async with httpx.AsyncClient(timeout=90, transport=transport) as http:
+        return await _submit(http, edit_model(model), key, edit_payload(prompt, image_urls))
 
 
 async def start_video(image_url: str, prompt: str, key: str, model: str, transport=None) -> dict:

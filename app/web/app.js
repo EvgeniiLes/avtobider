@@ -438,7 +438,7 @@ async function loadAds() {
       el("div", { className: "ad-site" }, el("b", { textContent: "Реклама" }), host),
       a.angle_label ? el("div", { className: "hint", textContent: `Угол подачи: ${a.angle_label}` }) : "",
       a.ai && a.ai.scene ? el("div", { className: "hint", textContent: `Сцена: ${a.ai.scene}${a.ai.audience ? `. Для: ${a.ai.audience}` : ""}` }) : "",
-      a.ai && a.ai.scene ? el("div", { className: "hint", textContent: a.ai.logo === "placed" ? "Логотип на баннере" : `Без логотипа${a.ai.logo_reason ? `: ${a.ai.logo_reason}` : ""}` }) : "");
+      a.ai && a.ai.scene && (a.ai.logo === "placed" || a.ai.logo_reason) ? el("div", { className: "hint", textContent: a.ai.logo === "placed" ? "Логотип на баннере" : `Без логотипа: ${a.ai.logo_reason}` }) : "");
     const action = a.own
       ? el("button", { className: "small secondary", textContent: "Не использовать" })
       : el("button", { className: "small", textContent: "Использовать этот" });
@@ -484,6 +484,20 @@ async function loadAds() {
       await loadCreatives();
     });
     const card = el("div", { className: "ad" + (working ? " is-working" : "") }, pic, body, foot, el("div", { className: "ad-foot ad-redo" }, again, redraw));
+    if (a.ai && a.ai.prompt) {  // промпт, по которому нейросеть делает баннер из вашего фото: можно поправить и нарисовать заново
+      const area = el("textarea", { rows: 7, maxLength: 4000, value: a.ai.prompt });
+      const go = el("button", { className: "small", textContent: "Нарисовать по этому промпту" });
+      go.disabled = working;
+      go.addEventListener("click", async () => {
+        if (!(await askConfirm("Нарисовать по промпту?", `Это платно: около ${usd(creativePrices.ai_banner || 0.07)}. Нейросеть сделает баннер из вашего фото по этому тексту.`, "Нарисовать"))) return;
+        const r = await creativeCall("POST", `/ads/${a.index}/ai-banner`, { prompt: area.value });
+        if (!r.ok) { say(errorText(r), "err"); return; }
+        await loadCreatives();
+      });
+      card.append(el("details", { className: "own-text" }, el("summary", { textContent: "Промпт для картинки" }),
+        el("p", { className: "hint", textContent: "Так сервис просит нейросеть сделать баннер из вашего фото. Поправьте текст (оформление, цвета, что убрать) и нажмите кнопку. Заголовок и кнопку оставьте в кавычках, их потом проверит сервис." }),
+        area, el("p"), go));
+    }
     card.append(el("div", { className: "busy-layer" }, el("div", { className: "spinner" })));
     return card;
   }));

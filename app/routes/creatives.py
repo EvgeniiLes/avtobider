@@ -97,10 +97,10 @@ def _save_asset(conn, business_id: int, kind: str, data: bytes, name: str) -> in
     return cur.lastrowid
 
 
-def _bytes_url(data: bytes) -> str:
-    """Картинка в виде data-адреса для модели со зрением (уменьшенная: быстрее и дешевле)."""
+def _bytes_url(data: bytes, side: int = 1024) -> str:
+    """Картинка в виде data-адреса для модели (уменьшенная: быстрее и дешевле)."""
     img = Image.open(BytesIO(data)).convert("RGB")
-    img.thumbnail((1024, 1024))
+    img.thumbnail((side, side))
     buf = BytesIO()
     img.save(buf, "JPEG", quality=85)
     return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
@@ -256,8 +256,11 @@ def ads(business_id: int, user: sqlite3.Row = Depends(current_user), conn: sqlit
         meta = json.loads(row["prompt"] or "{}") if row is not None and state != "none" else {}
         if state == "ready" and meta.get("concept"):  # сюжет баннера: по нему потом сравниваем, какая сцена и ЦА работают лучше
             photo_type = meta["concept"]
-            ai.update({"scene": scene_label(photo_type), "audience": meta.get("audience", ""),
+            ai.update({"scene": meta["scene"] if meta.get("mode") == "photo" else scene_label(photo_type), "audience": meta.get("audience", ""),
                        "logo": "placed" if meta.get("logo") else "skipped", "logo_reason": meta.get("logo_reason", "")})
+        if photos and not _extras():   # промпт, по которому рисуется баннер из фото: виден и правится на карточке
+            ai["prompt"] = meta.get("prompt_text") or fal.photo_banner_prompt(
+                biz, v["title"], find_price(v["title"], v["text"], biz["description"]), profile(biz)["cta"], i)
         if state == "ready":
             banner = f"/api/businesses/{business_id}/creatives/ads/{i}/banner.jpg"   # готовый ИИ-баннер важнее шаблона
         elif style == "ai":
@@ -331,8 +334,9 @@ def _other_scenes(conn, business_id: int, variants: list[dict], skip: int) -> li
     return scenes
 
 
-def _order_banner(conn, biz, variants: list[dict], index: int, key: str, transport, others: list[str]) -> str:
-    """Заказывает один ИИ-баннер: арт-директор придумывает сцену и решает про логотип, потом рисует художник. Возвращает сцену."""
+def _order_banner(conn, biz, variants: list[dict], index: int, key: str, transport, others: list[str], custom_prompt: str = "") -> str:
+    """Заказывает один ИИ-баннер. Есть фото владельца: модель делает баннер из этого фото (оформление у каждого объявления своё).
+    Фото нет: арт-директор придумывает сцену, художник рисует с нуля. custom_prompt: промпт, который владелец поправил сам. Возвращает описание."""
     business_id = biz["id"]
     v = variants[index]
     s = get_settings()
@@ -340,15 +344,28 @@ def _order_banner(conn, biz, variants: list[dict], index: int, key: str, transpo
     cta = profile(biz)["cta"]
     expected = [v["title"], cta] + ([price] if price else [])   # на баннере только заголовок, кнопка и цена: подписи с названием нет
     extras = _extras()   # экран со скриншотом и логотип в слоте: пока выключены, сначала добиваемся хорошего базового баннера
+    photos, _logo = media_typed(conn, biz)
+    if photos and not extras:   # главный путь: настоящее фото владельца отдаётся модели вместе с промптом про оформление
+        kind, data = photo_for(photos, index)
+        look = fal.PHOTO_LOOKS[index % len(fal.PHOTO_LOOKS)][0]
+        prompt = custom_prompt or fal.photo_banner_prompt(biz, v["title"], price, cta, index)
+        job = asyncio.run(fal.start_edit(prompt, [_bytes_url(data, 1280)], key, s.fal_banner_model, transport))
+        what = f"фото «{PHOTO_TAGS.get(kind, kind)}», оформление: {look}"
+        meta = {"expect": expected, "logo": False, "screen": False, "mode": "photo", "concept": kind, "look": look, "audience": "", "scene": what,
+                "logo_reason": "", "prompt_text": prompt,
+                "brief": f"ВАЖНО: основа баннера настоящее фото владельца, его нужно принимать как есть. Оформление: {look}. {biz['kind']}."}
+        conn.execute("INSERT INTO creatives (business_id, kind, title, body, prompt, status, source, external_id) VALUES (?, 'ai_banner', ?, ?, ?, 'working', 'fal', ?)",
+                     (business_id, v["title"], v["text"], json.dumps(meta, ensure_ascii=False), json.dumps(job)))
+        return what
     logo = logo_for(conn, biz) if extras else None
     screen = extras and _screenshot(conn, business_id) is not None
     art = asyncio.run(art_direction(biz, v, index, others, _logo_info(conn, biz, logo), screen, key, s.fal_text_model, transport))
     use_logo = bool(art["logo"]) and logo is not None
-    prompt = fal.banner_prompt(biz, v["title"], price, cta, logo_corner=use_logo, index=index, screen=screen,
-                               logo_ratio=_logo_ratio(logo), scene=art["scene"])
+    prompt = custom_prompt or fal.banner_prompt(biz, v["title"], price, cta, logo_corner=use_logo, index=index, screen=screen,
+                                                logo_ratio=_logo_ratio(logo), scene=art["scene"])
     job = asyncio.run(fal.start_image(prompt, key, s.fal_banner_model, transport))
     meta = {"expect": expected, "logo": use_logo, "screen": screen, "concept": art["concept"], "audience": art["audience"], "scene": art["scene"],
-            "logo_reason": art["logo_reason"],
+            "logo_reason": art["logo_reason"], "prompt_text": prompt,
             "brief": ("ВАЖНО: на экране телефона вставлен НАСТОЯЩИЙ скриншот приложения владельца. Это не выдумка нейросети и не недостаток: "
                       "интерфейс на экране, его вид и надписи на нём не оценивай и не снижай за них оценку. "
                       if screen else
@@ -360,8 +377,12 @@ def _order_banner(conn, biz, variants: list[dict], index: int, key: str, transpo
     return art["scene"]
 
 
+class BannerIn(BaseModel):
+    prompt: str = Field(default="", max_length=4000)   # свой промпт: владелец поправил предложенный и просит нарисовать по нему
+
+
 @router.post("/ads/{index}/ai-banner")
-def make_ai_banner(business_id: int, index: int, user: sqlite3.Row = Depends(current_user),
+def make_ai_banner(business_id: int, index: int, data: BannerIn | None = None, user: sqlite3.Row = Depends(current_user),
                    conn: sqlite3.Connection = Depends(get_db), transport=Depends(creative_transport)):
     """Заказывает баннер целиком у нейросети (стиль «ИИ-дизайн»). Платно: цену показывает сайт перед запуском."""
     biz = _own(conn, user, business_id)
@@ -369,12 +390,15 @@ def make_ai_banner(business_id: int, index: int, user: sqlite3.Row = Depends(cur
     variants, _count, _pool = _ad_variants(conn, biz)
     if not 0 <= index < len(variants):
         raise HTTPException(400, detail={"message": "Такого объявления нет."})
+    custom = (data.prompt.strip() if data else "")
+    if custom and len(custom) < 30:
+        raise HTTPException(400, detail={"message": "Промпт слишком короткий: опишите, какой должен быть баннер."})
     old = _ai_row(conn, business_id, variants[index])
     if old is not None and old["status"] == "working":
         raise HTTPException(400, detail={"message": "Этот баннер уже рисуется. Подождите минуту."})
     _charge(conn, business_id, "ai_banner")
     try:
-        _order_banner(conn, biz, variants, index, key, transport, _other_scenes(conn, business_id, variants, index))
+        _order_banner(conn, biz, variants, index, key, transport, _other_scenes(conn, business_id, variants, index), custom)
     except fal.FalError as e:
         conn.rollback()
         raise HTTPException(502, detail={"message": e.message})
