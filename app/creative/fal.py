@@ -56,14 +56,14 @@ def image_prompt(biz, idea: str = "", style: int = 0) -> str:
             "Без текста, букв, логотипов, узнаваемых брендов на упаковке и водяных знаков.")
 
 
+# Только оформление: цвета и настроение. Где стоит текст и как скомпонован кадр, решает сама модель, чтобы варианты отличались и для A/B.
 DIRECTIONS = (
-    "bright clean minimal look, soft natural light, white and light pastel colors, dark headline",
-    "high-contrast dark poster: near-black background, ONE sharp neon accent color (electric orange or hot cyan, never green), huge heavy "
-    "condensed sans-serif headline on the left, hard-edged flat geometric shapes, button as a plain solid accent rectangle. "
-    "Flat graphic design like a real designer's work, NO gold, NO serif fonts",
-    "vivid saturated colors, bold sans-serif headline, energetic modern layout, colorful background",
-    "soft pastel colors, rounded shapes, airy layout, gentle gradient background",
-    "warm realistic photographic look, cozy atmosphere, headline over a calm area of the photo",
+    "airy light look: warm white and soft daylight, dark navy headline, one calm accent color on the button",
+    "dark contrast look: near-black background, white headline, ONE bright accent color (orange or cyan, never green) on the button, "
+    "the subject lit with a soft rim light",
+    "bold colorful look: one saturated color field (royal blue, violet or red), white headline, yellow button",
+    "soft pastel look: gentle peach, mint or lilac tones, dark headline, rounded button",
+    "warm photographic look: a full-bleed photo with warm light, text placed on a smooth darker area of the photo, white headline",
 )
 
 
@@ -76,7 +76,7 @@ def _visual_rules(biz) -> str:
     description = (biz["description"] or "").strip()[:500]
     rules = (f"About the business (use only this, do not invent anything): {description}. "
              "Depict exactly what the business really offers and how clients use it. Never replace the real product with a physical "
-             "equivalent: if the description says it is online or used on a phone, show a smartphone or an app screen, not real-world objects. ")
+             "equivalent: if the description says it is online or used on a phone, show people with a smartphone, not real-world objects. ")
     if hint:
         rules += f"The owner's direction for the visuals, follow it strictly: {hint}. "
     return rules
@@ -99,23 +99,22 @@ def banner_prompt(biz, title: str, price: str, cta: str, logo_corner: bool = Fal
                   logo_ratio: float | None = None, scene: str = "") -> str:
     """Запрос на баннер целиком: русский текст пишет сама модель, поэтому он короткий и в точных кавычках.
     scene: сцена от арт-директора (кто в кадре и что делает); direction задаёт только оформление: цвета, шрифт, компоновку."""
-    parts = [f'headline "{title}"']
+    text = f'headline «{title}»'
     if price:
-        parts.append(f'price badge "{price.replace(chr(160), " ")}"')
-    parts.append(f'button "{cta}"')
-    if not logo_corner:  # с настоящим логотипом отдельная подпись не нужна: нейросеть рисует из неё свой выдуманный знак
-        parts.append(f'small plain-text caption "{biz["name"]}" without any icon or emblem')
-    return (f"Advertising banner for: {biz['kind']}, brand {biz['name']}. " + _visual_rules(biz)
-            + (f"Scene, follow it closely: {scene}. " if scene else "") +
-            "Landscape 4:3, modern professional layout, lots of clean space around the text. Visual direction: " + DIRECTIONS[index % len(DIRECTIONS)] + ". "
-            "Text in Russian, exactly as written, large and perfectly legible: " + ", ".join(parts) + ". "
-            "No other text, no extra letters, no website addresses, no URLs, no domain names, no phone numbers. Never draw any logo, emblem, badge, mascot, icon or brand mark of any company, including "
-            "the advertiser: the real logo is added later by the designer. "
-            + ("" if screen else "Never invent an app or website interface: any phone or monitor in the scene must show no readable interface, "
-               "no text and no faces, so show it from the back or at an angle where the screen is not visible, or with a plain softly glowing blank screen. ")
-            +
-            "No decorative frames, ornaments, hexagon or diamond shapes, golden dust, sparkles, bokeh, lens flare or glow effects: "
-            "a confident, simple layout with a big readable headline and one clear subject."
+        text += f' and a price badge «{price.replace(chr(160), " ")}»'
+    return (f"Create a polished, professional advertising banner for Yandex Direct, landscape 4:3. Business: {biz['kind']}; the brand name "
+            f"«{biz['name']}» is NOT written on the banner. " + _visual_rules(biz)
+            + f"Scene, follow it closely: {scene or 'one clear subject that shows what the business really offers'}. "
+            "One clear focal subject, natural realistic photography, correct anatomy and hands, no clutter. "
+            "Choose the composition freely like an art director (the text may sit on the left, right, top or bottom), but the text always lies on "
+            "a calm area with strong contrast and never covers faces or the main subject. "
+            f"Text in Russian, spelled EXACTLY as given, nothing added, nothing changed: {text}, and below it a solid rounded button «{cta}». "
+            "The headline is very large, heavy bold sans-serif, left aligned, at most 4 lines, the first thing the eye sees, with strong contrast "
+            "against its background. "
+            "Visual direction: " + DIRECTIONS[index % len(DIRECTIONS)] + ". A harmonious palette of 2-3 colors; it looks like an ad from a top agency. "
+            "Never add: any other text, website addresses, domain names, phone numbers, logos, emblems, icons, mascots, watermarks; "
+            "an invented app or website interface (a phone in the scene shows a plain dark screen or is turned away); "
+            "decorative frames, ornaments, golden dust, sparkles, glow or lens flare."
             + (LOGO_RULE.format(ratio=logo_ratio or 2.5, width=36 if (logo_ratio or 2.5) >= 3 else 28) if logo_corner else "")
             + (SCREEN_RULE if screen else ""))
 

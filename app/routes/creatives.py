@@ -3,6 +3,7 @@ import asyncio
 import base64
 import hashlib
 import json
+import os
 import sqlite3
 from io import BytesIO
 from typing import Literal
@@ -124,8 +125,8 @@ def _refresh_working(conn, business_id: int, transport) -> None:
         try:
             data = asyncio.run(fal.download(value, transport))
             if r["kind"] == "ai_banner":
-                shot = _screenshot(conn, business_id)
-                if shot:  # настоящий скриншот ложится в пурпурный экран телефона
+                shot = _screenshot(conn, business_id) if json.loads(r["prompt"] or "{}").get("screen") else None
+                if shot:  # настоящий скриншот ложится в пурпурный экран телефона (только если баннер заказан с экраном)
                     composed = insert_screenshot(data, shot)
                     if composed is None:
                         conn.execute("UPDATE creatives SET status = 'failed', error = ? WHERE id = ?",
@@ -295,6 +296,11 @@ def _ai_row(conn, business_id: int, variant: dict):
         (business_id, variant["title"], variant["text"])).fetchone()
 
 
+def _extras() -> bool:
+    """Расширения баннера (скриншот на экране телефона, логотип в слоте). Включаются переменной BANNER_EXTRAS=1."""
+    return os.environ.get("BANNER_EXTRAS", "").strip() == "1"
+
+
 def _logo_info(conn, biz, logo: bytes | None) -> dict | None:
     """Что арт-директору известно о логотипе: пропорции и оценка читаемости от ИИ-проверки."""
     if logo is None:
@@ -321,17 +327,16 @@ def _order_banner(conn, biz, variants: list[dict], index: int, key: str, transpo
     s = get_settings()
     price = find_price(v["title"], v["text"], biz["description"])
     cta = profile(biz)["cta"]
-    expected = [v["title"], biz["name"], cta] + ([price] if price else [])
-    logo = logo_for(conn, biz)
-    screen = _screenshot(conn, business_id) is not None
+    expected = [v["title"], cta] + ([price] if price else [])   # на баннере только заголовок, кнопка и цена: подписи с названием нет
+    extras = _extras()   # экран со скриншотом и логотип в слоте: пока выключены, сначала добиваемся хорошего базового баннера
+    logo = logo_for(conn, biz) if extras else None
+    screen = extras and _screenshot(conn, business_id) is not None
     art = asyncio.run(art_direction(biz, v, index, others, _logo_info(conn, biz, logo), screen, key, s.fal_text_model, transport))
     use_logo = bool(art["logo"]) and logo is not None
-    if use_logo:  # подписи с названием на баннере не будет: вместо неё настоящий логотип
-        expected = [e for e in expected if e != biz["name"]]
     prompt = fal.banner_prompt(biz, v["title"], price, cta, logo_corner=use_logo, index=index, screen=screen,
                                logo_ratio=_logo_ratio(logo), scene=art["scene"])
     job = asyncio.run(fal.start_image(prompt, key, s.fal_banner_model, transport))
-    meta = {"expect": expected, "logo": use_logo, "concept": art["concept"], "audience": art["audience"], "scene": art["scene"],
+    meta = {"expect": expected, "logo": use_logo, "screen": screen, "concept": art["concept"], "audience": art["audience"], "scene": art["scene"],
             "logo_reason": art["logo_reason"],
             "brief": ("ВАЖНО: на экране телефона вставлен НАСТОЯЩИЙ скриншот приложения владельца. Это не выдумка нейросети и не недостаток: "
                       "интерфейс на экране, его вид и надписи на нём не оценивай и не снижай за них оценку. "

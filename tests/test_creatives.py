@@ -45,7 +45,7 @@ class Fakes:
 
     def handle(self, request: httpx.Request):
         host, path = request.url.host, request.url.path
-        self.requests.append((host, path, request.content[:2000]))
+        self.requests.append((host, path, request.content[:6000]))
         if host == "api.anthropic.com":
             if self.claude_text is None:
                 return httpx.Response(500, json={})
@@ -307,7 +307,7 @@ def test_ai_banner_is_ordered_checked_and_used(monkeypatch):
         assert http.post(f"{base}/ads/4/ai-banner").status_code == 400      # второй раз, пока рисуется, нельзя
         host, path, body = next(r for r in fakes.requests if r[0] == "queue.fal.run")   # перед рисованием арт-директор придумывает сцену
         assert "gpt-image-2" in path
-        assert b"landscape_4_3" in body and b"medium" in body and b"Visual direction" in body and b"Scene, follow it closely" in body
+        assert b"landscape_4_3" in body and b"medium" in body and b"Visual direction" in body and b"follow it closely" in body
         http.get(base)
         assert _ai_ad(http, bid)["ai"]["status"] == "working"
 
@@ -738,6 +738,7 @@ def test_screenshot_goes_into_the_screen_only():
 
 def test_ai_banner_with_a_screenshot_is_composited(monkeypatch):
     monkeypatch.setenv("FAL_KEY", "fal-test")
+    monkeypatch.setenv("BANNER_EXTRAS", "1")   # скриншот в экран телефона и логотип в слоте: расширения, по умолчанию выключены
     fakes = Fakes(fal_done=True)
     with TestClient(app) as http:
         bid = setup(http)
@@ -759,6 +760,7 @@ def test_ai_banner_with_a_screenshot_is_composited(monkeypatch):
 
 def test_screenshot_without_a_phone_screen_makes_the_banner_fail(monkeypatch):
     monkeypatch.setenv("FAL_KEY", "fal-test")
+    monkeypatch.setenv("BANNER_EXTRAS", "1")
     fakes = Fakes(fal_done=True)
     with TestClient(app) as http:
         bid = setup(http)
