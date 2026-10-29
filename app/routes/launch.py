@@ -51,9 +51,9 @@ def _plan_for(conn, user, biz, account_id, factory):
     region, minimum = asyncio.run(go())
     kwargs = {"min_weekly_micro": minimum} if minimum else {}
     approved = conn.execute(
-        "SELECT title, body FROM creatives WHERE business_id = ? AND kind = 'text' AND status = 'approved' ORDER BY id", (biz["id"],)
+        "SELECT title, body, angle FROM creatives WHERE business_id = ? AND kind = 'text' AND status = 'approved' ORDER BY id", (biz["id"],)
     ).fetchall()
-    custom = [{"title": r["title"], "text": r["body"]} for r in approved]
+    custom = [{"title": r["title"], "text": r["body"], "angle": r["angle"]} for r in approved]
     return account, token, login, plan_launch(biz, region, custom=custom, **kwargs)
 
 

@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 from app.assets import AssetError, prepare_image, prepare_video
 from app.config import get_settings
 from app.creative import fal
+from app.creative.angles import label as angle_label
 from app.assets import PHOTO_TAGS
 from app.creative.compose import add_logo, find_price, prepare_for_direct, style_for
 from app.creative.texts_ai import check_photo, generate_texts, missing_phrases, read_image_text
@@ -53,6 +54,7 @@ def _caps() -> dict:
 def _row(r: sqlite3.Row, business_id: int) -> dict:
     return {
         "id": r["id"], "kind": r["kind"], "title": r["title"], "body": r["body"], "status": r["status"], "source": r["source"],
+        "angle": r["angle"], "angle_label": angle_label(r["angle"]),
         "error": r["error"], "prompt": r["prompt"],
         "url": f"/api/businesses/{business_id}/assets/{r['asset_id']}/file" if r["asset_id"] else "",
         "created_at": r["created_at"],
@@ -158,8 +160,8 @@ def generate(business_id: int, data: TextsIn, user: sqlite3.Row = Depends(curren
     added = 0
     for v, source in made[:data.count]:
         existing.add(v["title"].lower())
-        conn.execute("INSERT INTO creatives (business_id, kind, title, body, source) VALUES (?, 'text', ?, ?, ?)",
-                     (business_id, v["title"], v["text"], source))
+        conn.execute("INSERT INTO creatives (business_id, kind, title, body, source, angle) VALUES (?, 'text', ?, ?, ?, ?)",
+                     (business_id, v["title"], v["text"], source, v.get("angle", "")))
         added += 1
     conn.commit()
     has_ai = bool(s.anthropic_api_key or s.fal_key)
@@ -173,11 +175,11 @@ def generate(business_id: int, data: TextsIn, user: sqlite3.Row = Depends(curren
 def _ad_variants(conn, biz) -> tuple[list[dict], int, int]:
     """Объявления, которые будут созданы при запуске: те же тексты и то же число, что в плане запуска."""
     approved = conn.execute(
-        "SELECT id, title, body FROM creatives WHERE business_id = ? AND kind = 'text' AND status = 'approved' ORDER BY id",
+        "SELECT id, title, body, angle FROM creatives WHERE business_id = ? AND kind = 'text' AND status = 'approved' ORDER BY id",
         (biz["id"],)).fetchall()
     pool, count = start_split(biz)
     shown = count or 3  # бюджет слишком мал для запуска: всё равно показываем, как будет выглядеть
-    variants, _ = choose_variants(biz, [{"title": r["title"], "text": r["body"]} for r in approved], shown)
+    variants, _ = choose_variants(biz, [{"title": r["title"], "text": r["body"], "angle": r["angle"]} for r in approved], shown)
     ids = {r["title"].lower(): r["id"] for r in approved}
     for v in variants:
         v["creative_id"] = ids.get(v["title"].lower())
@@ -203,6 +205,7 @@ def ads(business_id: int, user: sqlite3.Row = Depends(current_user), conn: sqlit
             banner = f"/api/businesses/{business_id}/creatives/ads/{i}/banner.jpg" if state == "ready" else ""
         items.append({"index": i, "title": v["title"], "text": v["text"], "own": v["creative_id"] is not None,
                       "creative_id": v["creative_id"], "style": style, "ai": ai, "banner_url": banner,
+                      "angle": v.get("angle", ""), "angle_label": angle_label(v.get("angle", "")),
                       "photo_type": photo_type, "photo_label": PHOTO_TAGS.get(photo_type, "")})
     return {
         "ads": items,

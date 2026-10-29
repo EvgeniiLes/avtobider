@@ -231,6 +231,8 @@ ADDED_COLUMNS = [
     ("ad_units", "status_note", "TEXT NOT NULL DEFAULT ''"),
     ("ad_units", "style", "TEXT NOT NULL DEFAULT ''"),
     ("ad_units", "photo_type", "TEXT NOT NULL DEFAULT ''"),
+    ("ad_units", "angle", "TEXT NOT NULL DEFAULT ''"),
+    ("creatives", "angle", "TEXT NOT NULL DEFAULT ''"),
     ("business_assets", "ai_type", "TEXT NOT NULL DEFAULT ''"),
     ("business_assets", "ai_score", "INTEGER NOT NULL DEFAULT 0"),
     ("business_assets", "ai_note", "TEXT NOT NULL DEFAULT ''"),

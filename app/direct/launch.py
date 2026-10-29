@@ -58,7 +58,8 @@ def start_split(biz, min_weekly_micro: int = MIN_WEEKLY) -> tuple[int, int]:
 
 def choose_variants(biz, custom: list[dict] | None, count: int) -> tuple[list[dict], int]:
     """Сначала тексты, которые владелец одобрил; недостающие добираем из шаблонов без повторов. Второе число: сколько своих."""
-    variants = [{"title": c["title"], "text": c["text"]} for c in (custom or []) if not check(c["title"], c["text"])][:count]
+    variants = [{"title": c["title"], "text": c["text"], "angle": c.get("angle", "")}
+                for c in (custom or []) if not check(c["title"], c["text"])][:count]
     own = len(variants)
     for v in draft_variants(biz, MAX_VARIANTS):
         if len(variants) >= count:
@@ -134,12 +135,13 @@ async def create_unit(client: DirectClient, plan: Plan, variant: dict, name: str
 
 
 def save_unit(conn: sqlite3.Connection, biz, account_id: int, campaign_row_id: int, variant: dict, ids: dict,
-              weekly_micro: int, today: str, variant_of: int | None = None, style: str = "", photo_type: str = "") -> int:
+              weekly_micro: int, today: str, variant_of: int | None = None, style: str = "", photo_type: str = "",
+              angle: str = "") -> int:
     cur = conn.execute(
         "INSERT INTO ad_units (campaign_id, business_id, title, body, state, budget_micro, variant_of, last_changed_day, created_day, "
-        "external_campaign_id, external_group_id, external_ad_id, style, photo_type) VALUES (?,?,?,?, 'moderation', ?,?,?,?,?,?,?,?,?)",
+        "external_campaign_id, external_group_id, external_ad_id, style, photo_type, angle) VALUES (?,?,?,?, 'moderation', ?,?,?,?,?,?,?,?,?,?)",
         (campaign_row_id, biz["id"], variant["title"], variant["text"], weekly_micro, variant_of, today, today,
-         ids["campaign_id"], ids["group_id"], ids["ad_id"], style, photo_type),
+         ids["campaign_id"], ids["group_id"], ids["ad_id"], style, photo_type, angle),
     )
     return cur.lastrowid
 
@@ -282,7 +284,7 @@ async def launch(client: DirectClient, conn: sqlite3.Connection, biz, account_id
     )
     unit_ids = [
         save_unit(conn, biz, account_id, row.lastrowid, c["variant"], c, plan.per_unit_micro, today, style=style_for(i),
-                  photo_type=photo_for(photos, i)[0] if photos else "")
+                  photo_type=photo_for(photos, i)[0] if photos else "", angle=c["variant"].get("angle", ""))
         for i, c in enumerate(created)
     ]
     if banner_problems:

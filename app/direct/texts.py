@@ -36,6 +36,33 @@ def check(title: str, text: str) -> list[str]:
     return problems
 
 
+ALWAYS_FORBIDDEN = re.compile(r"(?i)\b(лучш\w+|№\s?1|номер один|100\s?%|самы\w+ дешев\w+)")
+DISCOUNT = re.compile(r"(?i)\bскидк\w+\s*(?:до\s*)?(\d+)")
+NUMBER = re.compile(r"\d(?:[\d\s\u00a0]*\d)?")
+
+
+def _numbers(text: str) -> set[str]:
+    return {re.sub(r"\D", "", m.group(0)) for m in NUMBER.finditer(text or "")}
+
+
+def unsupported_claims(text: str, facts: str) -> list[str]:
+    """Обещания, которых нет в описании владельца. Сильные слова («лучший», «№1», «100%») запрещены всегда.
+    «Бесплатно», «гарантия», «скидка N%», цены, сроки и любые числа разрешены, только если это прямо сказано в описании."""
+    found = [m.group(0) for m in ALWAYS_FORBIDDEN.finditer(text)]
+    low, facts_low, known = text.lower(), (facts or "").lower(), _numbers(facts or "")
+    if "бесплатн" in low and "бесплатн" not in facts_low:
+        found.append("бесплатно")
+    if "гарант" in low and "гарант" not in facts_low:
+        found.append("гарантия")
+    for m in DISCOUNT.finditer(text):
+        if "скидк" not in facts_low or m.group(1) not in known:
+            found.append(m.group(0))
+    for number in _numbers(text):
+        if number and number not in known:
+            found.append(f"число {number}")
+    return found
+
+
 def _first_sentence(description: str, limit: int) -> str:
     sentence = re.split(r"(?<=[.!?])\s", description.strip(), maxsplit=1)[0].rstrip(".")
     return fit(sentence, limit) if sentence else ""
@@ -54,9 +81,10 @@ def draft_variants(biz, count: int = 6) -> list[dict]:
         (f"{name}: {kind_l}", own or "Приходите знакомиться, будем рады вам"),
         (f"{kind}: удобный адрес", f"{name}. Выберите время и приходите"),
     ]
+    from app.creative.angles import TEMPLATE_ANGLES  # импорт здесь, чтобы не было круга
     variants = []
-    for title, text in options[:count]:
-        variants.append({"title": fit(title, TITLE_MAX), "text": fit(text, TEXT_MAX)})
+    for (title, text), angle in zip(options[:count], TEMPLATE_ANGLES):
+        variants.append({"title": fit(title, TITLE_MAX), "text": fit(text, TEXT_MAX), "angle": angle})
     return variants
 
 
@@ -66,4 +94,4 @@ def alternative_variant(biz, used_titles: set[str]) -> dict:
         if v["title"] not in used_titles:
             return v
     base = draft_variants(biz)[0]
-    return {"title": fit(base["title"], TITLE_MAX - 4) + " ✓", "text": base["text"]}
+    return {"title": fit(base["title"], TITLE_MAX - 4) + " ✓", "text": base["text"], "angle": base.get("angle", "")}

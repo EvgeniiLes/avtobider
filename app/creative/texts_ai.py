@@ -4,18 +4,20 @@ import re
 
 import httpx
 
-from app.direct.texts import TEXT_MAX, TITLE_MAX, check, fit
+from app.creative.angles import ANGLES, prompt_block
+from app.direct.texts import TEXT_MAX, TITLE_MAX, check, fit, unsupported_claims
 
 API_URL = "https://api.anthropic.com/v1/messages"
-FORBIDDEN = re.compile(r"(?i)\b(лучш\w+|№\s?1|номер один|гарант\w+|100\s?%|самы\w+ дешев\w+|бесплатно|скидк\w+ \d+)")
 
 SYSTEM = (
     "Ты пишешь тексты для объявлений Яндекс Директа на русском для малого бизнеса. "
     f"Заголовок не длиннее {TITLE_MAX} символов, текст не длиннее {TEXT_MAX} символов. "
-    "Используй только факты из описания бизнеса. Не выдумывай скидки, цены, акции, гарантии, опыт и награды, "
-    "не пиши превосходные степени («лучший», «самый») и слово «бесплатно». Без эмодзи и восклицательных знаков. "
-    "Каждый вариант с другим акцентом (запись, удобство, расположение, услуга, доверие, спокойный тон). "
-    "Ответ: только JSON-массив объектов {\"title\": \"...\", \"text\": \"...\", \"angle\": \"...\"}, без пояснений."
+    "Используй только факты из описания бизнеса. Скидки, акции, цены, сроки, гарантии, опыт и рейтинг можно упоминать, "
+    "только если они прямо названы в описании: дословно и с теми же цифрами. Ничего не выдумывай и не добавляй числа, которых там нет. "
+    "Запрещены слова «лучший», «самый», «№1», «100%». Без эмодзи и восклицательных знаков. "
+    "Каждый вариант пиши под свой угол подачи из списка в запросе, углы не повторяй. Заголовок должен цеплять сразу: "
+    "конкретный результат, цена, удобство или вопрос к клиенту, а не общие слова. "
+    "Ответ: только JSON-массив объектов {\"title\": \"...\", \"text\": \"...\", \"angle\": \"id угла из списка\"}, без пояснений."
 )
 
 
@@ -29,12 +31,14 @@ def build_prompt(biz, count: int, hint: str = "") -> str:
         parts.append(f"Желаемый тон: {tones.get(biz['tone'], biz['tone'])}")
     if hint.strip():
         parts.append(f"Пожелание владельца: {hint.strip()[:300]}")
+    parts.append(prompt_block(biz["description"]))
     parts.append(f"Нужно вариантов: {count}.")
     return "\n".join(parts)
 
 
-def parse_variants(raw: str) -> list[dict]:
-    """Достаёт JSON-массив из ответа модели и оставляет только объявления, прошедшие проверку."""
+def parse_variants(raw: str, facts: str = "") -> list[dict]:
+    """Достаёт JSON-массив из ответа модели и оставляет только объявления, прошедшие проверку.
+    facts: описание владельца, по нему решаем, какие обещания и числа допустимы."""
     match = re.search(r"\[.*\]", raw, re.S)
     if not match:
         return []
@@ -42,15 +46,20 @@ def parse_variants(raw: str) -> list[dict]:
         items = json.loads(match.group(0))
     except ValueError:
         return []
-    good, seen = [], set()
+    good, seen, seen_angles = [], set(), set()
     for item in items if isinstance(items, list) else []:
         if not isinstance(item, dict):
             continue
         title, text = str(item.get("title", "")).strip(), str(item.get("text", "")).strip()  # слишком длинное не режем, а отбраковываем
-        if check(title, text) or FORBIDDEN.search(title + " " + text) or "!" in title + text or title.lower() in seen:
+        angle = str(item.get("angle", "")).strip()
+        angle = angle if angle in ANGLES else ""
+        if check(title, text) or unsupported_claims(title + " " + text, facts) or "!" in title + text or title.lower() in seen:
+            continue
+        if angle and angle in seen_angles:  # для сравнения нужны разные углы: второй текст с тем же углом пропускаем
             continue
         seen.add(title.lower())
-        good.append({"title": title, "text": text, "angle": str(item.get("angle", ""))[:60]})
+        seen_angles.add(angle)
+        good.append({"title": title, "text": text, "angle": angle})
     return good
 
 
@@ -196,4 +205,4 @@ async def generate_texts(biz, count: int, api_key: str, model: str, hint: str = 
                 raw = ""
             if raw:
                 break
-    return parse_variants(raw) if raw else []
+    return parse_variants(raw, biz["description"] or "") if raw else []

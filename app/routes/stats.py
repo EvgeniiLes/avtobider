@@ -10,6 +10,7 @@ import asyncio
 
 from app.assets import PHOTO_TAGS
 from app.creative import fal
+from app.creative.angles import label as angle_label
 from app.creative.texts_ai import analyze_results
 from app.db import get_db
 from app.deps import creative_transport, current_user
@@ -245,9 +246,19 @@ def insights(business_id: int, user: sqlite3.Row = Depends(current_user), conn: 
         "clicks": r["clicks"], "spend": _rub(r["spend"]), "leads": r["leads"],
         "ctr": round(r["clicks"] / r["imp"] * 100, 2) if r["imp"] else None, "cost_per_lead": _ratio(r["spend"], r["leads"]),
     } for r in type_rows]
+    angle_rows = conn.execute(
+        "SELECT u.angle AS kind, COUNT(DISTINCT u.id) AS units, COALESCE(SUM(s.impressions),0) AS imp, "
+        "COALESCE(SUM(s.clicks),0) AS clicks, COALESCE(SUM(s.spend_micro),0) AS spend, COALESCE(SUM(s.leads),0) AS leads "
+        "FROM ad_units u LEFT JOIN stats_daily s ON s.unit_id = u.id WHERE u.business_id = ? AND u.angle != '' GROUP BY u.angle",
+        (business_id,)).fetchall()
+    angle_groups = [{
+        "style": r["kind"], "label": angle_label(r["kind"]) or r["kind"], "units": r["units"], "impressions": r["imp"],
+        "clicks": r["clicks"], "spend": _rub(r["spend"]), "leads": r["leads"],
+        "ctr": round(r["clicks"] / r["imp"] * 100, 2) if r["imp"] else None, "cost_per_lead": _ratio(r["spend"], r["leads"]),
+    } for r in angle_rows]
     conclusions: list[str] = []
     if len(groups) < 2:
-        return {"groups": groups, "type_groups": type_groups,
+        return {"groups": groups, "type_groups": type_groups, "angle_groups": angle_groups,
                 "conclusions": ["Сравнивать пока не с чем: нужны объявления как минимум двух разных стилей."]}
     by_ctr = sorted((g for g in groups if g["impressions"] >= MIN_IMPRESSIONS and g["ctr"] is not None), key=lambda g: -g["ctr"])
     if len(by_ctr) >= 2 and by_ctr[0]["ctr"] >= 1.3 * by_ctr[1]["ctr"]:
@@ -262,7 +273,7 @@ def insights(business_id: int, user: sqlite3.Row = Depends(current_user), conn: 
             "Пока мало данных, чтобы назвать лучший стиль: разница может быть случайной. "
             + (f"Нужно хотя бы {MIN_IMPRESSIONS} показов на каждый стиль, не хватает у: {', '.join(lack)}." if lack
                else f"Нужно хотя бы {MIN_LEADS} обращений на стиль, чтобы сравнить цену обращения."))
-    return {"groups": groups, "type_groups": type_groups, "conclusions": conclusions}
+    return {"groups": groups, "type_groups": type_groups, "angle_groups": angle_groups, "conclusions": conclusions}
 
 
 @router.post("/insights/analyze")
@@ -286,7 +297,7 @@ def analyze(business_id: int, user: sqlite3.Row = Depends(current_user), conn: s
         total_imp += st["impressions"]
         cpl = _ratio(st["spend"], st["leads"])
         lines.append(
-            f"- «{u['title']}»: стиль {STYLE_LABELS.get(u['style'], u['style'] or 'не указан')}, фото {PHOTO_TAGS.get(u['photo_type'], 'не указано')}, "
+            f"- «{u['title']}»: угол подачи {angle_label(u['angle']) or 'не указан'}, стиль {STYLE_LABELS.get(u['style'], u['style'] or 'не указан')}, фото {PHOTO_TAGS.get(u['photo_type'], 'не указано')}, "
             f"состояние {u['state']}, показы {st['impressions']}, клики {st['clicks']}, обращения {st['leads']}, "
             f"расход {_rub(st['spend'])} ₽, цена обращения {cpl if cpl else 'нет данных'}.")
     lines.append(f"Правило: меньше {MIN_IMPRESSIONS} показов на стиль или меньше {MIN_LEADS} обращений на стиль считается слишком малыми данными.")

@@ -394,6 +394,60 @@ def test_ai_banner_gets_the_logo_corner(monkeypatch):
     assert add_logo(base.getvalue(), None) == base.getvalue()
 
 
+FACTS = ("Студия на три места. Маникюр с покрытием от 2 200 ₽, педикюр от 2 800 ₽. Первый визит со скидкой 20%. "
+         "Покрытие держится до 4 недель. Инструменты в крафт-пакетах. Гарантия: бесплатная коррекция в течение 3 дней.")
+
+
+def test_promises_are_allowed_only_when_the_owner_said_them():
+    from app.direct.texts import unsupported_claims as bad
+    assert bad("Скидка 20% на первый визит", FACTS) == []                      # акция названа владельцем
+    assert bad("Скидка 20% на первый визит", "Просто студия маникюра") != []    # не названа: нельзя
+    assert bad("Скидка 30% на первый визит", FACTS) != []                      # другая цифра: нельзя
+    assert bad("Гарантия и бесплатная коррекция", FACTS) == [] and bad("Гарантия", "Салон") != []
+    assert bad("Маникюр от 2 200 ₽", FACTS) == [] and bad("Маникюр от 999 ₽", FACTS) != []   # цена только из описания
+    assert bad("Держится до 4 недель", FACTS) == [] and bad("Держится до 9 недель", FACTS) != []
+    assert bad("Лучший салон города", FACTS) != [] and bad("Номер один и 100% результат", FACTS) != []  # сильные слова всегда нельзя
+
+
+def test_ai_variants_follow_facts_and_have_different_angles():
+    raw = json.dumps([
+        {"title": "Первый визит со скидкой 20%", "text": "Запишитесь на маникюр онлайн", "angle": "promo"},
+        {"title": "Маникюр с покрытием от 2 200 ₽", "text": "Запись онлайн", "angle": "price"},
+        {"title": "Покрытие держится до 4 недель", "text": "Инструменты в крафт-пакетах", "angle": "durability"},
+        {"title": "Покрытие до 4 недель, без сколов", "text": "Запишитесь сегодня", "angle": "durability"},   # угол уже занят
+        {"title": "Скидка 50% на всё", "text": "Только у нас", "angle": "promo"},                           # выдумка
+        {"title": "Придумано", "text": "Текст", "angle": "несуществующий"},
+    ], ensure_ascii=False)
+    kept = parse_variants(raw, FACTS)
+    assert [v["angle"] for v in kept] == ["promo", "price", "durability", ""]
+    assert parse_variants(raw, "") != kept and all("Скидк" not in v["title"] for v in parse_variants(raw, ""))   # без фактов акция отсеивается
+
+
+def test_angles_depend_on_facts_in_the_description():
+    from app.creative.angles import available, label, prompt_block
+    plain = available("Небольшая студия")
+    assert {"booking", "choice", "identity", "comfort"} <= set(plain) and not {"price", "promo", "durability"} & set(plain)
+    rich = available(FACTS)
+    assert {"price", "promo", "durability", "safety", "kit"} <= set(rich)
+    assert label("promo") == "Акция" and label("нет") == ""
+    assert "price:" in prompt_block(FACTS) and "price:" not in prompt_block("Небольшая студия")
+
+
+def test_generated_texts_keep_their_angle(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+    Fakes(claude_text=json.dumps([{"title": "Покрытие держится до 4 недель", "text": "Инструменты в крафт-пакетах", "angle": "durability"}], ensure_ascii=False))
+    with TestClient(app) as http:
+        bid = setup(http, description=FACTS)
+        r = http.post(f"/api/businesses/{bid}/creatives/texts/generate", json={"count": 2}).json()
+        assert r["ai"] == 1
+        texts = [c for c in http.get(f"/api/businesses/{bid}/creatives").json()["creatives"] if c["kind"] == "text"]
+        ai = next(c for c in texts if c["source"] == "claude")
+        assert ai["angle"] == "durability" and ai["angle_label"] == "Долговечность"
+        http.put(f"/api/businesses/{bid}/creatives/{ai['id']}", json={"status": "approved"})
+        shown = next(a for a in http.get(f"/api/businesses/{bid}/creatives/ads").json()["ads"] if a["own"])
+        assert shown["angle"] == "durability" and shown["angle_label"] == "Долговечность"
+
+
 def test_missing_phrases_ignore_case_quotes_and_spaces():
     from app.creative.texts_ai import missing_phrases
     read = ["МАНИКЮР  с покрытием", "от 2 200 ₽", "Студия «Мята»"]

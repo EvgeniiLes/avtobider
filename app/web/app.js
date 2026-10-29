@@ -394,7 +394,8 @@ async function loadAds() {
     const body = el("div", { className: "ad-body" },
       el("div", { className: "ad-title", textContent: a.title }),
       el("div", { className: "ad-text", textContent: a.text }),
-      el("div", { className: "ad-site" }, el("b", { textContent: "Реклама" }), host));
+      el("div", { className: "ad-site" }, el("b", { textContent: "Реклама" }), host),
+      a.angle_label ? el("div", { className: "hint", textContent: `Угол подачи: ${a.angle_label}` }) : "");
     const action = a.own
       ? el("button", { className: "small secondary", textContent: "Не использовать" })
       : el("button", { className: "small", textContent: "Использовать этот" });
@@ -437,7 +438,8 @@ function renderTexts(items) {
     const title = el("input", { type: "text", value: c.title, maxLength: 80 });
     const body = el("input", { type: "text", value: c.body, maxLength: 120 });
     const meta = el("div", { className: "meta" }, counterEl(title, creativeLimits.title), counterEl(body, creativeLimits.text),
-      el("span", { className: "pill", textContent: `${STATUS_LABEL[c.status] || c.status}, ${SOURCE_LABEL[c.source] || c.source}` }));
+      el("span", { className: "pill", textContent: `${STATUS_LABEL[c.status] || c.status}, ${SOURCE_LABEL[c.source] || c.source}` }),
+      ...(c.angle_label ? [el("span", { className: "pill", textContent: `Угол: ${c.angle_label}` })] : []));
     const save = async (status) => {
       const r = await creativeCall("PUT", `/${c.id}`, { title: title.value, body: body.value, status });
       if (!r.ok) { setStatus("cr-texts-status", errorText(r), "err"); return; }
@@ -806,6 +808,7 @@ async function loadInsights() {
       .map((v) => el("td", { textContent: v })));
   $("insights-table").querySelector("tbody").replaceChildren(...groups.map(row));
   $("insights-types").querySelector("tbody").replaceChildren(...(result.data.type_groups || []).map(row));
+  $("insights-angles").querySelector("tbody").replaceChildren(...(result.data.angle_groups || []).map(row));
 }
 
 async function loadSeries() {
