@@ -68,7 +68,7 @@ def unsupported_claims(text: str, facts: str) -> list[str]:
     for m in DISCOUNT.finditer(text):
         if "скидк" not in facts_low or m.group(1) not in known:
             found.append(m.group(0))
-    for number in _numbers(text):
+    for number in _numbers(text, words=True):
         if number and number not in known:
             found.append(f"число {number}")
     return found
