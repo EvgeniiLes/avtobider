@@ -673,6 +673,7 @@ async function uploadFiles(files, kind, tag) {
     const form = new FormData();
     form.append("kind", kind);
     form.append("tag", tag || "");
+    if (kind === "logo" && $("logo-remove-bg").checked) form.append("remove_bg", "true");
     form.append("file", file);
     const result = await api("POST", `/api/businesses/${currentBusiness.id}/assets`, form);
     if (!result.ok) {

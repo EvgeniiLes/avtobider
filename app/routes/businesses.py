@@ -260,6 +260,7 @@ async def upload_asset(
     kind: str = Form(...),
     tag: str = Form(""),
     caption: str = Form(""),
+    remove_bg: bool = Form(False),
     file: UploadFile = File(...),
     user: sqlite3.Row = Depends(current_user),
     conn: sqlite3.Connection = Depends(get_db),
@@ -286,7 +287,7 @@ async def upload_asset(
         raise HTTPException(400, detail={"message": str(e)})
 
     cut_by = "none"
-    if kind == "logo" and not has_transparency(prepared.data):  # логотип на сплошном фоне: фон убирает GPT, при неудаче код
+    if kind == "logo" and remove_bg and not has_transparency(prepared.data):  # только если владелец попросил: фон убирает ИИ, при неудаче код
         key = get_settings().fal_key
         if key:
             from app.routes.creatives import _charge  # здесь, чтобы модули не импортировали друг друга по кругу

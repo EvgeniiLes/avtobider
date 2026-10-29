@@ -498,7 +498,10 @@ def test_logo_upload_removes_an_opaque_background(monkeypatch):
     monkeypatch.delenv("FAL_KEY", raising=False)         # без ключа работает вырезание кодом
     with TestClient(app) as http:
         bid = setup(http)
-        up = http.post(f"/api/businesses/{bid}/assets", data={"kind": "logo", "tag": ""}, files={"file": ("l.png", _logo_on_background((5, 6, 11, 255)), "image/png")})
+        solid = _logo_on_background((5, 6, 11, 255))
+        keep = http.post(f"/api/businesses/{bid}/assets", data={"kind": "logo", "tag": ""}, files={"file": ("l.png", solid, "image/png")})
+        assert keep.status_code == 200 and keep.json()["bg_removed"] == "none"      # по умолчанию фон не трогаем
+        up = http.post(f"/api/businesses/{bid}/assets", data={"kind": "logo", "tag": "", "remove_bg": "true"}, files={"file": ("l.png", solid, "image/png")})
         assert up.status_code == 200 and up.json()["bg_removed"] == "code"
         again = http.post(f"/api/businesses/{bid}/assets", data={"kind": "logo", "tag": ""}, files={"file": ("l.png", _logo_on_background((0, 0, 0, 0)), "image/png")})
         assert again.json()["bg_removed"] == "none"      # прозрачный логотип не трогаем
