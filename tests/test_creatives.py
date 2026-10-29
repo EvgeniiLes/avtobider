@@ -413,6 +413,21 @@ def test_ai_banner_gets_the_logo_corner(monkeypatch):
     assert add_logo(base.getvalue(), None) == base.getvalue()
 
 
+def test_logo_goes_to_the_calmest_corner_without_white_frame():
+    from app.creative.compose import add_logo
+    from PIL import Image as PILImage, ImageDraw
+    base_img = PILImage.new("RGB", (1200, 900), (20, 20, 40))
+    d = ImageDraw.Draw(base_img)
+    for i in range(0, 400, 20):  # правый верхний угол «шумный»
+        d.rectangle((900 + i % 300, 20 + i // 3, 960 + i % 300, 60 + i // 3), fill=(255, 255 - i // 2, i // 2))
+    base = BytesIO(); base_img.save(base, "JPEG", quality=95)
+    logo = BytesIO(); PILImage.new("RGBA", (300, 120), (255, 200, 0, 255)).save(logo, "PNG")
+    out = PILImage.open(BytesIO(add_logo(base.getvalue(), logo.getvalue()))).convert("RGB")
+    r, g, b = out.getpixel((100, 70))  # левый верхний угол: жёлтый логотип прямо на фоне
+    assert r > 200 and g > 150 and b < 80
+    assert out.getpixel((30, 30)) != (255, 255, 255)  # белой рамки вокруг нет
+
+
 FACTS = ("Студия на три места. Маникюр с покрытием от 2 200 ₽, педикюр от 2 800 ₽. Первый визит со скидкой 20%. "
          "Покрытие держится до 4 недель. Инструменты в крафт-пакетах. Гарантия: бесплатная коррекция в течение 3 дней.")
 

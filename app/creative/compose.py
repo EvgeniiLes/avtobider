@@ -8,7 +8,7 @@ import re
 from io import BytesIO
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFont, ImageOps
+from PIL import Image, ImageDraw, ImageFont, ImageOps, ImageStat
 
 TARGET = (1200, 900)  # 4:3: самая «широкая» из разрешённых пропорций, хорошо смотрится в выдаче
 MAX_BYTES = 9 * 1024 * 1024
@@ -176,11 +176,37 @@ def _logo_plate(logo: bytes | None, size=(190, 100)) -> Image.Image | None:
 
 def add_logo(banner: bytes, logo: bytes | None) -> bytes:
     """Ставит логотип в правый верхний угол готового баннера (например, нарисованного нейросетью)."""
-    plate = _logo_plate(logo)
-    if plate is None:
+    if not logo:
         return banner
     canvas = Image.open(BytesIO(banner)).convert("RGBA")
-    canvas.alpha_composite(plate, (canvas.width - plate.width - 32, 32))
+    W, H = canvas.size
+    mark = Image.open(BytesIO(logo)).convert("RGBA")
+    mark.thumbnail((int(W * 0.2), int(H * 0.11)))
+    margin = int(W * 0.03)
+    spots = {  # угол -> (позиция, штраф: правый верхний угол предпочтительнее, там мы просим ИИ оставить место)
+        "tr": ((W - mark.width - margin, margin), 0),
+        "tl": ((margin, margin), 6),
+        "br": ((W - mark.width - margin, H - mark.height - margin), 8),
+        "bl": ((margin, H - mark.height - margin), 8),
+    }
+    gray = canvas.convert("L")
+    best, best_score = None, None
+    for pos, penalty in spots.values():
+        stat = ImageStat.Stat(gray.crop((pos[0], pos[1], pos[0] + mark.width, pos[1] + mark.height)))
+        score = stat.stddev[0] + penalty
+        if best_score is None or score < best_score:
+            best, best_score = pos, score
+    area = gray.crop((best[0], best[1], best[0] + mark.width, best[1] + mark.height))
+    bg_light = ImageStat.Stat(area).mean[0]
+    solid = mark.getchannel("A").point(lambda v: 255 if v > 128 else 0)  # только заметные пиксели логотипа
+    mark_light = ImageStat.Stat(mark.convert("L"), mask=solid).mean[0] if solid.getbbox() else bg_light
+    if abs(mark_light - bg_light) < 70:  # логотип сливается с фоном: мягкая подложка контрастного тона, без белой рамки
+        tone = (255, 255, 255, 150) if bg_light < 128 else (20, 20, 20, 150)
+        pad = int(margin * 0.5)
+        plate = Image.new("RGBA", (mark.width + 2 * pad, mark.height + 2 * pad), (0, 0, 0, 0))
+        ImageDraw.Draw(plate).rounded_rectangle((0, 0, plate.width - 1, plate.height - 1), radius=pad, fill=tone)
+        canvas.alpha_composite(plate, (best[0] - pad, best[1] - pad))
+    canvas.alpha_composite(mark, best)
     out = BytesIO()
     canvas.convert("RGB").save(out, "JPEG", quality=90, optimize=True)
     return out.getvalue()
