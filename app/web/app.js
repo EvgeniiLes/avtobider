@@ -111,16 +111,25 @@ async function logout() {
 
 function showAuth() {
   currentBusiness = null;
+  document.body.classList.add("guest");   // гость видит главную с примером без бокового меню
   $("view-auth").hidden = false;
   $("view-app").hidden = true;
   $("user").hidden = true;
   $("nav").hidden = true;
   $("biz-switch").hidden = true;
-  setAuthMode("login");
+  setAuthMode("register");
+}
+
+// Кнопки главной для гостей ведут к форме внизу страницы; «Войти» переключает её на вход.
+function goToAuth(mode) {
+  setAuthMode(mode);
+  $("start").scrollIntoView({ behavior: "smooth" });
+  $("email").focus({ preventScroll: true });
 }
 
 async function showApp(email) {
   currentBusiness = null; // не тащим бизнес предыдущего пользователя
+  document.body.classList.remove("guest");
   $("view-auth").hidden = true;
   $("view-app").hidden = false;
   $("user").hidden = false;
@@ -133,12 +142,14 @@ async function showApp(email) {
   showPage(page, false);
 }
 
-const PAGES = ["home", "business", "creatives", "stats", "history", "accounts"];
+const PAGES = ["home", "business", "creatives", "media", "stats", "accounts"];
 let currentPage = "home";
 
 // Адрес страницы лежит в ссылке (#/business): перезагрузка остаётся на месте, «назад» и «вперёд» работают.
+// История изменений теперь внизу «Результатов»: старая ссылка #/history ведёт туда.
 function pageFromHash() {
   const name = location.hash.replace(/^#\/?/, "");
+  if (name === "history") return "stats";
   return PAGES.includes(name) ? name : "home";
 }
 
@@ -150,10 +161,10 @@ function showPage(name, push = true) {
     $(`nav-${page}`).classList.toggle("active", page === name);
   }
   window.scrollTo(0, 0);
-  if (name !== "creatives") clearTimeout(creativeTimer);
-  if (name === "creatives") loadCreatives();
+  if (name !== "creatives" && name !== "media") clearTimeout(creativeTimer);
+  if (name === "creatives" || name === "media") loadCreatives();
   if (name === "home" || name === "stats") loadStats();
-  if (name === "history") { setStatus("history-status", ""); loadHistory(); }
+  if (name === "stats") { setStatus("history-status", ""); loadHistory(); }
   if (name === "accounts") {
     loadMarking();
     if (accountsList.length) showCampaigns(accountsList[0].id);  // кампании кабинета видны сразу
@@ -359,6 +370,8 @@ async function loadCreatives() {
   const has = !!currentBusiness;
   $("cr-empty").hidden = has;
   $("cr-body").hidden = !has;
+  $("media-empty").hidden = has;
+  $("media-body").hidden = !has;
   if (!has) return;
   const result = await creativeCall("GET", "");
   if (!result.ok) { setStatus("cr-texts-status", errorText(result), "err"); return; }
@@ -370,7 +383,7 @@ async function loadCreatives() {
   note.hidden = caps.text_ai;
   note.textContent = "ИИ для текстов пока не подключён на сервере, поэтому варианты собираются по шаблону. Их можно править и писать свои.";
   $("cr-image-note").hidden = caps.image_ai;
-  $("cr-image-note").textContent = "Создание картинок и видео пока не подключено на сервере. Свои фото можно загрузить на вкладке «Мой бизнес».";
+  $("cr-image-note").textContent = "Создание картинок и видео пока не подключено на сервере. Свои фото можно загрузить выше, в этом же разделе.";
   $("cr-image-form").hidden = !caps.image_ai;
   $("cr-spend").textContent = caps.image_ai || caps.text_ai
     ? `Потрачено на создание в этом месяце: $${spend.spent_usd.toFixed(2)} из $${spend.limit_usd.toFixed(0)}, всего с начала: $${(spend.total_usd ?? spend.spent_usd).toFixed(2)}. Больше лимита сервис не потратит, 1-го числа он обнуляется.` : "";
@@ -1032,6 +1045,18 @@ function renderHome(data) {
   }
 }
 
+// Плитка с фото на главной: самый удачный кадр из загруженных (по оценке ИИ), а если оценок нет, первый.
+function renderPhotoTile() {
+  const photos = ((currentBusiness && currentBusiness.assets) || []).filter((a) => a.kind === "photo" && a.tag !== "screen");
+  const tileEl = $("ptile-photo");
+  tileEl.hidden = !photos.length;
+  if (!photos.length) return;
+  const best = photos.reduce((a, b) => ((b.ai_score || 0) > (a.ai_score || 0) ? b : a));
+  $("ptile-img").src = best.url;
+  $("ptile-title").textContent = best.ai_label || "Ваше фото";
+  $("ptile-cap").textContent = `Всего фото: ${photos.length}`;
+}
+
 const STEP_ACTION = {
   described: "Расскажите о своём бизнесе",
   money: "Задайте бюджет",
@@ -1063,7 +1088,7 @@ function renderChart(days) {
   const svg = $("chart");
   svg.replaceChildren();
   if (card.hidden) return;
-  const W = 640, H = 220, L = 40, R = 12, T = 12, B = 28;
+  const W = 640, H = 260, L = 12, R = 12, T = 12, B = 28;
   const maxSpend = Math.max(...days.map((d) => d.spend), 1);
   const maxLeads = Math.max(...days.map((d) => d.leads), 1);
   const slot = (W - L - R) / days.length;
@@ -1154,7 +1179,7 @@ async function renderDecisions() {
   const result = await api("GET", `/api/businesses/${currentBusiness.id}/changes`);
   const items = result.ok ? result.data.changes.filter((c) => c.can_decide) : [];
   card.hidden = !items.length;
-  const dot = $("nav-history-dot");
+  const dot = $("nav-home-dot");   // решения ждут на главной
   dot.hidden = !items.length;
   dot.textContent = String(items.length);
   $("decisions").replaceChildren(...items.map((c) => {
@@ -1209,9 +1234,11 @@ async function loadStats() {
     $("home-text").textContent = "Это займёт пару минут. Остальное сервис сделает сам.";
     $("home-cta").textContent = "Начать";
     $("home-cta").hidden = false;
-    for (const id of ["sim-start", "home-progress", "tiles", "goal-line", "chart-card", "budget-box", "checklist-card", "decisions-card"]) $(id).hidden = true;
+    for (const id of ["sim-start", "home-progress", "tiles", "goal-line", "chart-card", "budget-box", "checklist-card", "decisions-card", "hero-tiles"]) $(id).hidden = true;
     return;
   }
+  $("hero-tiles").hidden = false;
+  renderPhotoTile();
   $("stats-title").textContent = `Результаты: ${currentBusiness.name}`;
   const result = await api("GET", `/api/businesses/${currentBusiness.id}/overview`);
   if (!result.ok) { say(errorText(result), "err"); return; }
@@ -1378,7 +1405,7 @@ async function simAction(path, body) {
   if (!result.ok) { say(errorText(result), "err"); return; }
   const made = result.data.changes_made;
   const word = currentBusiness.mode === "ask" ? "Предложений" : "Изменений";
-  say(made ? `Готово. ${word} за это время: ${made}. Подробности на странице «История».` : "Готово.");
+  say(made ? `Готово. ${word} за это время: ${made}. Подробности внизу страницы «Результаты».` : "Готово.");
   await Promise.all([loadStats(), refreshStopbar()]);
 }
 
@@ -1559,7 +1586,17 @@ async function start() {
   $("nav-business").addEventListener("click", () => showPage("business"));
   $("nav-accounts").addEventListener("click", () => showPage("accounts"));
   $("nav-stats").addEventListener("click", () => showPage("stats"));
+  $("nav-media").addEventListener("click", () => showPage("media"));
   $("nav-creatives").addEventListener("click", () => showPage("creatives"));
+  $("land-login").addEventListener("click", () => goToAuth("login"));
+  $("land-start").addEventListener("click", () => goToAuth("register"));
+  $("land-cta").addEventListener("click", () => goToAuth("register"));
+  const toAds = (step) => () => { showPage("creatives"); setStep(step); };
+  $("chip-banner").addEventListener("click", toAds("banners"));
+  $("chip-ideas").addEventListener("click", toAds("ideas"));
+  $("ptile-ideas-go").addEventListener("click", toAds("ideas"));
+  $("chip-photo").addEventListener("click", () => showPage("media"));
+  $("chip-budget").addEventListener("click", () => showPage("business"));
   $("units-empty-go").addEventListener("click", () => showPage("creatives"));
   $("briefs-gen").addEventListener("click", generateBriefs);
   for (const btn of document.querySelectorAll("#cr-steps .step")) btn.addEventListener("click", () => setStep(btn.dataset.step));
@@ -1589,7 +1626,6 @@ async function start() {
   $("clients-save").addEventListener("click", saveClients);
   $("stop-all").addEventListener("click", stopAll);
   $("resume-all").addEventListener("click", resumeAll);
-  $("nav-history").addEventListener("click", () => showPage("history"));
   $("sim-start").addEventListener("click", () => simAction("start"));
   $("sim-reset").addEventListener("click", async () => {
     if (await askConfirm("Выключить пример?", "Примерная статистика и история примера удалятся. Вашей настоящей рекламы это не касается.", "Выключить")) simAction("reset");

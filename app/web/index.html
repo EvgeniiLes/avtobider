@@ -3,65 +3,110 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="light dark">
+  <meta name="color-scheme" content="light">
   <title>Автобидер</title>
   <link rel="stylesheet" href="/static/style.css">
 </head>
-<body>
+<body class="guest">
   <svg class="sprite" aria-hidden="true" focusable="false">
     <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 11l9-8 9 8v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z"/></symbol>
     <symbol id="i-business" viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></symbol>
     <symbol id="i-ads" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/></symbol>
     <symbol id="i-stats" viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></symbol>
     <symbol id="i-history" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+    <symbol id="i-media" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="3"/><circle cx="9" cy="10" r="1.6"/><path d="M21 16l-5-4-9 7"/></symbol>
     <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></symbol>
   </svg>
 
-  <header class="topbar">
-    <div class="topbar-in">
-      <div class="brand"><span class="brand-mark">А</span><span>Автобидер</span></div>
-      <select id="biz-switch" class="biz-switch" hidden aria-label="Бизнес"></select>
-      <nav class="nav" id="nav" hidden aria-label="Разделы">
-        <button id="nav-home" title="Главная" class="active"><svg class="ic"><use href="#i-home"/></svg><span>Главная</span></button>
-        <button id="nav-business" title="Бизнес"><svg class="ic"><use href="#i-business"/></svg><span>Бизнес</span></button>
-        <button id="nav-creatives" title="Объявления"><svg class="ic"><use href="#i-ads"/></svg><span>Объявления</span></button>
-        <button id="nav-stats" title="Результаты"><svg class="ic"><use href="#i-stats"/></svg><span>Результаты</span></button>
-        <button id="nav-history" title="История"><svg class="ic"><use href="#i-history"/></svg><span>История</span><span class="dot" id="nav-history-dot" hidden></span></button>
-        <button id="nav-accounts" title="Подключения"><svg class="ic"><use href="#i-link"/></svg><span>Подключения</span></button>
-      </nav>
-      <div id="user" class="user" hidden>
-        <span id="user-email"></span>
-        <button id="logout" class="link">Выйти</button>
-      </div>
+  <div class="shell">
+  <aside class="side" id="side">
+    <div class="brand">Автобидер</div>
+    <select id="biz-switch" class="biz-switch" hidden aria-label="Бизнес"></select>
+    <nav class="nav" id="nav" hidden aria-label="Разделы">
+      <span class="grp">Реклама</span>
+      <button id="nav-home" title="Главная" class="active"><svg class="ic"><use href="#i-home"/></svg><span>Главная</span><span class="dot" id="nav-home-dot" hidden></span></button>
+      <button id="nav-creatives" title="Объявления"><svg class="ic"><use href="#i-ads"/></svg><span>Объявления</span></button>
+      <button id="nav-stats" title="Результаты"><svg class="ic"><use href="#i-stats"/></svg><span>Результаты</span></button>
+      <span class="grp">Материалы</span>
+      <button id="nav-media" title="Фото и баннеры"><svg class="ic"><use href="#i-media"/></svg><span class="long">Фото и баннеры</span><span class="short">Материалы</span></button>
+      <span class="grp">Настройки</span>
+      <button id="nav-business" title="Бизнес"><svg class="ic"><use href="#i-business"/></svg><span>Бизнес</span></button>
+      <button id="nav-accounts" title="Подключения"><svg class="ic"><use href="#i-link"/></svg><span>Подключения</span></button>
+    </nav>
+    <div id="user" class="user" hidden>
+      <span id="user-email"></span>
+      <div class="links"><button id="logout" class="link">Выйти</button><a href="/old2">Прежний вид сайта</a></div>
     </div>
-  </header>
+  </aside>
 
   <main>
-    <!-- Вход и регистрация -->
-    <section id="view-auth" class="auth" hidden>
-      <div class="auth-hero">
-        <h1>Реклама без хлопот</h1>
-        <p>Автобидер сам ведёт вашу рекламу в Яндекс Директе: запускает, следит за результатом и объясняет каждый шаг простыми словами.</p>
-      </div>
-      <div class="card">
-        <div class="tabs" role="tablist">
-          <button id="tab-login" class="tab active" role="tab">Вход</button>
-          <button id="tab-register" class="tab" role="tab">Регистрация</button>
+    <!-- Главная для гостей: один и тот же пример у всех, вход и регистрация внизу -->
+    <section id="view-auth" class="land" hidden>
+      <header class="land-top">
+        <span class="brand">Автобидер</span>
+        <nav aria-label="Разделы страницы"><a href="#how">Как это работает</a><a href="#example">Пример</a><a href="#start">Начать</a></nav>
+        <div class="land-right"><button type="button" id="land-login" class="link">Войти</button><button type="button" id="land-start" class="small">Начать</button></div>
+      </header>
+
+      <div class="land-hero">
+        <div>
+          <span class="badge-pill">Для салонов, мастерских и небольших сервисов</span>
+          <h1 class="big-h">Реклама в Директе без хлопот</h1>
+          <p class="lead">Расскажите о бизнесе и загрузите фото. Сервис напишет объявления, нарисует баннеры, отправит их на проверку и сам предложит остановить те, что не работают.</p>
+          <div class="hero-actions"><button type="button" id="land-cta" class="big">Начать со своего бизнеса</button><a class="link" href="#example">Смотреть пример</a></div>
+          <div class="chiprow">
+            <a class="chip-plus" href="#how">Объявления с баннерами<span class="plus">+</span></a><a class="chip-plus" href="#how">Проверка текста на баннере<span class="plus">+</span></a>
+            <a class="chip-plus" href="#example">Бюджет по неделям<span class="plus">+</span></a><a class="chip-plus" href="#example">Отчёт простыми словами<span class="plus">+</span></a>
+          </div>
         </div>
-        <form id="auth-form">
-          <label for="email">E-mail</label>
-          <input type="email" id="email" autocomplete="email" required>
-          <label for="password">Пароль <span class="hint" id="password-hint"></span></label>
-          <input type="password" id="password" autocomplete="current-password" required>
-          <p></p>
-          <button type="submit" id="auth-submit" class="big">Войти</button>
-          <p id="auth-status" class="status" role="status"></p>
-        </form>
-        <div id="yandex-box" hidden>
-          <p class="hint or">или</p>
-          <a id="yandex-login" class="btn btn-yandex" href="/auth/yandex/start">Войти через Яндекс ID</a>
+        <div class="land-tiles"><span class="tag">Пример: салон груминга</span>
+          <div class="hero2-r">
+            <div class="ptile mint photo"><img src="/static/img/p2.jpg" alt="Работа мастера в салоне груминга"><p><b>Лучшее фото</b>Работа мастера: 2,2 % кликов</p></div>
+            <div class="ptile lav"><div class="th"><span>Клики</span><em>+214</em></div><div class="cbars"><svg viewBox="0 0 330 142" role="img" aria-label="Клики по дням за 14 дней"><rect class="" x="2.0" y="75.0" width="19.6" height="45.0" rx="9.8"/><rect class="" x="25.6" y="60.0" width="19.6" height="60.0" rx="9.8"/><rect class="" x="49.1" y="65.0" width="19.6" height="55.0" rx="9.8"/><rect class="" x="72.7" y="50.0" width="19.6" height="70.0" rx="9.8"/><rect class="" x="96.3" y="30.0" width="19.6" height="90.0" rx="9.8"/><rect class="" x="119.9" y="40.0" width="19.6" height="80.0" rx="9.8"/><rect class="" x="143.4" y="70.0" width="19.6" height="50.0" rx="9.8"/><rect class="" x="167.0" y="55.0" width="19.6" height="65.0" rx="9.8"/><rect class="" x="190.6" y="35.0" width="19.6" height="85.0" rx="9.8"/><rect class="" x="214.1" y="25.0" width="19.6" height="95.0" rx="9.8"/><rect class="hi" x="237.7" y="10.0" width="19.6" height="110.0" rx="9.8"/><rect class="" x="261.3" y="15.0" width="19.6" height="105.0" rx="9.8"/><rect class="" x="284.9" y="30.0" width="19.6" height="90.0" rx="9.8"/><rect class="" x="308.4" y="50.0" width="19.6" height="70.0" rx="9.8"/><text x="11.8" y="137" text-anchor="middle">17</text><text x="106.1" y="137" text-anchor="middle">21</text><text x="200.4" y="137" text-anchor="middle">25</text><text x="318.2" y="137" text-anchor="middle">30</text></svg></div></div>
+            <div class="ptile butter"><div class="th"><span>Бюджет недели</span></div><p class="bigno">3 240 <small>из 5 000 ₽</small></p>
+              <div class="cap" role="img" aria-label="Потрачено 65 процентов"><i class="w65"></i></div><p class="sm">Идём чуть медленнее плана</p></div>
+            <div class="ptile pink"><div><span>Идеи стратега</span><b>5 новых</b></div>
+              <div class="thumbs"><img src="/static/img/b2.jpg" alt=""><img src="/static/img/b4.jpg" alt=""><img src="/static/img/b3.jpg" alt=""></div></div>
+          </div>
         </div>
       </div>
+
+      <section class="land-sec" id="how"><h2>Как это работает</h2>
+        <div class="how">
+          <div class="hcard m"><span class="num">1</span><h3>Расскажите о бизнесе</h3><p>Что делаете, где находитесь, сколько готовы тратить в неделю. Загрузите фото: баннеры сделаем из них.</p><img class="shot" src="/static/img/p1.jpg" alt=""></div>
+          <div class="hcard l"><span class="num">2</span><h3>Получите объявления и баннеры</h3><p>Сервис пишет тексты, рисует баннеры и сам проверяет, что надписи на них без ошибок. Вы выбираете, что взять в рекламу.</p><img class="shot" src="/static/img/b1.jpg" alt=""></div>
+          <div class="hcard b"><span class="num">3</span><h3>Следите за результатами</h3><p>Видно показы, клики и обращения. Слабые объявления сервис предлагает остановить, решаете вы.</p><div class="cbars"><svg viewBox="0 0 330 142" role="img" aria-label="Клики по дням за 14 дней"><rect class="" x="2.0" y="75.0" width="19.6" height="45.0" rx="9.8"/><rect class="" x="25.6" y="60.0" width="19.6" height="60.0" rx="9.8"/><rect class="" x="49.1" y="65.0" width="19.6" height="55.0" rx="9.8"/><rect class="" x="72.7" y="50.0" width="19.6" height="70.0" rx="9.8"/><rect class="" x="96.3" y="30.0" width="19.6" height="90.0" rx="9.8"/><rect class="" x="119.9" y="40.0" width="19.6" height="80.0" rx="9.8"/><rect class="" x="143.4" y="70.0" width="19.6" height="50.0" rx="9.8"/><rect class="" x="167.0" y="55.0" width="19.6" height="65.0" rx="9.8"/><rect class="" x="190.6" y="35.0" width="19.6" height="85.0" rx="9.8"/><rect class="" x="214.1" y="25.0" width="19.6" height="95.0" rx="9.8"/><rect class="hi" x="237.7" y="10.0" width="19.6" height="110.0" rx="9.8"/><rect class="" x="261.3" y="15.0" width="19.6" height="105.0" rx="9.8"/><rect class="" x="284.9" y="30.0" width="19.6" height="90.0" rx="9.8"/><rect class="" x="308.4" y="50.0" width="19.6" height="70.0" rx="9.8"/><text x="11.8" y="137" text-anchor="middle">17</text><text x="106.1" y="137" text-anchor="middle">21</text><text x="200.4" y="137" text-anchor="middle">25</text><text x="318.2" y="137" text-anchor="middle">30</text></svg></div></div>
+        </div>
+      </section>
+
+      <section class="land-sec" id="example"><h2>Что получилось у салона груминга</h2>
+        <div class="strip"><img src="/static/img/b1.jpg" alt=""><img src="/static/img/b2.jpg" alt=""><img src="/static/img/b4.jpg" alt=""><img src="/static/img/b5.jpg" alt=""><img src="/static/img/b3.jpg" alt=""></div>
+        <p class="hint">5 объявлений, 9 обращений за две недели при бюджете 5 000 ₽ в неделю. Цифры в примере условные.</p>
+      </section>
+
+      <section class="cta-band" id="start">
+        <div><h2>Начните с описания бизнеса</h2><p>Реклама уходит на проверку только после вашего подтверждения.</p></div>
+        <div class="auth-card">
+          <div class="tabs" role="tablist">
+            <button id="tab-register" class="tab active" role="tab">Регистрация</button>
+            <button id="tab-login" class="tab" role="tab">Вход</button>
+          </div>
+          <form id="auth-form">
+            <label for="email">E-mail</label>
+            <input type="email" id="email" autocomplete="email" required>
+            <label for="password">Пароль <span class="hint" id="password-hint"></span></label>
+            <input type="password" id="password" autocomplete="new-password" required>
+            <p></p>
+            <button type="submit" id="auth-submit" class="big">Создать аккаунт</button>
+            <p id="auth-status" class="status" role="status"></p>
+          </form>
+          <div id="yandex-box" hidden>
+            <p class="hint or">или</p>
+            <a id="yandex-login" class="btn btn-yandex" href="/auth/yandex/start">Войти через Яндекс ID</a>
+          </div>
+        </div>
+      </section>
+      <p class="land-foot">Автобидер. Работает с Яндекс Директом.</p>
     </section>
 
     <section id="view-app" hidden>
@@ -73,26 +118,51 @@
 
       <!-- Главная -->
       <div id="page-home">
-        <div class="card hero">
-          <p class="eyebrow" id="home-eyebrow">Добро пожаловать</p>
-          <h1 id="home-title">Расскажите о бизнесе</h1>
-          <p id="home-text" class="muted">Это займёт пару минут. Остальное сервис сделает сам.</p>
-          <div class="hero-actions">
-            <button id="home-cta" class="big">Начать</button>
-            <button id="sim-start" class="secondary big" hidden>Посмотреть на примере</button>
-          </div>
-          <div class="progress" id="home-progress" hidden>
-            <div class="bar"><div id="home-progress-fill" class="fill good"></div></div>
-            <span id="home-progress-text" class="hint"></span>
-          </div>
-        </div>
-
         <div class="notice notice-row" id="example-notice" hidden>
           <span>Это пример: учебная симуляция, а не ваша реальная реклама. Деньги не тратятся, но решения принимаются так же, как на настоящей рекламе.</span>
           <button id="example-off" class="small secondary">Выключить пример</button>
         </div>
         <ul id="notices" class="notices"></ul>
         <p id="stats-needs" class="status err"></p>
+
+        <section class="hero2">
+          <div>
+            <span class="badge-pill" id="home-eyebrow">Добро пожаловать</span>
+            <h1 class="hero2-h" id="home-title">Расскажите о бизнесе</h1>
+            <p id="home-text" class="lead">Это займёт пару минут. Остальное сервис сделает сам.</p>
+            <div class="hero-actions">
+              <button id="home-cta" class="big">Начать</button>
+              <button id="sim-start" class="secondary big" hidden>Посмотреть на примере</button>
+            </div>
+            <div class="chiprow">
+              <button type="button" class="chip-plus" id="chip-banner">Нарисовать баннер<span class="plus">+</span></button>
+              <button type="button" class="chip-plus" id="chip-ideas">Новые идеи<span class="plus">+</span></button>
+              <button type="button" class="chip-plus" id="chip-photo">Добавить фото<span class="plus">+</span></button>
+              <button type="button" class="chip-plus" id="chip-budget">Бюджет<span class="plus">+</span></button>
+            </div>
+            <div class="progress" id="home-progress" hidden>
+              <div class="bar"><div id="home-progress-fill" class="fill good"></div></div>
+              <span id="home-progress-text" class="hint"></span>
+            </div>
+          </div>
+          <div class="hero2-r" id="hero-tiles">
+            <div class="ptile mint photo" id="ptile-photo" hidden><img id="ptile-img" alt=""><p><b id="ptile-title">Ваше фото</b><span id="ptile-cap"></span></p></div>
+            <div class="card ptile lav" id="chart-card" hidden>
+              <h2>Последние 14 дней</h2>
+              <svg id="chart" class="chart" viewBox="0 0 640 260" role="img" aria-label="Расход и обращения по дням"></svg>
+              <div class="legend"><span><i></i>Расход, ₽</span><span><i class="l2"></i>Обращения</span></div>
+            </div>
+            <div class="card ptile butter" id="budget-box" hidden>
+              <h2>Бюджет недели</h2>
+              <p class="hint" id="budget-text"></p>
+              <div class="bar"><div id="budget-fill" class="fill"></div></div>
+            </div>
+            <div class="ptile pink" id="ptile-ideas"><div><span>Идеи стратега</span><b>Что проверим в рекламе</b></div><button type="button" id="ptile-ideas-go" aria-label="Открыть идеи">+</button></div>
+          </div>
+        </section>
+
+        <div id="tiles" class="tiles" hidden></div>
+        <p id="goal-line" class="goal" hidden></p>
 
         <div class="card" id="decisions-card" hidden>
           <h2>Ждёт вашего решения</h2>
@@ -114,21 +184,6 @@
             <button id="launch-go" disabled>Создать и отправить на проверку</button>
             <button id="launch-cancel" class="secondary">Отмена</button>
           </div>
-        </div>
-
-        <div id="tiles" class="tiles" hidden></div>
-        <p id="goal-line" class="goal" hidden></p>
-
-        <div class="card" id="chart-card" hidden>
-          <h2>Последние 14 дней</h2>
-          <svg id="chart" class="chart" viewBox="0 0 640 220" role="img" aria-label="Расход и обращения по дням"></svg>
-          <div class="legend"><span><i></i>Расход, ₽</span><span><i class="l2"></i>Обращения</span></div>
-        </div>
-
-        <div class="card" id="budget-box" hidden>
-          <h2>Бюджет недели</h2>
-          <p class="hint" id="budget-text"></p>
-          <div class="bar"><div id="budget-fill" class="fill"></div></div>
         </div>
 
         <div class="card checklist" id="checklist-card" hidden>
@@ -234,44 +289,6 @@
           </div>
         </form>
 
-        <div class="card" id="files-card">
-          <h2>Фото и видео для рекламы</h2>
-          <p id="files-locked" class="hint">Сначала сохраните описание бизнеса, потом сможете загрузить файлы.</p>
-          <div id="files" hidden>
-            <p class="hint">Чем больше настоящих фото, тем лучше получится реклама. Мы приведём их к нужным размерам сами.</p>
-            <div class="upload-row">
-              <button id="photos-check" class="small secondary">Проверить фото и логотип ИИ</button>
-              <span id="photos-check-status" class="hint"></span>
-            </div>
-            <p class="hint">ИИ определит, что на фото (помещение, работы, люди), оценит качество и предупредит о чужих вывесках, водяных знаках и узнаваемых лицах. Стоит около 1 цента за файл. Варианты рекламы строятся из разных типов кадров, по два на каждый.</p>
-
-            <h3>Фото бизнеса</h3>
-            <div id="photos" class="grid"></div>
-            <div class="upload-row">
-              <select id="photo-tag"></select>
-              <input type="file" id="photo-file" accept="image/*" multiple>
-            </div>
-            <p class="hint">Помещение, ваши работы, команда, товар или услуга. Подойдут фото от 450 пикселей по короткой стороне, до 15 МБ. Не больше 20 фото.</p>
-
-            <h3>Логотип</h3>
-            <div id="logo-box" class="logo-box"></div>
-            <input type="file" id="logo-file" accept="image/*">
-            <label class="check"><input type="checkbox" id="logo-remove-bg"> Убрать фон у логотипа при загрузке (ИИ, меньше цента)</label>
-            <p class="hint"><b>Требования к логотипу:</b> лучше всего PNG на прозрачном фоне, чёткий, шириной от 400 пикселей, без мелких надписей (адрес, телефон) и без фоновой картинки. JPG и WEBP тоже подойдут. По умолчанию логотип остаётся как есть, фон не убирается. Отметьте галочку выше, если логотип лежит на сплошном фоне и его нужно вырезать. Галочка действует на следующую загрузку. Логотип ставится на шаблонные баннеры; на баннеры, которые делает ИИ из фото, он пока не добавляется.</p>
-
-            <h3>Скриншот приложения или сайта</h3>
-            <div id="screens" class="grid"></div>
-            <input type="file" id="screen-file" accept="image/*">
-            <p class="hint">Для приложения, игры или сервиса: настоящий скриншот (лучше вертикальный, как с телефона). Загрузите его сейчас: он сохранится, а вставка в экран телефона на баннерах включится после доработки (сейчас баннеры делаются из ваших фото). Используется последний загруженный.</p>
-
-            <h3>Видео</h3>
-            <div id="videos" class="grid"></div>
-            <input type="file" id="video-file" accept="video/mp4,video/quicktime,video/webm">
-            <p class="hint">MP4, MOV или WEBM до 100 МБ. Не больше 3 видео.</p>
-            <p id="files-status" class="status" role="status"></p>
-          </div>
-        </div>
-
         <div class="card" id="metrika-card" hidden>
           <h2>Обращения с сайта (Яндекс Метрика)</h2>
           <p id="metrika-howto" class="hint"></p>
@@ -352,10 +369,55 @@
             </div>
           </section>
 
-          <details class="card library" id="library">
-            <summary>Библиотека: фоновые картинки, все тексты, видео и история баннеров</summary>
+        </div>
+      </div>
 
-            <h3>Фоновые картинки</h3>
+      <!-- Материалы: фото, логотип, фоновые картинки, тексты, видео, история баннеров -->
+      <div id="page-media" hidden>
+        <div class="page-head"><h1>Фото и баннеры</h1></div>
+        <p id="media-empty" class="hint" hidden>Сначала опишите бизнес на странице «Бизнес».</p>
+        <div id="media-body" hidden>
+        <div class="card" id="files-card">
+          <h2>Фото и видео для рекламы</h2>
+          <p id="files-locked" class="hint">Сначала сохраните описание бизнеса, потом сможете загрузить файлы.</p>
+          <div id="files" hidden>
+            <p class="hint">Чем больше настоящих фото, тем лучше получится реклама. Мы приведём их к нужным размерам сами.</p>
+            <div class="upload-row">
+              <button id="photos-check" class="small secondary">Проверить фото и логотип ИИ</button>
+              <span id="photos-check-status" class="hint"></span>
+            </div>
+            <p class="hint">ИИ определит, что на фото (помещение, работы, люди), оценит качество и предупредит о чужих вывесках, водяных знаках и узнаваемых лицах. Стоит около 1 цента за файл. Варианты рекламы строятся из разных типов кадров, по два на каждый.</p>
+
+            <h3>Фото бизнеса</h3>
+            <div id="photos" class="grid"></div>
+            <div class="upload-row">
+              <select id="photo-tag"></select>
+              <input type="file" id="photo-file" accept="image/*" multiple>
+            </div>
+            <p class="hint">Помещение, ваши работы, команда, товар или услуга. Подойдут фото от 450 пикселей по короткой стороне, до 15 МБ. Не больше 20 фото.</p>
+
+            <h3>Логотип</h3>
+            <div id="logo-box" class="logo-box"></div>
+            <input type="file" id="logo-file" accept="image/*">
+            <label class="check"><input type="checkbox" id="logo-remove-bg"> Убрать фон у логотипа при загрузке (ИИ, меньше цента)</label>
+            <p class="hint"><b>Требования к логотипу:</b> лучше всего PNG на прозрачном фоне, чёткий, шириной от 400 пикселей, без мелких надписей (адрес, телефон) и без фоновой картинки. JPG и WEBP тоже подойдут. По умолчанию логотип остаётся как есть, фон не убирается. Отметьте галочку выше, если логотип лежит на сплошном фоне и его нужно вырезать. Галочка действует на следующую загрузку. Логотип ставится на шаблонные баннеры; на баннеры, которые делает ИИ из фото, он пока не добавляется.</p>
+
+            <h3>Скриншот приложения или сайта</h3>
+            <div id="screens" class="grid"></div>
+            <input type="file" id="screen-file" accept="image/*">
+            <p class="hint">Для приложения, игры или сервиса: настоящий скриншот (лучше вертикальный, как с телефона). Загрузите его сейчас: он сохранится, а вставка в экран телефона на баннерах включится после доработки (сейчас баннеры делаются из ваших фото). Используется последний загруженный.</p>
+
+            <h3>Видео</h3>
+            <div id="videos" class="grid"></div>
+            <input type="file" id="video-file" accept="video/mp4,video/quicktime,video/webm">
+            <p class="hint">MP4, MOV или WEBM до 100 МБ. Не больше 3 видео.</p>
+            <p id="files-status" class="status" role="status"></p>
+          </div>
+        </div>
+
+
+          <div class="card">
+            <h2>Фоновые картинки</h2>
             <p class="hint">Если своих фото мало, ИИ нарисует картинки по описанию бизнеса. Отметьте нужные кнопкой «Выбрать»: они станут основой баннеров.</p>
             <p id="cr-image-note" class="notice" hidden></p>
             <div id="cr-image-form">
@@ -368,8 +430,10 @@
             </div>
             <p id="cr-images-status" class="status" role="status"></p>
             <div id="cr-images" class="grid creative-grid"></div>
+          </div>
 
-            <h3>Все тексты</h3>
+          <div class="card">
+            <h2>Все тексты</h2>
             <p class="hint">Одобренные варианты попадут в рекламу, остальные сервис добавит сам. Заголовок до 56 знаков, текст до 81. Лишних обещаний вроде скидок мы не придумываем.</p>
             <p id="cr-ai-note" class="notice" hidden></p>
             <div class="upload-row">
@@ -378,21 +442,21 @@
             </div>
             <p id="cr-texts-status" class="status" role="status"></p>
             <ul id="cr-texts" class="creatives"></ul>
+          </div>
 
-            <h3>Видео</h3>
-            <p class="hint">Короткое видео делается из готовой картинки: нажмите «Сделать видео» под нужной картинкой. Готовится несколько минут. Видео пока сохраняются в библиотеке, в объявления в Директе они не добавляются.</p>
+          <div class="card">
+            <h2>Видео</h2>
+            <p class="hint">Короткое видео делается из готовой картинки: нажмите «Сделать видео» под нужной картинкой. Готовится несколько минут. Видео пока сохраняются здесь, в объявления в Директе они не добавляются.</p>
             <div id="cr-videos" class="grid creative-grid"></div>
             <p id="cr-videos-empty" class="hint">Видео пока нет.</p>
+          </div>
 
-            <div id="banner-history-box" hidden>
-              <h3 id="banner-history-title">История баннеров</h3>
-              <p class="hint">Все баннеры, которые рисовала нейросеть. Любой готовый можно вернуть: платить за новую картинку не нужно.</p>
-              <div id="banner-history" class="grid creative-grid history-grid"></div>
-            </div>
-          </details>
-
+          <div class="card" id="banner-history-box" hidden>
+            <h2 id="banner-history-title">История баннеров</h2>
+            <p class="hint">Все баннеры, которые рисовала нейросеть. Любой готовый можно вернуть: платить за новую картинку не нужно.</p>
+            <div id="banner-history" class="grid creative-grid history-grid"></div>
+          </div>
           <p id="cr-spend" class="hint"></p>
-          <p class="hint"><a href="/old">Открыть прежнюю версию сайта</a></p>
         </div>
       </div>
 
@@ -470,17 +534,14 @@
             </div>
             <p id="sim-day" class="hint"></p>
           </details>
-        </div>
-      </div>
 
-      <!-- История -->
-      <div id="page-history" hidden>
-        <div class="page-head"><h1>История</h1></div>
-        <div class="card">
-          <p class="hint">Всё, что сервис (или вы) менял в рекламе, и почему. Любое изменение можно отменить.</p>
-          <p id="history-empty" class="hint" hidden>Пока изменений нет.</p>
-          <ul id="history" class="list history"></ul>
-          <p id="history-status" class="status" role="status"></p>
+          <div class="card" id="history-card">
+            <h2>История изменений</h2>
+            <p class="hint">Всё, что сервис (или вы) менял в рекламе, и почему. Любое изменение можно отменить.</p>
+            <p id="history-empty" class="hint" hidden>Пока изменений нет.</p>
+            <ul id="history" class="list history"></ul>
+            <p id="history-status" class="status" role="status"></p>
+          </div>
         </div>
       </div>
 
@@ -573,6 +634,7 @@
       </div>
     </section>
   </main>
+  </div>
 
   <div id="modal" class="modal" hidden>
     <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modal-title">
