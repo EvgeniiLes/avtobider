@@ -1,4 +1,4 @@
-.env
+п»ї.env
 .venv/
 __pycache__/
 *.pyc
@@ -6,6 +6,6 @@ data/
 .pytest_cache/
 .claude/
 
-# собранные макеты и снимки экрана (пересобираются: python docs/mockups/build.py)
+# СЃРѕР±СЂР°РЅРЅС‹Рµ РјР°РєРµС‚С‹ Рё СЃРЅРёРјРєРё СЌРєСЂР°РЅР° (РїРµСЂРµСЃРѕР±РёСЂР°СЋС‚СЃСЏ: python docs/mockups/build.py)
 docs/mockups/direction-*.html
 docs/mockups/shots/
