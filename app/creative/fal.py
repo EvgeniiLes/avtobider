@@ -96,28 +96,45 @@ LOGO_RULE = (" The company logo is part of the layout: reserve one clean, flat, 
              "Do not use green anywhere else in the banner.")
 
 
+# Общие блоки промптов баннера (приёмы из сильных промптов для GPT Image 2: цель первой, текст «пришит» кавычками, одна картинка,
+# конкретный шрифт, место под текст, закрывающий блок «избегать» с причинами).
+ONE_BANNER = "Generate only ONE finished banner (not a mockup, not a collage, not a presentation board). "
+AVOID = ("Avoid: any other text or invented words, the business name, website addresses, domain names, phone numbers, logos, emblems, icons, mascots, "
+         "watermarks; decorative frames, ornaments, golden dust, sparkles, glow or lens flare (they make the banner look cheap); 3D or glossy lettering "
+         "effects (the text must stay flat and readable); distorted hands or extra fingers, plastic skin, warped, blurred or duplicated letters.")
+
+
+def _text_block(title: str, price: str, cta: str, by_direction: bool = False) -> str:
+    """Что написано на баннере: точные строки в кавычках и как их набирать. Короткие русские фразы модель держит стабильнее длинных.
+    by_direction: размер, регистр и место заголовка задаёт направление (приём референса вроде гигантского слова), общий шрифт не навязываем."""
+    shown = f"headline «{title}»"
+    if price:
+        shown += f", price badge «{price.replace(chr(160), ' ')}»"
+    style = ("The headline's size, case, weight and placement follow the Direction exactly; the letters stay flat, bold and perfectly legible, "
+             "with strong contrast against their background. " if by_direction else
+             "The headline is heavy bold sans-serif with tight letter spacing, very large, left aligned, at most 4 lines, the first thing the eye sees, "
+             "with strong contrast against its background. ")
+    return ("Text in Russian, spelled EXACTLY as written between the quotes: not translated, not abbreviated, no letter added or lost, and no other large text "
+            f"anywhere. {style}Text to show: {shown}, and a solid rounded button «{cta}». ")
+
+
 def banner_prompt(biz, title: str, price: str, cta: str, logo_corner: bool = False, index: int = 0, screen: bool = False,
                   logo_ratio: float | None = None, scene: str = "") -> str:
     """Запрос на баннер целиком: русский текст пишет сама модель, поэтому он короткий и в точных кавычках.
     scene: сцена от арт-директора (кто в кадре и что делает); direction задаёт только оформление: цвета, шрифт, компоновку."""
-    text = f'headline «{title}»'
-    if price:
-        text += f' and a price badge «{price.replace(chr(160), " ")}»'
-    return (f"Create a polished, professional advertising banner for Yandex Direct, landscape 4:3. Business: {biz['kind']}; the brand name "
+    return (f"Purpose: one polished advertising banner for Yandex Direct, landscape 4:3. Business: {biz['kind']}; the brand name "
             f"«{biz['name']}» is NOT written on the banner. " + _visual_rules(biz)
             + f"Scene, follow it closely: {scene or 'one clear subject that shows what the business really offers'}. "
-            "One clear focal subject, natural realistic photography, correct anatomy and hands, no clutter. "
+            "One clear focal subject, natural realistic photography with natural skin texture, correct anatomy and hands, no clutter. "
             "Choose the composition freely like an art director (the text may sit on the left, right, top or bottom), but the text always lies on "
             "a calm area with strong contrast and never covers faces or the main subject. "
-            f"Text in Russian, spelled EXACTLY as given, nothing added, nothing changed: {text}, and below it a solid rounded button «{cta}». "
-            "The headline is very large, heavy bold sans-serif, left aligned, at most 4 lines, the first thing the eye sees, with strong contrast "
-            "against its background. "
-            "Visual direction: " + DIRECTIONS[index % len(DIRECTIONS)] + ". A harmonious palette of 2-3 colors; it looks like an ad from a top agency. "
-            "Never add: any other text, website addresses, domain names, phone numbers, logos, emblems, icons, mascots, watermarks; "
-            "an invented app or website interface (a phone in the scene shows a plain dark screen or is turned away); "
-            "decorative frames, ornaments, golden dust, sparkles, glow or lens flare."
+            + _text_block(title, price, cta)
+            + "Visual direction: " + DIRECTIONS[index % len(DIRECTIONS)] + ". A harmonious palette of 2-3 colors; it looks like an ad from a top agency. "
+            + ONE_BANNER + AVOID
+            + " Also forbidden: an invented app or website interface (a phone in the scene shows a plain dark screen or is turned away)."
             + (LOGO_RULE.format(ratio=logo_ratio or 2.5, width=36 if (logo_ratio or 2.5) >= 3 else 28) if logo_corner else "")
             + (SCREEN_RULE if screen else ""))
+
 
 async def _submit(http: httpx.AsyncClient, model: str, key: str, payload: dict) -> dict:
     try:
@@ -161,34 +178,28 @@ PHOTO_LOOKS = (
 
 def photo_banner_prompt(biz, title: str, price: str, cta: str, index: int = 0, mood: str = "") -> str:
     """Запрос «сделай баннер из этого фото»: фото владельца остаётся настоящим, меняется только оформление и текст."""
-    text = f'a large bold headline «{title}»'
-    if price:
-        text += f' and a price badge «{price.replace(chr(160), " ")}»'
     name, look = PHOTO_LOOKS[index % len(PHOTO_LOOKS)]
-    return (f"Create a professional advertising banner, landscape 4:3, using the attached photo as the main image (the business is: {biz['kind']}; "
-            "this is context only, do not write it on the banner). "
-            "Keep the real photo natural and unaltered (the same people, animals, objects and place); you may crop it and extend its background for the layout. "
-            f"Add text in Russian, spelled exactly as written, nothing added or changed: {text}, and a solid rounded button «{cta}». "
-            f"Visual direction: {look}. " + (f"Audience and mood: {mood}. " if mood else "")
-            + "Strong contrast, text is easy to read and never covers faces or the main subject. "
-            "Do not write the business name, website addresses, domain names, phone numbers or any other text. "
-            "Do not add logos, emblems, icons, watermarks, decorative frames, ornaments, sparkles or glow.")
+    return ("Purpose: one advertising banner for Yandex Direct, landscape 4:3, for a Russian audience "
+            f"(the business is: {biz['kind']}; context only, never write it on the banner). "
+            "Subject: the attached photo is the one and only reference of the subject. Preserve exactly the same people, animals, objects and place, "
+            "their faces, coat or clothing and proportions, so the real photo stays natural and unaltered; change only the layout, the crop, "
+            "the extended background and the colors around it. "
+            f"Look and composition: Visual direction: {look}. " + (f"Audience and mood: {mood}. " if mood else "")
+            + "The main subject keeps about half of the frame; the text sits in reserved negative space and never covers faces or the main subject. "
+            + _text_block(title, price, cta) + ONE_BANNER + AVOID)
 
 
 def reference_banner_prompt(biz, title: str, price: str, cta: str, direction: str) -> str:
     """Баннер из фото владельца по мотивам референса: вторая картинка служит только вдохновением, её не копируем."""
-    text = f'a large bold headline «{title}»'
-    if price:
-        text += f' and a price badge «{price.replace(chr(160), " ")}»'
-    return ("Create a professional advertising banner, landscape 4:3, "
-            f"(the business is: {biz['kind']}; this is context only, do not write it on the banner). "
-            "The FIRST attached image is the business's real photo: use it as the main image, keep its subject natural and unaltered "
-            "(the same people, animals, objects), you may crop it, extend its background and place it freely in the layout. "
-            "The SECOND attached image is ONLY a style inspiration (its composition idea, color mood, typography weight and feel): do NOT copy it, "
+    return ("Purpose: one advertising banner for Yandex Direct, landscape 4:3, for a Russian audience "
+            f"(the business is: {biz['kind']}; context only, never write it on the banner). "
+            "Subject: the FIRST attached image is the business's real photo and the one and only reference of the subject: preserve exactly the same people, "
+            "animals, objects and place, their faces, coat or clothing and proportions, keep it natural and unaltered; you may crop it, extend its background "
+            "and place it freely in the layout. "
+            "Style: the SECOND attached image is ONLY a style inspiration (its composition idea, color mood, typography weight and feel): do NOT copy it, "
             "do NOT reuse its text, logo, products, animals or characters; make a new original layout inspired by it. "
-            f"Add text in Russian, spelled exactly as written, nothing added or changed: {text}, and a solid rounded button «{cta}». "
-            f"Direction: {direction}. Strong contrast, the text is easy to read and never covers faces or the main subject. "
-            "Do not write any other text, business names, website addresses, domain names, phone numbers, logos, icons or watermarks.")
+            f"Look and composition: Direction: {direction}. The text never covers faces or the main subject. "
+            + _text_block(title, price, cta, by_direction=True) + ONE_BANNER + AVOID)
 
 
 def edit_model(model: str) -> str:
