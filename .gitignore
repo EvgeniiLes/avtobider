@@ -5,3 +5,7 @@ __pycache__/
 data/
 .pytest_cache/
 .claude/
+
+# собранные макеты и снимки экрана (пересобираются: python docs/mockups/build.py)
+docs/mockups/direction-*.html
+docs/mockups/shots/

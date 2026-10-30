@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Схема разделов: было и станет</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600&display=swap">
+<style>
+:root{--bg:#f2f3f5;--surface:#fff;--ink:#14171c;--muted:#5d6672;--line:#dfe2e7;--line-2:#eceef1;--accent:#1f4de0;--accent-soft:#e9eefe;--warn:#965a08;--warn-soft:#fbf0dc;--r:6px}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 "Golos Text",system-ui,sans-serif}
+main{max-width:1120px;margin:0 auto;padding:32px 24px 72px}
+h1{font-size:24px;font-weight:600;letter-spacing:-.015em;margin:0 0 6px}h2{font-size:16px;font-weight:600;margin:32px 0 12px}h3{font-size:15px;font-weight:600;margin:0 0 8px}
+.lead{color:var(--muted);margin:0 0 8px;max-width:760px}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+.col{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:18px 20px}
+.col>h3{display:flex;justify-content:space-between;align-items:baseline}.col>h3 span{font-weight:400;font-size:13px;color:var(--muted)}
+.nav{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 14px;padding:0 0 14px;border-bottom:1px solid var(--line-2)}
+.nav b{font-weight:500;padding:4px 10px;border:1px solid var(--line);border-radius:4px;font-size:14px}.new .nav b{border-color:var(--ink)}
+.page{padding:11px 0;border-top:1px solid var(--line-2)}.page:first-of-type{border-top:0;padding-top:0}
+.page h4{margin:0 0 3px;font-size:15px;font-weight:600}.page p{margin:0;color:var(--muted);font-size:14px}
+.page .bad{color:var(--warn)}
+.arrow{color:var(--accent);font-weight:500}
+table{width:100%;border-collapse:collapse;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+th{text-align:left;font-weight:500;color:var(--muted);font-size:13px;padding:8px 14px;background:var(--bg);border-bottom:1px solid var(--line)}
+td{padding:10px 14px;border-bottom:1px solid var(--line-2);vertical-align:top;font-size:14px}tr:last-child td{border-bottom:0}
+ul{margin:6px 0 0;padding-left:20px;color:var(--ink)}li{margin:3px 0}
+.note{background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:var(--r);padding:14px 18px;margin-top:14px;font-size:14px}
+a{color:var(--accent)}
+@media(max-width:820px){.cols{grid-template-columns:1fr}table{display:block;overflow-x:auto}}
+</style></head><body><main>
+<h1>Схема разделов: было и станет</h1>
+<p class="lead">Сейчас шесть вкладок, и в них перемешаны разные задачи: ежедневная работа лежит рядом с настройками. В новой схеме разделов столько же по смыслу, но они сгруппированы по тому, зачем человек пришёл: смотреть, делать, готовить материалы, настраивать.</p>
+
+<div class="cols">
+  <div class="col"><h3>Сейчас <span>верхнее меню, 6 вкладок</span></h3>
+    <div class="nav"><b>Главная</b><b>Бизнес</b><b>Объявления</b><b>Результаты</b><b>История</b><b>Подключения</b></div>
+    <div class="page"><h4>Главная</h4><p>Прогресс настройки, что будет создано, решения, 14 дней, бюджет. <span class="bad">Настройка и ежедневный обзор в одном месте.</span></p></div>
+    <div class="page"><h4>Бизнес</h4><p>Описание, адрес, скидки, фото, логотип, скриншот, видео, Метрика. <span class="bad">Настройки и материалы вперемешку.</span></p></div>
+    <div class="page"><h4>Объявления</h4><p>Идеи, баннеры, запуск и «библиотека» внизу. <span class="bad">Фоновые картинки, тексты и видео спрятаны под шторкой.</span></p></div>
+    <div class="page"><h4>Результаты</h4><p>Таблицы по объявлениям и приёмам.</p></div>
+    <div class="page"><h4>История</h4><p>Журнал изменений. <span class="bad">Отдельная вкладка ради одного списка.</span></p></div>
+    <div class="page"><h4>Подключения</h4><p>Кабинеты, кампании, данные рекламодателя, другие площадки.</p></div>
+  </div>
+  <div class="col new"><h3>Станет <span>боковое меню, группы по смыслу</span></h3>
+    <div class="nav"><b>Обзор</b><b>Объявления</b><b>Результаты</b><b>Материалы</b><b>Бизнес</b><b>Подключения</b></div>
+    <div class="page"><h4>Реклама</h4><p><b>Обзор</b>: числа, бюджет недели и очередь решений.<br><b>Объявления</b>: идеи, баннеры, запуск.<br><b>Результаты</b>: что работает лучше, внизу журнал изменений.</p></div>
+    <div class="page"><h4>Материалы</h4><p>Фото, логотип, скриншот, видео, все тексты, история баннеров и фоновые картинки. Всё, из чего сервис собирает рекламу, в одном месте.</p></div>
+    <div class="page"><h4>Настройки</h4><p><b>Бизнес</b>: описание, адрес, бюджет, скидки, Метрика.<br><b>Подключения</b>: кабинеты (Директ, VK, Авито), кампании, данные рекламодателя.</p></div>
+    <div class="page"><h4>Первый запуск</h4><p>Вместо блока «что нужно, чтобы реклама заработала» на главной: три шага (бизнес, фото, кабинет). После запуска он исчезает, остаётся обзор.</p></div>
+  </div>
+</div>
+
+<h2>Куда переезжает каждый блок</h2>
+<table><thead><tr><th>Блок</th><th>Был</th><th>Станет</th></tr></thead><tbody>
+<tr><td>Прогресс «что нужно, чтобы реклама заработала»</td><td>Главная</td><td>Первый запуск: отдельный экран, потом пропадает</td></tr>
+<tr><td>«Ждёт вашего решения», 14 дней, бюджет недели</td><td>Главная</td><td>Обзор</td></tr>
+<tr><td>Остановить всю рекламу</td><td>Главная</td><td>Обзор, в правом верхнем углу, подтверждение обязательно</td></tr>
+<tr><td>Описание, адрес, скидки, бюджет</td><td>Бизнес</td><td>Настройки, Бизнес</td></tr>
+<tr><td>Фото, логотип, скриншот, видео</td><td>Бизнес</td><td>Материалы</td></tr>
+<tr><td>Яндекс Метрика</td><td>Бизнес</td><td>Настройки, Бизнес</td></tr>
+<tr><td>Идеи, баннеры, запуск</td><td>Объявления</td><td>Объявления: те же три шага, без изменений в логике</td></tr>
+<tr><td>Фоновые картинки, все тексты, видео, история баннеров</td><td>Объявления, «библиотека»</td><td>Материалы</td></tr>
+<tr><td>Таблицы по объявлениям, «что работает лучше»</td><td>Результаты</td><td>Результаты</td></tr>
+<tr><td>Журнал изменений</td><td>История</td><td>Результаты, внизу</td></tr>
+<tr><td>Кабинеты, кампании, данные рекламодателя, VK и Авито</td><td>Подключения</td><td>Настройки, Подключения</td></tr>
+</tbody></table>
+
+<h2>Как это сделаем в коде</h2>
+<ul>
+<li><b>Один файл с токенами</b> (цвета, шрифты, отступы, радиусы). Все страницы берут значения только оттуда, поэтому не расходятся.</li>
+<li><b>Шрифты с нашего сервера</b>, а не из Google Fonts: быстрее и не зависит от доступности чужого сайта.</li>
+<li><b>app.js делится на модули по разделам</b> (обзор, объявления, результаты, материалы, настройки), общее выносится отдельно. Сейчас это один файл на полторы тысячи строк.</li>
+<li><b>API не меняется.</b> Меняются только вёрстка и маршруты; старые ссылки (<code>#/creatives</code> и другие) перенаправляются.</li>
+<li><b>Прежняя версия остаётся на <code>/old</code></b>, пока вы не примете новую. Текущую версию сохраним в git-метке, как сделали в прошлый раз.</li>
+<li><b>Тёмная тема</b> делается из тех же токенов, а не отдельной раскраской.</li>
+</ul>
+<div class="note">Макеты показывают два характера на одних и тех же экранах: <a href="direction-a.html">A: рабочая панель</a> (боковое меню, аккуратные рамки, один синий акцент) и <a href="direction-b.html">B: издание</a> (верхнее меню, крупные заголовки с засечками, зелёный акцент, без рамок). Числа в макетах условные.</div>
+</main></body></html>
