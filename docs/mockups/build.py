@@ -358,6 +358,32 @@ HOME_C = """
 </section>
 """
 
+HOME_NEW = """
+<div class="state-new">
+  <div class="hero">
+    <div class="hero-l">
+      <span class="badge"><i></i>Новый бизнес</span>
+      <h1 class="hero-h">Запустим первую рекламу</h1>
+      <p class="lead">Нужно три шага. Как только реклама пойдёт, здесь появятся ваши показы, клики и заявки.</p>
+      <ol class="steps stack">
+        <li class="cur"><b>1. Расскажите о бизнесе</b><span>что делаете и где</span></li>
+        <li><b>2. Добавьте фото</b><span>из них сделаем баннеры</span></li>
+        <li><b>3. Подключите кабинет</b><span>Яндекс Директ</span></li>
+      </ol>
+      <div class="hero-cta"><button class="btn">Рассказать о бизнесе</button><a class="link" href="#">Показать пример данных</a></div>
+    </div>
+    <div class="tiles ghost">
+      <div class="tile photo"><b>Лучшее фото</b>Появится после первых показов</div>
+      <div class="tile"><b>Клики</b>График за две недели</div>
+      <div class="tile"><b>Бюджет недели</b>Сколько потрачено и сколько осталось</div>
+      <div class="tile pink"><div class="th"><span>Идеи стратега</span><b class="big2">после описания бизнеса</b></div></div>
+    </div>
+  </div>
+</div>
+"""
+HOME_C = HOME_C.replace('<section class="screen" data-screen="overview">\n', '<section class="screen" data-screen="overview">\n<div class="state-data">\n', 1)
+HOME_C = HOME_C.rstrip()[:-len("</section>")] + "</div>\n" + HOME_NEW + "</section>\n"
+
 CSS_C = """
 :root{--bg:#fff;--soft:#f5f5f3;--ink:#111214;--muted:#6a6d75;--line:#e7e8ec;--line-2:#f0f0f2;
 --mint:#9cecc7;--mint-ink:#0c4630;--lav:#bfaef6;--lav-ink:#2b1f63;--butter:#ffe9a9;--butter-ink:#4d3b06;--pink:#f8cdf1;--pink-ink:#561d4d;
@@ -440,6 +466,14 @@ textarea{font:inherit;color:var(--ink);padding:11px 14px;border:1px solid var(--
 .pink .th{margin:0;flex:1;flex-direction:column;align-items:flex-start;gap:0}.pink .th span{font-size:14px;font-weight:600}.pink .big2{font-size:30px;font-weight:700;letter-spacing:-.035em;line-height:1.1}
 .circ{flex-shrink:0;width:38px;height:38px;border-radius:50%;border:1px solid var(--ink);background:#fff;font:400 20px/1 var(--font);cursor:pointer}
 .thumbs{display:flex}.thumbs img{width:58px;height:58px;border-radius:50%;object-fit:cover;border:3px solid var(--pink);margin-left:-14px}.thumbs img:first-child{margin-left:0}
+/* состояние «новый аккаунт»: пустые плитки и три шага */
+.state-new{display:none}.is-new .state-data{display:none}.is-new .state-new{display:block}
+.steps.stack{flex-direction:column;align-items:flex-start;margin:0 0 28px}.steps.stack li{padding:12px 24px;width:100%;max-width:440px;justify-content:space-between;align-items:center}
+.tiles.ghost .tile{background:#fff;color:var(--muted);border:1.5px dashed var(--line);min-height:150px;justify-content:center;gap:4px;font-size:14px}
+.tiles.ghost .tile b{color:var(--ink);font-size:17px;letter-spacing:-.02em}.tiles.ghost .tile.photo{min-height:340px;border-radius:var(--tile) var(--tile) var(--tile) 96px}
+.tiles.ghost .tile.pink{min-height:96px;border-radius:var(--tile) var(--tile) 64px var(--tile)}.tiles.ghost .pink .big2{font-size:17px;font-weight:600;color:var(--muted)}
+.mock-switch{position:fixed;right:16px;bottom:16px;background:var(--ink);color:#fff;border-radius:999px;padding:5px;display:flex;gap:2px;font-size:13px;z-index:10;align-items:center}
+.mock-switch span{padding:6px 8px 6px 14px;opacity:.65}.mock-switch button{font:inherit;color:#fff;background:none;border:0;border-radius:999px;padding:6px 14px;cursor:pointer}.mock-switch button.on{background:#fff;color:var(--ink);font-weight:600}
 @media(max-width:1100px){.hero{grid-template-columns:1fr}.hero-h{font-size:52px}}
 @media(max-width:900px){.shell{grid-template-columns:minmax(0,1fr)}.side{position:static;height:auto;flex-direction:row;flex-wrap:wrap;padding:12px 14px;gap:8px 12px;border-right:0;border-bottom:1px solid var(--line);align-items:center}
 .side nav{flex-direction:row;flex-wrap:wrap;gap:4px}.side .grp,.limit{display:none}.biz{margin-left:auto}main{padding:22px 16px 56px}
@@ -455,7 +489,10 @@ SHELL_C = """<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta na
 <span class="grp">Материалы</span><a href="#" data-go="media">Фото и баннеры <em>13</em></a>
 <span class="grp">Настройки</span><a href="#">Бизнес</a><a href="#">Подключения</a></nav>
 <div class="limit">Генерация: $1,17 из $5 в этом месяце<i><b></b></i></div></aside>
-<main>@@SCREENS@@</main></div>@@SCRIPT@@</body></html>"""
+<main>@@SCREENS@@</main></div>
+<div class="mock-switch" aria-label="Состояние макета (только для просмотра)"><span>Макет:</span><button class="on" data-state="data">С рекламой</button><button data-state="new">Новый аккаунт</button></div>
+<script>document.querySelectorAll('.mock-switch button').forEach(function(b){b.addEventListener('click',function(){document.documentElement.classList.toggle('is-new',b.dataset.state==='new');
+document.querySelectorAll('.mock-switch button').forEach(function(x){x.classList.toggle('on',x===b)})})});if(/[?&]new/.test(location.search)){document.querySelector('.mock-switch [data-state=new]').click()}</script>@@SCRIPT@@</body></html>"""
 
 
 def screens_c() -> str:
@@ -471,6 +508,99 @@ html_c = (SHELL_C.replace("@@FONTS@@", FONTS.format(fam="Golos+Text:wght@400;500
           .replace("@@SCREENS@@", screens_c()).replace("@@SCRIPT@@", NAV_SCRIPT))
 (HERE / "direction-c.html").write_text(html_c, encoding="utf-8")
 print("direction-c.html", len(html_c) // 1024, "КБ")
+
+
+# ---------- Главная для гостей (без входа): один и тот же пример для всех ----------
+CSS_GUEST = """
+html{scroll-behavior:smooth}a.chip,a.btn{text-decoration:none;display:inline-block}a.chip{display:inline-flex}
+.top{display:flex;align-items:center;gap:32px;padding:22px 48px;max-width:1360px;margin:0 auto}.top .brand{padding:0}
+.top nav{display:flex;gap:30px;flex:1;justify-content:center}.top nav a{color:var(--ink);text-decoration:none;font-weight:500;font-size:14px}.top nav a:hover{text-decoration:underline;text-underline-offset:4px}
+.top .right{display:flex;gap:18px;align-items:center}.top .right .enter{color:var(--ink);font-weight:600;text-decoration:none;font-size:14px}
+.page{max-width:1360px;margin:0 auto;padding:10px 48px 72px}.hero.guest{margin:26px 0 110px}
+.tiles-wrap{position:relative}.tag{position:absolute;top:-16px;left:18px;z-index:2;background:var(--ink);color:#fff;border-radius:999px;padding:5px 16px;font-size:12.5px;font-weight:600}
+.sec h2{font-size:42px;letter-spacing:-.04em;line-height:1.05;margin:0 0 30px;display:block}
+.how{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:110px}
+.how .card{border-radius:var(--tile);padding:26px;display:flex;flex-direction:column;min-height:380px}
+.how .num{display:inline-grid;place-items:center;width:36px;height:36px;border-radius:50%;background:#fff;font-weight:700;margin-bottom:22px}
+.how h3{font-size:26px;letter-spacing:-.035em;line-height:1.1;margin:0 0 10px}.how p{margin:0;font-size:15px;line-height:1.5}
+.how .card.m{background:var(--mint);color:var(--mint-ink)}.how .card.l{background:var(--lav);color:var(--lav-ink)}.how .card.b{background:var(--butter);color:var(--butter-ink)}
+.how .card .shot{margin-top:auto;border-radius:20px;width:100%;aspect-ratio:4/3;object-fit:cover;display:block}
+.how .card .chart-c{margin-top:auto;padding-top:22px}
+.strip{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:14px}.strip img{width:100%;border-radius:20px;display:block;aspect-ratio:4/3;object-fit:cover}
+.sec{margin-bottom:110px}.sec .note{font-size:14.5px}
+.cta-band{display:grid;grid-template-columns:1.1fr 1fr;gap:48px;align-items:center;background:var(--mint);color:var(--mint-ink);border-radius:44px 44px 44px 120px;padding:56px 56px 56px 64px}
+.cta-band h2{font-size:46px;letter-spacing:-.04em;line-height:1.02;margin:0 0 14px;display:block}.cta-band p{margin:0;font-size:16px;max-width:380px}
+.auth-card{background:#fff;color:var(--ink);border-radius:28px;padding:26px}
+.auth-tabs{display:flex;gap:4px;background:var(--soft);border-radius:999px;padding:4px;margin-bottom:20px}.auth-tabs button{flex:1;font:inherit;font-weight:600;border:0;background:none;border-radius:999px;padding:9px;cursor:pointer;color:var(--muted)}
+.auth-tabs button.on{background:var(--ink);color:#fff}.auth-card label{margin-bottom:14px}
+.auth-card input{font:inherit;color:var(--ink);padding:13px 18px;border:1px solid var(--line);border-radius:999px;background:#fff;width:100%}.auth-card input:focus{outline:3px solid var(--lav);border-color:var(--ink)}
+.btn.wide{width:100%;padding:14px}.fine{margin:14px 0 0;font-size:12.5px;color:var(--muted)}
+.foot{max-width:1360px;margin:0 auto;padding:0 48px 40px;color:var(--muted);font-size:13px}
+@media(max-width:900px){.top{padding:16px;gap:14px}.top nav{display:none}.top .right{margin-left:auto}.page{padding:6px 16px 48px}.hero.guest{margin-bottom:64px}
+.how{grid-template-columns:1fr;margin-bottom:64px}.how .card{min-height:0}.sec{margin-bottom:64px}.sec h2{font-size:32px}.strip{grid-auto-flow:column;grid-template-columns:none;grid-auto-columns:72%;overflow-x:auto;padding-bottom:6px}
+.cta-band{grid-template-columns:1fr;padding:32px 22px;gap:24px;border-radius:32px 32px 32px 72px}.cta-band h2{font-size:34px}.foot{padding:0 16px 32px}}
+"""
+
+GUEST_C = """
+<header class="top"><span class="brand">Автобидер</span>
+  <nav><a href="#how">Как это работает</a><a href="#example">Пример</a><a href="#start">Начать</a></nav>
+  <div class="right"><a class="enter" href="#start">Войти</a><a class="btn" href="#start">Начать</a></div></header>
+<main class="page">
+  <div class="hero guest">
+    <div class="hero-l">
+      <span class="badge"><i></i>Для салонов, мастерских и небольших сервисов</span>
+      <h1 class="hero-h">Реклама в Директе без хлопот</h1>
+      <p class="lead">Расскажите о бизнесе и загрузите фото. Сервис напишет объявления, нарисует баннеры, отправит их на проверку и сам предложит остановить те, что не работают.</p>
+      <div class="hero-cta"><a class="btn" href="#start">Начать со своего бизнеса</a><a class="link" href="#example">Смотреть пример</a></div>
+      <div class="chiprow">
+        <a class="chip" href="#how">Объявления с баннерами<span class="plus">+</span></a><a class="chip" href="#how">Проверка текста на баннере<span class="plus">+</span></a>
+        <a class="chip" href="#example">Бюджет по неделям<span class="plus">+</span></a><a class="chip" href="#example">Отчёт простыми словами<span class="plus">+</span></a>
+      </div>
+    </div>
+    <div class="tiles-wrap"><span class="tag">Пример: салон груминга</span>
+      <div class="tiles">
+        <div class="tile mint photo"><img src="@@p2@@" alt="Лучшее фото"><p><b>Лучшее фото</b>Работа мастера: 2,2 % кликов</p></div>
+        <div class="tile lav chart"><div class="th"><span>Клики</span><em>+214</em></div>@@BARSC@@</div>
+        <div class="tile butter budget"><div class="th"><span>Бюджет недели</span></div><p class="big">3 240 <small>из 5 000 ₽</small></p>
+          <div class="cap" role="img" aria-label="Потрачено 65 процентов"><i style="width:65%"></i></div><p class="sm">Идём чуть медленнее плана</p></div>
+        <div class="tile pink ideas"><div class="th"><span>Идеи стратега</span><b class="big2">5 новых</b></div>
+          <div class="thumbs"><img src="@@b2@@" alt=""><img src="@@b4@@" alt=""><img src="@@b3@@" alt=""></div></div>
+      </div>
+    </div>
+  </div>
+
+  <section class="sec" id="how"><h2>Как это работает</h2>
+    <div class="how">
+      <div class="card m"><span class="num">1</span><h3>Расскажите о бизнесе</h3><p>Что делаете, где находитесь, сколько готовы тратить в неделю. Загрузите фото: баннеры сделаем из них.</p><img class="shot" src="@@p1@@" alt=""></div>
+      <div class="card l"><span class="num">2</span><h3>Получите объявления и баннеры</h3><p>Сервис пишет тексты, рисует баннеры и сам проверяет, что надписи на них без ошибок. Вы выбираете, что взять в рекламу.</p><img class="shot" src="@@b1@@" alt=""></div>
+      <div class="card b"><span class="num">3</span><h3>Следите за результатами</h3><p>Видно показы, клики и заявки. Слабые объявления сервис предлагает остановить, решаете вы.</p>@@BARSC@@</div>
+    </div></section>
+
+  <section class="sec" id="example"><h2>Что получилось у салона груминга</h2>
+    <div class="strip"><img src="@@b1@@" alt=""><img src="@@b2@@" alt=""><img src="@@b4@@" alt=""><img src="@@b5@@" alt=""><img src="@@b3@@" alt=""></div>
+    <p class="note">5 объявлений, 9 заявок за две недели при бюджете 5 000 ₽ в неделю. Цифры в примере условные.</p></section>
+
+  <section class="cta-band" id="start">
+    <div><h2>Начните с описания бизнеса</h2><p>Реклама уходит на проверку только после вашего подтверждения.</p></div>
+    <div class="auth-card"><div class="auth-tabs"><button class="on">Регистрация</button><button>Вход</button></div>
+      <form onsubmit="return false"><label>Электронная почта<input type="email" placeholder="name@example.com"></label><label>Пароль<input type="password"></label>
+      <button class="btn wide">Создать аккаунт</button></form></div>
+  </section>
+</main>
+<footer class="foot">Автобидер. Работает с Яндекс Директом.</footer>
+"""
+
+html_g = ('<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Макет C: главная для гостей</title>'
+          + FONTS.format(fam="Golos+Text:wght@400;500;600;700;800") + "<style>" + CSS_C + CSS_GUEST + "</style></head><body>"
+          + GUEST_C.replace("@@BARSC@@", bars_c()) + "</body></html>")
+for n, uri in IMG.items():
+    html_g = html_g.replace(f"@@{n}@@", uri)
+(HERE / "direction-c-guest.html").write_text(html_g, encoding="utf-8")
+print("direction-c-guest.html", len(html_g) // 1024, "КБ")
+
+
+
+
 
 
 
