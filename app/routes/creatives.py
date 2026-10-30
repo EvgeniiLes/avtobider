@@ -262,8 +262,8 @@ def ads(business_id: int, user: sqlite3.Row = Depends(current_user), conn: sqlit
         if brief:   # объявление сделано по идее стратега: показываем, что именно проверяем
             ai.update({"hypothesis": brief["hypothesis"], "audience": brief["audience"], "inspiration": refs.note(brief["ref_id"])})
         if photos and not _extras():   # промпт, по которому рисуется баннер из фото: виден и правится на карточке
-            ai["prompt"] = meta.get("prompt_text") or (brief["prompt"] if brief and brief["prompt"] else fal.photo_banner_prompt(
-                biz, v["title"], find_price(v["title"], v["text"], effective_description(biz)), profile(biz)["cta"], brief["look"] if brief else i))
+            ai["prompt"] = (brief["prompt"] if brief and brief["prompt"] else None) or meta.get("prompt_text") or fal.photo_banner_prompt(
+                biz, v["title"], find_price(v["title"], v["text"], effective_description(biz)), profile(biz)["cta"], brief["look"] if brief else i)
         if state == "ready":
             banner = f"/api/businesses/{business_id}/creatives/ads/{i}/banner.jpg"   # готовый ИИ-баннер важнее шаблона
         elif style == "ai":

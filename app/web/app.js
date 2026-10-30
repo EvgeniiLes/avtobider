@@ -557,21 +557,25 @@ function adEditor(a) {
   if (!lastPhotos.length) photoBox.append(el("span", { className: "hint", textContent: "Фото пока нет: загрузите на странице «Бизнес» или нарисуйте в библиотеке ниже." }));
 
   // подача
-  const chips = el("div", { className: "chips" });
-  const addChip = (label, selected, payload) => {
-    const c = el("button", { type: "button", className: "chip" + (selected ? " sel" : ""), textContent: label });
+  const refChips = el("div", { className: "chips" });
+  const lookChips = el("div", { className: "chips" });
+  const addChip = (row, label, selected, payload) => {
+    const c = el("button", { type: "button", className: "chip" + (selected ? " sel" : ""), textContent: label, title: label });
     c.addEventListener("click", async () => {
       if (selected) return;
       const r = await creativeCall("PUT", `/ads/${a.index}/settings`, payload);
       if (!r.ok) { say(errorText(r), "err"); return; }
       await reload();
     });
-    chips.append(c);
+    row.append(c);
   };
+  const cap = (t) => t.charAt(0).toUpperCase() + t.slice(1);
   if (lastPhotos.length) {
-    lastStyles.refs.forEach((r) => addChip(r.label.length > 38 ? `${r.label.slice(0, 36)}…` : r.label, a.ref_id === r.id, { ref_id: r.id }));
-    lastStyles.looks.forEach((l) => addChip(l.label, !a.ref_id && a.look_no === l.no, { look: l.no }));
+    lastStyles.refs.forEach((r) => addChip(refChips, cap(r.label.length > 34 ? `${r.label.slice(0, 32)}…` : r.label), a.ref_id === r.id, { ref_id: r.id }));
+    lastStyles.looks.forEach((l) => addChip(lookChips, cap(l.label), !a.ref_id && a.look_no === l.no, { look: l.no }));
   }
+  const chips = el("div", {}, el("span", { className: "sub", textContent: "По мотивам (вдохновение из рекламы вашей ниши)" }), refChips,
+    el("span", { className: "sub", textContent: "Обычное оформление" }), lookChips);
 
   // действия
   const price = (creativePrices.ai_banner || 0.07) + (a.ref_id ? lastRefExtra : 0);
@@ -630,6 +634,9 @@ function adEditor(a) {
 }
 
 function renderLaunchStep() {
+  const missing = lastAds.filter((a) => !(a.ai && a.ai.status === "ready")).length;
+  $("launch-warn").hidden = missing === 0;
+  $("launch-warn").textContent = `У объявлений без ИИ-баннера (${missing}) сервис соберёт обычную шаблонную картинку. Вернитесь к баннерам, если хотите нарисовать им баннеры.`;
   $("launch-list").replaceChildren(...lastAds.map((a) => {
     const [label, tone] = adStatus(a);
     const pic = a.banner_url ? el("img", { className: "pic", src: a.banner_url, alt: "" }) : el("span", { className: "pic" });

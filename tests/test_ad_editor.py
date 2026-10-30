@@ -70,6 +70,9 @@ def test_photo_and_style_are_saved_per_ad_and_change_the_prompt(monkeypatch):
         _h, path, body = next(r for r in fakes.requests if r[0] == "queue.fal.run")
         assert path.endswith("gpt-image-2/edit") and body.count(b"data:image/jpeg;base64") == 2               # фото и референс
         assert http.get(f"{base}/creatives").json()["spend"]["spent_usd"] == 0.09                             # 7 центов баннер и 2 за референс
+        http.get(f"{base}/creatives")
+        assert put({"look": 4}).status_code == 200                                                            # после отрисовки смена подачи сразу видна в промпте
+        assert "SECOND attached image" not in ads()["ads"][0]["ai"]["prompt"] and "photo-hero" in ads()["ads"][0]["ai"]["prompt"]
 
 
 def test_renaming_the_text_keeps_the_photo_and_style_with_the_ad(monkeypatch):

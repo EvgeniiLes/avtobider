@@ -359,3 +359,11 @@ details.library h3:first-of-type { border-top: 0; padding-top: 0; }
 .ed-top h2 { margin: 0; font-size: 17px; }
 .ed-note { margin: 6px 0 0; }
 .launch-row .st.ok { color: var(--ok); } .launch-row .st.warn { color: var(--warn); } .launch-row .st.err { color: var(--err); }
+.ed-fields .sub { display: block; margin: 8px 0 4px; font-size: 12px; color: var(--muted); }
+.ed-fields .sub:first-child { margin-top: 0; }
+@media (max-width: 1100px) {
+  .ed-grid { grid-template-columns: minmax(0, 1fr); }
+  .ed-preview { max-width: 460px; }
+}
+.ed-top .tag { border-radius: 10px; }
+@media (max-width: 480px) { button.step { padding: 10px 10px; gap: 6px; } }
