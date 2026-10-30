@@ -381,7 +381,9 @@ async function loadCreatives() {
   renderMedia($("cr-images"), images, caps.video_ai);
   renderMedia($("cr-videos"), videos, false);
   renderBannerHistory(creatives.filter((c) => c.kind === "ai_banner"));
-  $("briefs-card").hidden = !caps.text_ai;
+  lastCreatives = creatives;
+  caps_text_ai = caps.text_ai;
+  $("briefs-gen").hidden = $("briefs-count").hidden = !caps.text_ai;
   loadBriefs();
   $("cr-videos-empty").hidden = videos.length > 0;
   loadAds();
@@ -393,25 +395,61 @@ async function loadCreatives() {
   if (creatives.some((c) => c.status === "working")) creativeTimer = setTimeout(loadCreatives, 6000);
 }
 
-// Готовые объявления: текст вместе с картинкой, как они уйдут в Директ.
+// ---------- Страница «Объявления»: три шага (идеи, баннеры, запуск) ----------
+let crStep = null;               // текущий шаг
+const stepInit = new Set();      // для каких бизнесов шаг уже выбран автоматически
+let selectedAd = null;           // выбранное объявление в редакторе (по заголовку и тексту)
 let lastAds = [];
+let lastCreatives = [];
+let lastPhotos = [];
+let lastStyles = { looks: [], refs: [] };
+let lastRefExtra = 0.02;
+let lastCount = 0;
+const adKey = (a) => `${a.title}\u0000${a.text}`;
+
+function setStep(step) {
+  crStep = step;
+  for (const s of ["ideas", "banners", "launch"]) {
+    $(`step-${s}`).hidden = s !== step;
+    $(`step-btn-${s}`).classList.toggle("active", s === step);
+  }
+  window.scrollTo({ top: 0 });
+}
 
 async function makeAllBanners() {
   const need = lastAds.filter((a) => a.ai && a.ai.status !== "ready" && a.ai.status !== "working").length;
   if (!need) { say("Все баннеры уже нарисованы или рисуются."); return; }
   const price = usd(need * (creativePrices.ai_banner || 0.07));
-  if (!(await askConfirm("Нарисовать баннеры ИИ?", `Баннеров: ${need}, это платно: около ${price}. Нейросеть рисует каждый целиком, текст на них сервис проверит сам. Готовятся около минуты.`, "Нарисовать"))) return;
+  if (!(await askConfirm("Нарисовать недостающие баннеры?", `Баннеров: ${need}, это платно: около ${price}. Нейросеть делает каждый целиком, текст на них сервис проверит сам. Готовятся около минуты.`, "Нарисовать"))) return;
   const r = await creativeCall("POST", "/ads/ai-banners");
   if (!r.ok) { say(errorText(r), "err"); return; }
-  say(`Заказано баннеров: ${r.data.started}. Они появятся на карточках сами.`);
+  say(`Заказано баннеров: ${r.data.started}. Они появятся сами.`);
   await loadCreatives();
+}
+
+const AD_STATUS = {
+  ready: ["Готов", "ok"], working: ["Рисуется…", ""], failed: ["Не вышло, нарисуйте заново", "err"], none: ["Нужен баннер", "warn"],
+};
+
+function adStatus(a) {
+  return AD_STATUS[(a.ai && a.ai.status) || "none"] || AD_STATUS.none;
 }
 
 async function loadAds() {
   const result = await creativeCall("GET", "/ads");
   if (!result.ok) return;
-  const { ads, count, per_unit, site, has_maps, has_images, rejected_photos } = result.data;
+  const { ads, count, per_unit, site, has_maps, has_images, rejected_photos, photos, styles, ref_extra } = result.data;
   lastAds = ads;
+  lastPhotos = photos || [];
+  lastStyles = styles || { looks: [], refs: [] };
+  lastRefExtra = ref_extra ?? 0.02;
+  lastCount = count;
+  if (!selectedAd || !ads.some((a) => adKey(a) === selectedAd)) selectedAd = ads.length ? adKey(ads[0]) : null;
+  if (!stepInit.has(currentBusiness.id)) {   // первый заход: с идей, а если объявления уже выбраны, то сразу к баннерам
+    stepInit.add(currentBusiness.id);
+    setStep(ads.some((a) => a.own) || !caps_text_ai ? "banners" : "ideas");
+  } else if (!crStep) setStep("ideas");
+
   const target = site || (has_maps ? "вашу страницу в Яндекс Картах" : "");
   $("ads-summary").textContent = !count
     ? "Бюджет слишком мал для запуска: увеличьте его на странице «Бизнес». Так будут выглядеть объявления."
@@ -421,92 +459,190 @@ async function loadAds() {
   const note = $("ads-note");
   note.hidden = has_images;
   note.textContent = rejected_photos
-    ? "Загруженные фото не подошли для баннеров: ИИ нашёл на них свой текст, чужой бренд или водяной знак (подробности на странице «Бизнес»). Нарисуйте картинки ниже или загрузите другие фото: поверх готового баннера с надписями наш заголовок смотрелся бы плохо."
-    : "Картинок пока нет. Нарисуйте и выберите их ниже или загрузите свои фото на странице «Бизнес»: баннеры соберутся сами.";
+    ? "Загруженные фото не подошли для баннеров: ИИ нашёл на них свой текст, чужой бренд или водяной знак (подробности на странице «Бизнес»). Загрузите другие фото или нарисуйте фоновые картинки в библиотеке ниже."
+    : "Фото пока нет. Загрузите свои на странице «Бизнес» или нарисуйте фоновые картинки в библиотеке ниже: баннеры соберутся сами.";
+  renderBannerStep(true);
+  renderLaunchStep();
+  updateIdeasCount();
+}
+
+let caps_text_ai = true;   // можно ли просить ИИ писать тексты и придумывать идеи (приходит вместе со списком материалов)
+
+function renderBannerStep(fromPoll = false) {
+  const ready = lastAds.filter((a) => a.ai && a.ai.status === "ready").length;
+  const need = lastAds.filter((a) => a.ai && a.ai.status !== "ready" && a.ai.status !== "working").length;
+  $("banners-count").textContent = lastAds.length ? `Баннеры готовы у ${ready} из ${lastAds.length}.` : "";
+  const all = $("ads-ai-all");
+  all.hidden = need === 0;
+  all.textContent = `Нарисовать все недостающие · ${usd(need * (creativePrices.ai_banner || 0.07))}`;
+
   const stamp = Date.now();
-  $("ads").replaceChildren(...ads.map((a) => {
-    const aiText = a.ai && {
-      none: "ИИ-дизайн: баннер с текстом рисует нейросеть. Нажмите «Нарисовать».",
-      working: "Рисуем баннер… около минуты",
-      failed: a.ai.error || "Не получилось. Нажмите «Нарисовать» ещё раз.",
-    }[a.ai.status];
-    const pic = a.banner_url
-      ? el("img", { src: `${a.banner_url}?t=${stamp}`, alt: a.title, loading: "lazy" })
-      : a.ai && a.ai.status === "working"
-        ? el("div", { className: "no-pic loading" }, el("div", { className: "spinner" }), el("div", { textContent: aiText }))
-        : el("div", { className: "no-pic", textContent: aiText || "Без картинки" });
-    const host = (site || (has_maps ? "yandex.ru/maps" : "ваш-сайт.ru")).replace(/^https?:\/\//, "").replace(/\/.*$/, "");
-    const body = el("div", { className: "ad-body" },
-      el("div", { className: "ad-title", textContent: a.title }),
-      el("div", { className: "ad-text", textContent: a.text }),
-      el("div", { className: "ad-site" }, el("b", { textContent: "Реклама" }), host),
-      a.angle_label ? el("div", { className: "hint", textContent: `Угол подачи: ${a.angle_label}` }) : "",
-      a.ai && a.ai.hypothesis ? el("div", { className: "hint", textContent: `Проверяем: ${a.ai.hypothesis}` }) : "",
-      a.ai && a.ai.inspiration ? el("div", { className: "hint", textContent: `Вдохновение: ${a.ai.inspiration}` }) : "",
-      a.ai && a.ai.scene ? el("div", { className: "hint", textContent: `Сцена: ${a.ai.scene}${a.ai.audience ? `. Для: ${a.ai.audience}` : ""}` }) : "",
-      a.ai && a.ai.scene && (a.ai.logo === "placed" || a.ai.logo_reason) ? el("div", { className: "hint", textContent: a.ai.logo === "placed" ? "Логотип на баннере" : `Без логотипа: ${a.ai.logo_reason}` }) : "");
-    const action = a.own
-      ? el("button", { className: "small secondary", textContent: "Не использовать" })
-      : el("button", { className: "small", textContent: "Использовать этот" });
-    const changeText = async (status) => {
-      let id = a.creative_id;
-      if (!id) {  // шаблонный текст: сначала сохраняем его как свой
-        const added = await creativeCall("POST", "/texts", { title: a.title, body: a.text });
-        if (!added.ok) { say(errorText(added), "err"); return; }
-        id = added.data.id;
-      }
-      const r = await creativeCall("PUT", `/${id}`, { status });
-      if (!r.ok) { say(errorText(r), "err"); return; }
-      await loadCreatives();
-    };
-    action.addEventListener("click", () => changeText(a.own ? "rejected" : "approved"));
-    const badge = el("span", { className: "badge " + (a.own ? "good" : a.text_status === "draft" ? "moderation" : ""),
-      textContent: a.own ? "Ваш выбор" : a.text_status === "draft" ? "Предложил ИИ" : "Подставит сервис" });
-    const foot = el("div", { className: "ad-foot" }, badge, action);
-    if (a.text_status === "draft") {  // предложение ИИ можно убрать, тогда в это место встанет другой вариант
-      const drop = el("button", { className: "small secondary", textContent: "Убрать" });
-      drop.addEventListener("click", () => changeText("rejected"));
-      foot.append(drop);
-    }
-    if (a.photo_label) foot.prepend(el("span", { className: "badge", textContent: `Фото: ${a.photo_label}` }));
-    // две кнопки перегенерации под каждым вариантом: другой текст и другой баннер
-    const working = a.ai && a.ai.status === "working";
-    const again = el("button", { className: "small secondary", textContent: "↻ Другой текст" });
-    again.addEventListener("click", async () => {
-      again.disabled = true;
-      again.textContent = "Пишем…";
-      card.classList.add("busy");  // на карточке крутится индикатор, пока ИИ пишет
-      const r = await creativeCall("POST", `/ads/${a.index}/rewrite`);
-      if (!r.ok) { card.classList.remove("busy"); say(errorText(r), "err"); again.disabled = false; again.textContent = "↻ Другой текст"; return; }
-      say(`Новый текст: «${r.data.title}». Баннер к нему можно перерисовать.`);
-      await loadCreatives();
-    });
-    const redraw = el("button", { className: "small secondary", textContent: working ? "Рисуем…" : a.ai && a.ai.status === "ready" ? "↻ Другой баннер" : "Нарисовать баннер ИИ" });
-    redraw.disabled = working;
-    redraw.addEventListener("click", async () => {
-      if (!(await askConfirm("Нарисовать баннер?", `Это платно: около ${usd(creativePrices.ai_banner || 0.07)}. Нейросеть рисует баннер целиком, текст на нём сервис проверит сам. Готовится около минуты.`, "Нарисовать"))) return;
-      const r = await creativeCall("POST", `/ads/${a.index}/ai-banner`);
-      if (!r.ok) { say(errorText(r), "err"); return; }
-      await loadCreatives();
-    });
-    const card = el("div", { className: "ad" + (working ? " is-working" : "") }, pic, body, foot, el("div", { className: "ad-foot ad-redo" }, again, redraw));
-    if (a.ai && a.ai.prompt) {  // промпт, по которому нейросеть делает баннер из вашего фото: можно поправить и нарисовать заново
-      const area = el("textarea", { rows: 7, maxLength: 4000, value: a.ai.prompt });
-      const go = el("button", { className: "small", textContent: "Нарисовать по этому промпту" });
-      go.disabled = working;
-      go.addEventListener("click", async () => {
-        if (!(await askConfirm("Нарисовать по промпту?", `Это платно: около ${usd(creativePrices.ai_banner || 0.07)}. Нейросеть сделает баннер из вашего фото по этому тексту.`, "Нарисовать"))) return;
-        const r = await creativeCall("POST", `/ads/${a.index}/ai-banner`, { prompt: area.value });
-        if (!r.ok) { say(errorText(r), "err"); return; }
+  $("ads").replaceChildren(...lastAds.map((a) => {
+    const [label, tone] = adStatus(a);
+    const pic = a.banner_url ? el("img", { className: "pic", src: `${a.banner_url}?t=${stamp}`, alt: "" }) : el("span", { className: "pic", textContent: a.ai && a.ai.status === "working" ? "…" : "нет" });
+    const item = el("button", { className: "ad-item" + (adKey(a) === selectedAd ? " sel" : ""), type: "button" }, pic,
+      el("span", {}, el("span", { className: "t", textContent: a.title }), el("span", { className: `st ${tone}`, textContent: label })));
+    item.addEventListener("click", () => { selectedAd = adKey(a); renderBannerStep(); });
+    return item;
+  }));
+  const editor = $("ad-editor");
+  const typing = editor.contains(document.activeElement) && ["INPUT", "TEXTAREA"].includes(document.activeElement.tagName);
+  if (fromPoll && typing) return;   // пока человек печатает, поле не перерисовываем
+  const a = lastAds.find((x) => adKey(x) === selectedAd);
+  editor.replaceChildren(...(a ? [adEditor(a)] : [el("p", { className: "hint", textContent: "Объявлений пока нет. Вернитесь к идеям или напишите свой вариант." })]));
+}
+
+function adEditor(a) {
+  const working = a.ai && a.ai.status === "working";
+  const stamp = Date.now();
+  const ready = a.ai && a.ai.status === "ready";
+  const reload = async () => { await loadAds(); };
+
+  // превью и версии баннера
+  const preview = el("div", { className: "ed-preview" });
+  if (a.banner_url) preview.append(el("img", { src: `${a.banner_url}?t=${stamp}`, alt: a.title }));
+  else if (working) preview.append(el("div", { className: "spinner" }), el("div", { textContent: "Рисуем баннер… около минуты" }));
+  else if (a.ai && a.ai.status === "failed") preview.append(el("div", { textContent: a.ai.error || "Не получилось. Нарисуйте заново." }));
+  else preview.append(el("i", { className: "hint", textContent: "Баннера пока нет" }), el("div", { textContent: "Выберите фото и подачу справа, затем нажмите «Нарисовать баннер»." }));
+  const versions = lastCreatives.filter((c) => c.kind === "ai_banner" && c.title === a.title && c.body === a.text && (c.status === "draft" || c.status === "approved") && c.url)
+    .sort((x, y) => y.id - x.id).slice(0, 8);
+  const strip = el("div", { className: "versions" });
+  if (versions.length > 1) {
+    strip.append("Версии:");
+    versions.forEach((v, i) => {
+      const img = el("img", { src: v.url, alt: `Версия ${versions.length - i}`, title: i === 0 ? "Сейчас на объявлении" : "Вернуть эту версию", className: i === 0 ? "cur" : "" });
+      if (i > 0) img.addEventListener("click", async () => {
+        const r = await creativeCall("POST", `/${v.id}/restore`);
+        say(r.ok ? "Версия возвращена." : errorText(r), r.ok ? "ok" : "err");
         await loadCreatives();
       });
-      card.append(el("details", { className: "own-text" }, el("summary", { textContent: "Промпт для картинки" }),
-        el("p", { className: "hint", textContent: "Так сервис просит нейросеть сделать баннер из вашего фото. Поправьте текст (оформление, цвета, что убрать) и нажмите кнопку. Заголовок и кнопку оставьте в кавычках, их потом проверит сервис." }),
-        area, el("p"), go));
+      strip.append(img);
+    });
+  }
+
+  // текст
+  const titleIn = el("input", { type: "text", value: a.title, maxLength: 80 });
+  const textIn = el("input", { type: "text", value: a.text, maxLength: 120 });
+  const saveBtn = el("button", { className: "small secondary", textContent: "Сохранить текст", hidden: true });
+  const changed = () => { saveBtn.hidden = titleIn.value === a.title && textIn.value === a.text; };
+  titleIn.addEventListener("input", changed);
+  textIn.addEventListener("input", changed);
+  saveBtn.addEventListener("click", async () => {
+    saveBtn.disabled = true;
+    let id = a.creative_id;
+    if (!id) {   // шаблонный текст сначала сохраняем как свой
+      const added = await creativeCall("POST", "/texts", { title: a.title, body: a.text });
+      if (!added.ok) { say(errorText(added), "err"); saveBtn.disabled = false; return; }
+      id = added.data.id;
     }
-    card.append(el("div", { className: "busy-layer" }, el("div", { className: "spinner" })));
-    return card;
+    const r = await creativeCall("PUT", `/${id}`, { title: titleIn.value, body: textIn.value, status: "approved" });
+    if (!r.ok) { say(errorText(r), "err"); saveBtn.disabled = false; return; }
+    selectedAd = `${r.data.title}\u0000${r.data.body}`;
+    say("Текст сохранён. Баннер к новому тексту нужно нарисовать заново.");
+    await loadCreatives();
+  });
+
+  // фото
+  const photoBox = el("div", { className: "photo-pick" });
+  lastPhotos.forEach((p) => {
+    const b = el("button", { type: "button", className: "photo-pick-item" + (p.id === a.photo_id ? " sel" : ""), title: p.label }, el("img", { src: p.url, alt: p.label }));
+    b.addEventListener("click", async () => {
+      if (p.id === a.photo_id) return;
+      const r = await creativeCall("PUT", `/ads/${a.index}/settings`, { asset_id: p.id });
+      if (!r.ok) { say(errorText(r), "err"); return; }
+      await reload();
+    });
+    photoBox.append(b);
+  });
+  if (!lastPhotos.length) photoBox.append(el("span", { className: "hint", textContent: "Фото пока нет: загрузите на странице «Бизнес» или нарисуйте в библиотеке ниже." }));
+
+  // подача
+  const chips = el("div", { className: "chips" });
+  const addChip = (label, selected, payload) => {
+    const c = el("button", { type: "button", className: "chip" + (selected ? " sel" : ""), textContent: label });
+    c.addEventListener("click", async () => {
+      if (selected) return;
+      const r = await creativeCall("PUT", `/ads/${a.index}/settings`, payload);
+      if (!r.ok) { say(errorText(r), "err"); return; }
+      await reload();
+    });
+    chips.append(c);
+  };
+  if (lastPhotos.length) {
+    lastStyles.refs.forEach((r) => addChip(r.label.length > 38 ? `${r.label.slice(0, 36)}…` : r.label, a.ref_id === r.id, { ref_id: r.id }));
+    lastStyles.looks.forEach((l) => addChip(l.label, !a.ref_id && a.look_no === l.no, { look: l.no }));
+  }
+
+  // действия
+  const price = (creativePrices.ai_banner || 0.07) + (a.ref_id ? lastRefExtra : 0);
+  const draw = el("button", { textContent: `${ready ? "Нарисовать заново" : "Нарисовать баннер"} · ${usd(price)}` });
+  draw.disabled = working;
+  draw.addEventListener("click", async () => {
+    const r = await creativeCall("POST", `/ads/${a.index}/ai-banner`);
+    if (!r.ok) { say(errorText(r), "err"); return; }
+    await loadCreatives();
+  });
+  const again = el("button", { className: "secondary", textContent: "Другой текст" });
+  again.addEventListener("click", async () => {
+    again.disabled = true; again.textContent = "Пишем…";
+    const r = await creativeCall("POST", `/ads/${a.index}/rewrite`);
+    if (!r.ok) { say(errorText(r), "err"); again.disabled = false; again.textContent = "Другой текст"; return; }
+    selectedAd = `${r.data.title}\u0000${r.data.text}`;
+    say(`Новый текст: «${r.data.title}». Баннер к нему нужно нарисовать заново.`);
+    await loadCreatives();
+  });
+  const actions = el("div", { className: "ed-actions" }, draw, again);
+  if (a.creative_id && a.own) {
+    const drop = el("button", { className: "link", textContent: "Убрать из рекламы" });
+    drop.addEventListener("click", async () => {
+      const r = await creativeCall("PUT", `/${a.creative_id}`, { status: "rejected" });
+      if (!r.ok) { say(errorText(r), "err"); return; }
+      await loadCreatives();
+    });
+    actions.append(drop);
+  }
+  actions.append(el("span", { className: "hint", textContent: "Текст на баннере проверяется автоматически" }));
+
+  const top = el("div", { className: "ed-top" }, el("h2", { textContent: "Объявление" }),
+    ...(a.ai && a.ai.hypothesis ? [el("span", { className: "tag", textContent: `Проверяем: ${a.ai.hypothesis}` })] : []),
+    ...(a.ai && a.ai.inspiration ? [el("span", { className: "hint", textContent: `Вдохновение: ${a.ai.inspiration}` })] : []));
+  const fields = el("div", { className: "ed-fields" },
+    el("div", {}, el("span", { className: "lab", textContent: "Заголовок на баннере" }), titleIn, counterEl(titleIn, creativeLimits.title)),
+    el("div", {}, el("span", { className: "lab", textContent: "Текст объявления" }), textIn, counterEl(textIn, creativeLimits.text), saveBtn),
+    el("div", {}, el("span", { className: "lab", textContent: "Фото" }), photoBox),
+    ...(lastPhotos.length ? [el("div", {}, el("span", { className: "lab", textContent: "Подача" }), chips,
+      el("p", { className: "hint ed-note", textContent: "Подача сохраняется сразу, но баннер меняется после «Нарисовать»." }))] : []));
+  const box = el("div", {}, top, el("div", { className: "ed-grid" }, el("div", {}, preview, strip), fields), actions);
+  if (a.ai && a.ai.prompt) {   // промпт для тех, кто хочет править сам
+    const area = el("textarea", { rows: 7, maxLength: 4000, value: a.ai.prompt });
+    const go = el("button", { className: "small", textContent: "Нарисовать по этому промпту" });
+    go.disabled = working;
+    go.addEventListener("click", async () => {
+      const r = await creativeCall("POST", `/ads/${a.index}/ai-banner`, { prompt: area.value });
+      if (!r.ok) { say(errorText(r), "err"); return; }
+      await loadCreatives();
+    });
+    box.append(el("details", { className: "own-text" }, el("summary", { textContent: "Промпт для картинки (для тех, кто хочет править)" }),
+      el("p", { className: "hint", textContent: "Так сервис просит нейросеть сделать баннер из вашего фото. Поправьте текст (оформление, цвета, что убрать) и нажмите кнопку. Заголовок и кнопку оставьте в кавычках, их потом проверит сервис." }),
+      area, el("p"), go));
+  }
+  return box;
+}
+
+function renderLaunchStep() {
+  $("launch-list").replaceChildren(...lastAds.map((a) => {
+    const [label, tone] = adStatus(a);
+    const pic = a.banner_url ? el("img", { className: "pic", src: a.banner_url, alt: "" }) : el("span", { className: "pic" });
+    return el("div", { className: "launch-row" }, pic, el("div", {}, el("div", { className: "t", textContent: a.title }), el("div", { className: "hint", textContent: a.text })),
+      el("span", { className: `st ${tone}`, textContent: label }));
   }));
+}
+
+function updateIdeasCount() {
+  const used = ideasState.filter((b) => b.status === "used").length;
+  $("ideas-count").textContent = ideasState.length
+    ? `Взято ${used} из ${ideasState.length}. Бюджета хватает на ${lastCount || 0} объявлений.`
+    : "";
 }
 
 const SOURCE_LABEL = { claude: "ИИ", template: "шаблон", user: "ваш" };
@@ -538,40 +674,37 @@ function renderTexts(items) {
   }
 }
 
-// Стратег: несколько разных идей для A/B-теста; выбранная идея становится объявлением, а баннер к нему делается по её фото и оформлению.
+// Стратег: несколько разных идей для A/B-теста; взятая в рекламу идея становится объявлением со своими фото и подачей.
+let ideasState = [];
+
 async function loadBriefs() {
   const r = await api("GET", `/api/businesses/${currentBusiness.id}/briefs`);
   if (!r.ok) return;
-  const box = $("briefs");
-  box.replaceChildren(...r.data.briefs.map((b) => {
-    const area = el("textarea", { rows: 6, maxLength: 4000, value: b.prompt, disabled: b.status === "used" });
+  ideasState = r.data.briefs;
+  $("briefs-empty").hidden = ideasState.length > 0;
+  $("briefs").replaceChildren(...ideasState.map((b) => {
+    const used = b.status === "used";
+    const tags = [b.angle_label && `Угол: ${b.angle_label}`, b.inspiration ? `Вдохновение: ${b.inspiration}` : `Оформление: ${b.look}`].filter(Boolean);
     const body = el("div", { className: "brief-body" },
-      el("div", { className: "brief-hyp", textContent: b.hypothesis || "Идея для проверки" }),
-      el("div", { className: "hint", textContent: [b.audience && `Для: ${b.audience}`, b.angle_label && `Угол: ${b.angle_label}`, `Оформление: ${b.look}`].filter(Boolean).join(" · ") }),
+      el("div", { className: "hint", textContent: b.audience ? `Для кого: ${b.audience}` : "Идея для проверки" }),
       el("div", { className: "brief-title", textContent: b.title }),
       el("div", { textContent: b.text }),
-      b.inspiration ? el("div", { className: "hint", textContent: `Вдохновение: ${b.inspiration}` }) : "");
-    if (b.prompt) body.append(el("details", { className: "own-text" }, el("summary", { textContent: "Промпт для картинки" }), area));
-    const acts = el("div", { className: "brief-acts" });
-    if (b.status === "used") {
-      acts.append(el("span", { className: "badge good", textContent: b.ad_index === null ? "Выбрана, но не помещается в бюджет" : `В рекламе: объявление ${b.ad_index + 1}` }));
-    } else {
-      const use = el("button", { className: "small", textContent: "Взять в рекламу" });
-      use.addEventListener("click", async () => {
-        use.disabled = true;
-        const res = await api("PUT", `/api/businesses/${currentBusiness.id}/briefs/${b.id}`, { title: b.title, body: b.text, prompt: area.value });
-        if (!res.ok) { say(errorText(res), "err"); use.disabled = false; return; }
-        const used = await api("POST", `/api/businesses/${currentBusiness.id}/briefs/${b.id}/use`);
-        if (!used.ok) { say(errorText(used), "err"); use.disabled = false; return; }
-        say(used.data.ad_index === null ? "Идея выбрана, но в бюджет сейчас помещается меньше объявлений." : "Идея добавлена в объявления. Нажмите «Нарисовать баннер» на её карточке.");
-        await loadCreatives();
-      });
-      const drop = el("button", { className: "small secondary", textContent: "Убрать" });
-      drop.addEventListener("click", async () => { await api("DELETE", `/api/businesses/${currentBusiness.id}/briefs/${b.id}`); await loadBriefs(); });
-      acts.append(use, drop);
-    }
-    return el("div", { className: "brief" + (b.status === "used" ? " used" : "") }, b.photo_url ? el("img", { src: b.photo_url, alt: b.title }) : "", body, acts);
+      ...(b.hypothesis ? [el("div", { className: "hint", textContent: `Проверяем: ${b.hypothesis}` })] : []),
+      ...tags.map((t) => el("div", { className: "hint", textContent: t })));
+    const toggle = el("button", { className: "small" + (used ? "" : " secondary"), textContent: used ? "Берём в рекламу ✓" : "Взять в рекламу" });
+    toggle.addEventListener("click", async () => {
+      toggle.disabled = true;
+      const res = await api("POST", `/api/businesses/${currentBusiness.id}/briefs/${b.id}/${used ? "unuse" : "use"}`);
+      if (!res.ok) { say(errorText(res), "err"); toggle.disabled = false; return; }
+      if (!used && res.data.ad_index === null) say("Идея выбрана, но в бюджет сейчас помещается меньше объявлений.");
+      await loadCreatives();
+    });
+    const drop = el("button", { className: "link", textContent: "Убрать" });
+    drop.addEventListener("click", async () => { await api("DELETE", `/api/businesses/${currentBusiness.id}/briefs/${b.id}`); await loadCreatives(); });
+    const acts = el("div", { className: "brief-acts" }, toggle, drop);
+    return el("div", { className: "brief" + (used ? " used" : "") }, b.photo_url ? el("img", { src: b.photo_url, alt: b.title }) : "", body, acts);
   }));
+  updateIdeasCount();
 }
 
 async function generateBriefs() {
@@ -1422,6 +1555,10 @@ async function start() {
   $("nav-creatives").addEventListener("click", () => showPage("creatives"));
   $("units-empty-go").addEventListener("click", () => showPage("creatives"));
   $("briefs-gen").addEventListener("click", generateBriefs);
+  for (const btn of document.querySelectorAll("#cr-steps .step")) btn.addEventListener("click", () => setStep(btn.dataset.step));
+  $("ideas-next").addEventListener("click", () => setStep("banners"));
+  $("banners-next").addEventListener("click", () => setStep("launch"));
+  $("launch-back").addEventListener("click", () => setStep("banners"));
   $("ads-launch").addEventListener("click", () => { showPage("home"); openLaunch(); });
   $("ads-ai-all").addEventListener("click", makeAllBanners);
   $("cr-gen-texts").addEventListener("click", () => generateTexts());

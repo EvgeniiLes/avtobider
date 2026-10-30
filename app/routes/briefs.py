@@ -128,6 +128,19 @@ def use(business_id: int, brief_id: int, user: sqlite3.Row = Depends(current_use
     return _public(conn, biz, _own_brief(conn, business_id, brief_id), variants)
 
 
+@router.post("/{brief_id}/unuse")
+def unuse(business_id: int, brief_id: int, user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connection = Depends(get_db)):
+    """Снять идею с рекламы: она снова просто идея, а её текст больше не одобрен."""
+    biz = _own(conn, user, business_id)
+    row = _own_brief(conn, business_id, brief_id)
+    conn.execute("UPDATE creatives SET status = 'rejected' WHERE business_id = ? AND kind = 'text' AND title = ? AND body = ?",
+                 (business_id, row["title"], row["body"]))
+    conn.execute("UPDATE briefs SET status = 'idea' WHERE id = ?", (brief_id,))
+    conn.commit()
+    variants, _count, _pool = _ad_variants(conn, biz)
+    return _public(conn, biz, _own_brief(conn, business_id, brief_id), variants)
+
+
 @router.delete("/{brief_id}")
 def drop(business_id: int, brief_id: int, user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connection = Depends(get_db)):
     _own(conn, user, business_id)

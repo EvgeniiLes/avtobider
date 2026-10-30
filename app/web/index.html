@@ -293,35 +293,68 @@
         <div class="page-head"><h1>Объявления</h1></div>
         <p id="cr-empty" class="hint" hidden>Сначала опишите бизнес на странице «Бизнес».</p>
         <div id="cr-body" hidden>
-          <div class="card" id="briefs-card">
-            <h2>Идеи для проверки</h2>
-            <p class="hint">Стратег предложит несколько разных идей: для какой аудитории, с каким заголовком, на каком вашем фото и в каком оформлении. Берите в рекламу понравившиеся: так сравнение покажет, что работает лучше.</p>
-            <div class="upload-row">
-              <select id="briefs-count"><option value="3">3 идеи</option><option value="4" selected>4 идеи</option><option value="5">5 идей</option></select>
-              <button id="briefs-gen" class="small">Предложить идеи (около 3 центов)</button>
+          <div class="steps" id="cr-steps" role="tablist" aria-label="Шаги">
+            <button class="step" id="step-btn-ideas" data-step="ideas" role="tab"><span class="n">1</span>Идеи</button>
+            <button class="step" id="step-btn-banners" data-step="banners" role="tab"><span class="n">2</span>Баннеры</button>
+            <button class="step" id="step-btn-launch" data-step="launch" role="tab"><span class="n">3</span>Запуск</button>
+          </div>
+
+          <section class="card" id="step-ideas">
+            <div class="step-head">
+              <div>
+                <h2>Что проверим в рекламе</h2>
+                <p class="hint">Стратег предлагает разные идеи: для какой аудитории, с каким заголовком, на каком вашем фото и в какой подаче. Отметьте те, что берём в тест. Текст, фото и подачу можно поменять на следующем шаге.</p>
+              </div>
+              <div class="upload-row">
+                <select id="briefs-count"><option value="3">3 идеи</option><option value="4" selected>4 идеи</option><option value="5">5 идей</option></select>
+                <button id="briefs-gen" class="small">Предложить идеи · 3 ¢</button>
+              </div>
             </div>
             <p id="briefs-status" class="status" role="status"></p>
+            <p id="briefs-empty" class="hint" hidden>Идей пока нет. Нажмите «Предложить идеи» или напишите свой вариант ниже.</p>
             <div id="briefs" class="briefs"></div>
-          </div>
+            <details class="own-text">
+              <summary>Написать свой вариант</summary>
+              <label for="cr-own-title">Заголовок <span class="hint" id="cr-own-title-n"></span></label>
+              <input type="text" id="cr-own-title" maxlength="80">
+              <label for="cr-own-body">Текст <span class="hint" id="cr-own-body-n"></span></label>
+              <input type="text" id="cr-own-body" maxlength="120">
+              <p></p>
+              <button id="cr-add-own" class="small">Добавить в рекламу</button>
+            </details>
+            <div class="stepbar">
+              <span id="ideas-count" class="hint"></span>
+              <button id="ideas-next">Дальше: баннеры</button>
+            </div>
+          </section>
 
-          <div class="card">
-            <h2>Готовые объявления</h2>
-            <p class="hint" id="ads-summary"></p>
-            <div id="ads" class="ads"></div>
+          <section id="step-banners" hidden>
             <p id="ads-note" class="notice" hidden></p>
-            <div class="hero-actions">
-              <button id="ads-ai-all" class="secondary">Нарисовать баннеры ИИ для всех</button>
+            <div class="editor">
+              <div id="ads" class="ad-list"></div>
+              <div id="ad-editor" class="ad-editor card"></div>
+            </div>
+            <div class="stepbar">
+              <span id="banners-count" class="hint"></span>
+              <button id="ads-ai-all" class="secondary">Нарисовать все недостающие</button>
+              <button id="banners-next">Дальше: запуск</button>
+            </div>
+          </section>
+
+          <section class="card" id="step-launch" hidden>
+            <h2>Запуск</h2>
+            <p class="hint" id="ads-summary"></p>
+            <div id="launch-list" class="launch-list"></div>
+            <div class="stepbar">
+              <button id="launch-back" class="secondary">К баннерам</button>
               <button id="ads-launch">Создать рекламу из этих объявлений</button>
             </div>
-            <details id="banner-history-box" class="own-text" hidden>
-              <summary id="banner-history-title">История баннеров</summary>
-              <p class="hint">Все баннеры, которые рисовала нейросеть. Любой готовый можно вернуть на карточку: платить за новую картинку не нужно.</p>
-              <div id="banner-history" class="grid creative-grid history-grid"></div>
-            </details>
-          </div>
+          </section>
 
-          <div class="card">
-            <h2>Фоновые картинки</h2>
+          <details class="card library" id="library">
+            <summary>Библиотека: фоновые картинки, все тексты, видео и история баннеров</summary>
+
+            <h3>Фоновые картинки</h3>
             <p class="hint">Если своих фото мало, ИИ нарисует картинки по описанию бизнеса. Отметьте нужные кнопкой «Выбрать»: они станут основой баннеров.</p>
             <p id="cr-image-note" class="notice" hidden></p>
             <div id="cr-image-form">
@@ -330,14 +363,12 @@
                 <select id="cr-image-count"><option value="1">1 картинка</option><option value="3">3 разные</option><option value="4">4 разные</option><option value="5" selected>5 разных</option></select>
                 <button id="cr-gen-images" class="small">Нарисовать</button>
               </div>
-              <p class="hint">Каждая картинка в своём стиле (крупный план, тёмный люкс, пастельная раскладка, яркий студийный кадр, интерьер), чтобы объявления по-настоящему отличались и их можно было сравнить. Текст и логотип добавляются отдельно. Готовятся около минуты.</p>
+              <p class="hint">Каждая картинка в своём стиле, чтобы объявления по-настоящему отличались и их можно было сравнить. Текст и логотип добавляются отдельно. Готовятся около минуты.</p>
             </div>
             <p id="cr-images-status" class="status" role="status"></p>
             <div id="cr-images" class="grid creative-grid"></div>
-          </div>
 
-          <div class="card">
-            <h2>Тексты</h2>
+            <h3>Все тексты</h3>
             <p class="hint">Одобренные варианты попадут в рекламу, остальные сервис добавит сам. Заголовок до 56 знаков, текст до 81. Лишних обещаний вроде скидок мы не придумываем.</p>
             <p id="cr-ai-note" class="notice" hidden></p>
             <div class="upload-row">
@@ -346,25 +377,21 @@
             </div>
             <p id="cr-texts-status" class="status" role="status"></p>
             <ul id="cr-texts" class="creatives"></ul>
-            <details class="own-text">
-              <summary>Написать свой вариант</summary>
-              <label for="cr-own-title">Заголовок <span class="hint" id="cr-own-title-n"></span></label>
-              <input type="text" id="cr-own-title" maxlength="80">
-              <label for="cr-own-body">Текст <span class="hint" id="cr-own-body-n"></span></label>
-              <input type="text" id="cr-own-body" maxlength="120">
-              <p></p>
-              <button id="cr-add-own" class="small">Добавить</button>
-            </details>
-          </div>
 
-          <div class="card">
-            <h2>Видео</h2>
-            <p class="hint">Короткое видео делается из готовой картинки: нажмите «Сделать видео» под нужной картинкой. Готовится несколько минут.</p>
+            <h3>Видео</h3>
+            <p class="hint">Короткое видео делается из готовой картинки: нажмите «Сделать видео» под нужной картинкой. Готовится несколько минут. Видео пока сохраняются в библиотеке, в объявления в Директе они не добавляются.</p>
             <div id="cr-videos" class="grid creative-grid"></div>
             <p id="cr-videos-empty" class="hint">Видео пока нет.</p>
-            <p class="hint">При создании рекламы сервис сам делает из выбранных картинок (или, если не выбраны, из ваших фото) баннеры с заголовком, логотипом и цветом бизнеса и прикрепляет их к объявлениям. Видео пока сохраняются в библиотеке, в объявления в Директе они не добавляются.</p>
-          </div>
+
+            <div id="banner-history-box" hidden>
+              <h3 id="banner-history-title">История баннеров</h3>
+              <p class="hint">Все баннеры, которые рисовала нейросеть. Любой готовый можно вернуть: платить за новую картинку не нужно.</p>
+              <div id="banner-history" class="grid creative-grid history-grid"></div>
+            </div>
+          </details>
+
           <p id="cr-spend" class="hint"></p>
+          <p class="hint"><a href="/old">Открыть прежнюю версию сайта</a></p>
         </div>
       </div>
 

@@ -88,4 +88,13 @@ def index():
     return FileResponse(WEB_DIR / "index.html")
 
 
+@app.get("/old")
+def old_index():
+    """Прежняя версия сайта (до редизайна страницы «Объявления»): остаётся доступной, работает с теми же данными."""
+    return FileResponse(WEB_DIR.parent / "web_v1" / "index.html")
+
+
+app.mount("/static-v1", StaticFiles(directory=WEB_DIR.parent / "web_v1"), name="static-v1")
+
+
 app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
