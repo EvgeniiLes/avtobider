@@ -117,6 +117,7 @@ function showAuth() {
   $("user").hidden = true;
   $("nav").hidden = true;
   $("biz-switch").hidden = true;
+  $("biz-menu").hidden = true;
   setAuthMode("register");
 }
 
@@ -256,6 +257,72 @@ function renderSwitch() {
     el("option", { value: "new", textContent: "＋ Новый бизнес" }));
   sw.value = currentBusiness ? String(currentBusiness.id) : "new";
   sw.hidden = $("view-app").hidden || businessList.length < 1;
+  syncBizMenu();
+}
+
+// Своё меню выбора бизнеса вместо системного списка: он рисуется браузером и выбивается из оформления.
+// Настоящий <select> остаётся скрытым и хранит выбранное, меню только показывает его и меняет.
+function syncBizMenu() {
+  const sw = $("biz-switch");
+  $("biz-menu").hidden = sw.hidden;
+  const current = [...sw.options].find((o) => o.value === sw.value);
+  $("biz-btn-label").textContent = current && current.value !== "new" ? current.textContent : "Новый бизнес";
+  $("biz-list").replaceChildren(...[...sw.options].map((o) => {
+    const isNew = o.value === "new";
+    const item = el("button", { type: "button", className: "biz-item" + (o.value === sw.value ? " sel" : "") + (isNew ? " new" : "") },
+      isNew ? el("span", { className: "plus", textContent: "+" }) : "", el("span", { className: "nm", textContent: isNew ? "Новый бизнес" : o.textContent }),
+      !isNew && o.value === sw.value ? el("span", { className: "tick", textContent: "✓" }) : "");
+    item.setAttribute("role", "option");
+    item.setAttribute("aria-selected", String(o.value === sw.value));
+    item.addEventListener("click", () => {
+      setBizMenu(false);
+      if (o.value === sw.value) return;
+      sw.value = o.value;
+      sw.dispatchEvent(new Event("change"));
+    });
+    return item;
+  }));
+}
+
+function setBizMenu(open) {
+  $("biz-list").hidden = !open;
+  $("biz-btn").setAttribute("aria-expanded", String(open));
+  if (open) ($("biz-list").querySelector(".sel") || $("biz-list").querySelector(".biz-item"))?.focus();
+}
+
+function bindBizMenu() {
+  $("biz-btn").addEventListener("click", () => setBizMenu($("biz-list").hidden));
+  document.addEventListener("click", (e) => { if (!$("biz-menu").contains(e.target)) setBizMenu(false); });
+  $("biz-menu").addEventListener("keydown", (e) => {
+    const items = [...$("biz-list").querySelectorAll(".biz-item")];
+    const at = items.indexOf(document.activeElement);
+    if (e.key === "Escape" && !$("biz-list").hidden) { setBizMenu(false); $("biz-btn").focus(); }
+    else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      if ($("biz-list").hidden) { setBizMenu(true); return; }
+      items[(at + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length]?.focus();
+    }
+  });
+}
+
+// Просмотр картинки по клику: фоновые, баннеры из истории, фото, логотип и превью в редакторе открываются крупно.
+function openLightbox(img) {
+  $("lightbox-img").src = img.currentSrc.replace(/\?t=\d+$/, "");
+  $("lightbox-img").alt = img.alt || "";
+  const cap = img.closest(".thumb")?.querySelector(".cap");
+  $("lightbox-cap").textContent = (cap ? cap.textContent : img.alt) || "";
+  $("lightbox").hidden = false;
+  $("lightbox-close").focus();
+}
+
+function bindLightbox() {
+  const close = () => { $("lightbox").hidden = true; $("lightbox-img").removeAttribute("src"); };
+  document.addEventListener("click", (e) => {
+    const img = e.target instanceof Element ? e.target.closest(".thumb img, .logo-box img, .ed-preview img") : null;
+    if (img && !$("view-app").hidden) openLightbox(img);
+  });
+  $("lightbox").addEventListener("click", close);
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("lightbox").hidden) close(); });
 }
 
 async function onSwitch() {
@@ -274,7 +341,7 @@ async function selectBusiness(id, refreshList = true) {
   renderFiles();
   refreshStopbar();
   loadMetrika();
-  if ($("biz-switch").options.length) $("biz-switch").value = String(currentBusiness.id);
+  if ($("biz-switch").options.length) { $("biz-switch").value = String(currentBusiness.id); syncBizMenu(); }
   if (refreshList) {
     for (const chip of $("business-list").children) {
       chip.classList.toggle("active", chip.textContent === currentBusiness.name);
@@ -287,7 +354,7 @@ function newBusiness() {
   fillForm(null);
   renderFiles();
   $("stopbar").hidden = true;
-  if ($("biz-switch").options.length) $("biz-switch").value = "new";
+  if ($("biz-switch").options.length) { $("biz-switch").value = "new"; syncBizMenu(); }
   for (const chip of $("business-list").children) chip.classList.remove("active");
 }
 
@@ -1002,7 +1069,8 @@ function renderChecklist(steps) {
   if (!next) return;
   for (const s of steps) {
     const state = s.done ? "done" : s === next ? "next" : s.optional ? "optional" : "";
-    const body = el("div", {}, el("div", { className: "title", textContent: s.title + (s.optional && !s.done ? " (желательно)" : "") }));
+    // пока шаг не сделан, название с частицей «не» («Объявления не созданы»), после выполнения без неё
+    const body = el("div", {}, el("div", { className: "title", textContent: (s.done ? s.title : s.title_todo || s.title) + (s.optional && !s.done ? " (желательно)" : "") }));
     if (!s.done) {
       const hint = el("div", { className: "hint", textContent: s.hint + " " });
       if (s.page && s.page !== currentPage) {
@@ -1248,7 +1316,7 @@ async function loadStats() {
     $("home-text").textContent = "Это займёт пару минут. Остальное сервис сделает сам.";
     $("home-cta").textContent = "Начать";
     $("home-cta").hidden = false;
-    for (const id of ["sim-start", "home-progress", "tiles", "goal-line", "chart-card", "budget-box", "checklist-card", "decisions-card", "hero-tiles"]) $(id).hidden = true;
+    for (const id of ["sim-start", "home-progress", "tiles", "goal-line", "chart-card", "budget-box", "checklist-card", "decisions-card", "hero-tiles", "stats-tile"]) $(id).hidden = true;
     return;
   }
   $("hero-tiles").hidden = false;
@@ -1280,17 +1348,24 @@ async function loadStats() {
   const notices = $("notices");
   notices.replaceChildren(...(data.notices || []).map((n) => el("li", { textContent: n })));
 
+  // Блок статистики стоит в сетке главной рядом с «Нашими работами» и «Идеями стратега»; пока рекламы нет, в нём прочерки
   const tiles = $("tiles");
-  tiles.hidden = !data.totals;
+  tiles.hidden = false;
+  $("stats-tile").hidden = false;
+  $("hero-tiles").classList.toggle("nodata", !data.real && !data.example);
   tiles.replaceChildren();
   if (data.totals) {
     const t = data.totals;
+    $("stats-period").textContent = `За ${t.days} ${plural(t.days, "день", "дня", "дней")}`;
     tiles.append(
-      tile(money(t.spend), `Расход за ${t.days} дней`),
+      tile(money(t.spend), "Расход"),
       tile(String(t.leads), "Обращения"),
       tile(String(t.clients), t.clients_estimated ? "Клиенты (оценка)" : "Клиенты"),
       tile(money(t.cost_per_client), t.clients_estimated ? "Цена клиента (оценка)" : "Цена клиента"),
     );
+  } else {
+    $("stats-period").textContent = "Пока нет данных";
+    tiles.append(tile("—", "Расход"), tile("—", "Обращения"), tile("—", "Клиенты"), tile("—", "Цена клиента"));
   }
   $("budget-box").hidden = !data.budget || !(data.real || data.example);
   if (data.budget) {
@@ -1595,6 +1670,8 @@ async function start() {
   window.addEventListener("popstate", () => { if (!$("view-app").hidden) showPage(pageFromHash(), false); });
   $("example-off").addEventListener("click", () => $("sim-reset").click());
   $("biz-switch").addEventListener("change", onSwitch);
+  bindBizMenu();
+  bindLightbox();
   $("nav-home").addEventListener("click", () => showPage("home"));
   $("home-cta").addEventListener("click", () => { if (homeAction) homeAction(); });
   $("nav-business").addEventListener("click", () => showPage("business"));

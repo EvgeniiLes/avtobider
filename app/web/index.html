@@ -21,7 +21,11 @@
   <div class="shell">
   <aside class="side" id="side">
     <div class="brand">Автобидер</div>
-    <select id="biz-switch" class="biz-switch" hidden aria-label="Бизнес"></select>
+    <div class="bizmenu" id="biz-menu" hidden>
+      <select id="biz-switch" class="biz-switch" hidden aria-label="Бизнес" tabindex="-1" aria-hidden="true"></select>
+      <button type="button" id="biz-btn" class="bizbtn" aria-haspopup="listbox" aria-expanded="false" aria-label="Сменить бизнес"><span id="biz-btn-label">Бизнес</span><svg class="chev" viewBox="0 0 12 8" aria-hidden="true"><path d="M1 1.5l5 5 5-5"/></svg></button>
+      <div id="biz-list" class="bizlist" role="listbox" aria-label="Ваши бизнесы" hidden></div>
+    </div>
     <nav class="nav" id="nav" hidden aria-label="Разделы">
       <span class="grp">Реклама</span>
       <button id="nav-home" title="Главная" class="active"><svg class="ic"><use href="#i-home"/></svg><span>Главная</span><span class="dot" id="nav-home-dot" hidden></span></button>
@@ -157,11 +161,11 @@
               <p class="hint" id="budget-text"></p>
               <div class="bar"><div id="budget-fill" class="fill"></div></div>
             </div>
+            <div class="ptile stats" id="stats-tile" hidden><div class="th"><span>Статистика</span><em id="stats-period">14 дней</em></div><div id="tiles" class="tiles"></div></div>
             <div class="ptile pink" id="ptile-ideas"><div><span>Идеи стратега</span><b>Что проверим в рекламе</b></div><button type="button" id="ptile-ideas-go" aria-label="Открыть идеи">+</button></div>
           </div>
         </section>
 
-        <div id="tiles" class="tiles" hidden></div>
         <p id="goal-line" class="goal" hidden></p>
 
         <div class="card" id="decisions-card" hidden>
@@ -645,6 +649,11 @@
         <button id="modal-yes">Да</button>
       </div>
     </div>
+  </div>
+  <div id="lightbox" class="lightbox" hidden role="dialog" aria-modal="true" aria-label="Просмотр картинки">
+    <button type="button" id="lightbox-close" aria-label="Закрыть">×</button>
+    <img id="lightbox-img" alt="">
+    <p id="lightbox-cap"></p>
   </div>
   <div id="toasts" class="toasts" aria-live="polite"></div>
   <script src="/static/app.js"></script>
