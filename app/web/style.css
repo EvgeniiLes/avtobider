@@ -448,4 +448,7 @@ input[type=file]::file-selector-button:hover { background: var(--soft); }
 @media (max-width: 900px) {
   .nav .long { display: none; } .nav .short { display: inline; }
   .nav button { font-size: 10.5px; letter-spacing: -.01em; }
-}
+}.ed-preview .busy-layer { position: absolute; inset: 0; z-index: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; background: rgba(255, 255, 255, .72); color: var(--text); font-weight: 600; text-align: center; padding: 14px; }
+.ed-preview.busy img { filter: blur(2px); }
+.ad-item .st.work { color: var(--text); }
+.ad-item .st.work::before { content: ""; display: inline-block; width: 10px; height: 10px; border: 2px solid var(--line); border-top-color: var(--text); border-radius: 50%; animation: spin .9s linear infinite; margin-right: 6px; vertical-align: -1px; }

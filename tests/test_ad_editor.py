@@ -75,6 +75,37 @@ def test_photo_and_style_are_saved_per_ad_and_change_the_prompt(monkeypatch):
         assert "SECOND attached image" not in ads()["ads"][0]["ai"]["prompt"] and "photo-hero" in ads()["ads"][0]["ai"]["prompt"]
 
 
+def test_redrawing_without_changes_takes_the_next_style_and_keeps_the_old_banner_visible(monkeypatch):
+    monkeypatch.setenv("FAL_KEY", "fal-test")
+    fakes = Fakes(fal_done=True)
+    fakes.keep = 10 ** 8
+    with TestClient(app) as http:
+        bid = setup(http)
+        base = f"/api/businesses/{bid}"
+        upload(http, base, "work")
+        put = lambda body: http.put(f"{base}/creatives/ads/0/settings", json=body)
+        ads = lambda: http.get(f"{base}/creatives/ads").json()
+        first_ref = ads()["styles"]["refs"][0]["id"]
+        assert put({"ref_id": first_ref}).status_code == 200
+        fakes.claude_text = json.dumps([ads()["ads"][0]["title"], "Записаться"], ensure_ascii=False)
+
+        started = http.post(f"{base}/creatives/ads/0/ai-banner").json()
+        assert started["started"] and not started.get("varied")                                      # первая отрисовка: подача как выбрана
+        http.get(f"{base}/creatives")                                                                # баннер дорисовался
+        ready_picture = http.get(f"{base}/creatives/ads/0/banner.jpg").content
+
+        again = http.post(f"{base}/creatives/ads/0/ai-banner").json()                               # «Нарисовать заново» без правок
+        assert again["varied"]
+        ad = ads()["ads"][0]
+        assert ad["ai"]["status"] == "working" and ad["ref_id"] != first_ref                         # подача сменилась и сохранилась на карточке
+        assert http.get(f"{base}/creatives/ads/0/banner.jpg").content == ready_picture               # пока рисуется, виден прежний баннер, а не шаблон
+
+        http.get(f"{base}/creatives")
+        assert put({"look": 2}).status_code == 200                                                   # владелец сам выбрал оформление
+        chosen = http.post(f"{base}/creatives/ads/0/ai-banner").json()
+        assert not chosen.get("varied") and ads()["ads"][0]["look_no"] == 2                            # его выбор не трогаем
+
+
 def test_renaming_the_text_keeps_the_photo_and_style_with_the_ad(monkeypatch):
     monkeypatch.setenv("FAL_KEY", "fal-test")
     Fakes()

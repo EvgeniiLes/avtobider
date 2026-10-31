@@ -321,6 +321,14 @@ def _ai_row(conn, business_id: int, variant: dict):
         (business_id, variant["title"], variant["text"])).fetchone()
 
 
+def _ready_row(conn, business_id: int, variant: dict):
+    """Последний готовый ИИ-баннер этого объявления (его видно, пока рисуется новая версия)."""
+    return conn.execute(
+        "SELECT * FROM creatives WHERE business_id = ? AND kind = 'ai_banner' AND title = ? AND body = ? "
+        "AND status IN ('draft', 'approved') AND asset_id IS NOT NULL ORDER BY id DESC LIMIT 1",
+        (business_id, variant["title"], variant["text"])).fetchone()
+
+
 def _extras() -> bool:
     """Расширения баннера (скриншот на экране телефона, логотип в слоте). Включаются переменной BANNER_EXTRAS=1."""
     return os.environ.get("BANNER_EXTRAS", "").strip() == "1"
@@ -364,6 +372,16 @@ def _order_banner(conn, biz, variants: list[dict], index: int, key: str, transpo
     photos, _logo = media_typed(conn, biz)
     if photos and not extras:   # главный путь: настоящее фото владельца отдаётся модели вместе с промптом про оформление
         brief = _brief_for(conn, business_id, v)   # идея стратега: у неё своё фото, оформление и промпт
+        varied = ""
+        if not custom_prompt:   # повторный заказ без правок подачи: берём другую подачу, чтобы вариант отличался от прежних
+            pick = _vary_style(conn, biz, v, brief, index)
+            if pick:
+                ref_pick, look_pick = pick
+                asset = brief["asset_id"] if brief and brief["asset_id"] else getattr(photo_for(photos, index)[1], "asset_id", None)
+                look_keep = look_pick if look_pick is not None else (brief["look"] if brief else index % len(fal.PHOTO_LOOKS))
+                _apply_style(conn, biz, v, brief, asset, look_keep, ref_pick)
+                brief = _brief_for(conn, business_id, v)
+                varied = refs.note(ref_pick) if ref_pick else f"оформление «{fal.PHOTO_LOOKS[look_keep][0]}»"
         kind, data = photo_for(photos, index)
         if brief and brief["asset_id"]:
             kind, data = next(((k, d) for k, d in photos if getattr(d, "asset_id", None) == brief["asset_id"]), (kind, data))
@@ -377,6 +395,7 @@ def _order_banner(conn, biz, variants: list[dict], index: int, key: str, transpo
         job = asyncio.run(fal.start_edit(prompt, images, key, s.fal_banner_model, transport))
         what = f"фото «{PHOTO_TAGS.get(kind, kind)}», " + (f"по мотивам референса {brief['ref_id']}" if ref_bytes else f"оформление: {look}")
         meta = {"expect": expected, "logo": False, "screen": False, "mode": "photo", "concept": kind, "look": look,
+                "look_no": look_no % len(fal.PHOTO_LOOKS), "photo_id": getattr(data, "asset_id", None), "varied": varied,
                 "ref": brief["ref_id"] if ref_bytes else None,
                 "audience": brief["audience"] if brief else "", "hypothesis": brief["hypothesis"] if brief else "", "scene": what,
                 "logo_reason": "", "prompt_text": prompt,
@@ -433,7 +452,9 @@ def make_ai_banner(business_id: int, index: int, data: BannerIn | None = None, u
         conn.rollback()
         raise HTTPException(502, detail={"message": e.message})
     conn.commit()
-    return {"started": True}
+    row = _ai_row(conn, business_id, variants[index])
+    varied = json.loads(row["prompt"] or "{}").get("varied", "") if row is not None else ""
+    return {"started": True, **({"varied": varied} if varied else {})}   # varied: какую подачу взяли вместо прежней
 
 
 @router.post("/ads/{index}/rewrite")
@@ -506,6 +527,8 @@ def ad_banner(business_id: int, index: int, user: sqlite3.Row = Depends(current_
     variants, _count, _pool = _ad_variants(conn, biz)
     photos, logo = media_typed(conn, biz)
     ai_row = _ai_row(conn, business_id, variants[index]) if 0 <= index < len(variants) else None
+    if ai_row is not None and ai_row["status"] in ("working", "failed"):   # пока рисуется новая версия (или не вышла), показываем прошлую готовую
+        ai_row = _ready_row(conn, business_id, variants[index]) or ai_row
     asset = conn.execute("SELECT stored_name FROM business_assets WHERE id = ?", (ai_row["asset_id"],)).fetchone() if ai_row and ai_row["asset_id"] else None
     ready = asset is not None and ai_row["status"] in ("draft", "approved")
     if 0 <= index < len(variants) and (ready or style_for(index) == "ai"):
@@ -603,6 +626,57 @@ def _brief_prompt(biz, title: str, text: str, look: int, ref_id: int | None) -> 
     return fal.photo_banner_prompt(biz, title, price, cta, look)
 
 
+def _apply_style(conn, biz, v: dict, brief, asset_id: int | None, look: int, ref_id: int | None) -> None:
+    """Сохраняет фото и подачу объявления как идею (brief): по ней потом рисуется баннер."""
+    prompt = _brief_prompt(biz, v["title"], v["text"], look, ref_id) if asset_id else ""
+    if brief:
+        conn.execute("UPDATE briefs SET asset_id = ?, look = ?, ref_id = ?, prompt = ? WHERE id = ?", (asset_id, look, ref_id, prompt, brief["id"]))
+    else:
+        conn.execute("INSERT INTO briefs (business_id, angle, title, body, asset_id, look, prompt, ref_id, status) VALUES (?,?,?,?,?,?,?,?, 'used')",
+                     (biz["id"], v.get("angle", ""), v["title"], v["text"], asset_id, look, prompt, ref_id))
+
+
+def _style_options(biz) -> list[tuple[int | None, int | None]]:
+    """Подачи по порядку, (референс, оформление): сначала приёмы из ниши бизнеса, потом обычные оформления."""
+    text = f"{biz['name']} {biz['kind']} {effective_description(biz)}"
+    return [(r, None) for r in refs.suggest(text, limit=8)] + [(None, n) for n in range(len(fal.PHOTO_LOOKS))]
+
+
+def _used_styles(conn, business_id: int, variant: dict) -> list[tuple[int | None, int | None]]:
+    """Какие подачи уже рисовались для этого объявления, от старой к новой (баннеры из фото, без неудачных)."""
+    used = []
+    for row in conn.execute("SELECT prompt FROM creatives WHERE business_id = ? AND kind = 'ai_banner' AND title = ? AND body = ? "
+                            "AND status IN ('draft', 'approved', 'working') ORDER BY id", (business_id, variant["title"], variant["text"])):
+        meta = json.loads(row["prompt"] or "{}")
+        if meta.get("mode") != "photo":
+            continue
+        ref, look = meta.get("ref"), meta.get("look_no")
+        if look is None:   # старые заказы хранили только название оформления
+            look = next((n for n, (name, _d) in enumerate(fal.PHOTO_LOOKS) if name == meta.get("look")), None)
+        used.append((ref, None if ref else look))
+    return used
+
+
+def _vary_style(conn, biz, variant: dict, brief, index: int) -> tuple[int | None, int | None] | None:
+    """«Нарисовать заново» без правок подачи: берём следующую подачу, которой для этого объявления ещё не рисовали.
+    Если владелец сам поменял подачу после прошлой отрисовки, возвращает None: рисуем так, как он выбрал."""
+    used = _used_styles(conn, biz["id"], variant)
+    if not used:
+        return None
+    ref = brief["ref_id"] if brief else None
+    look = brief["look"] if brief else index % len(fal.PHOTO_LOOKS)
+    current = (ref, None if ref else look)
+    if current != used[-1]:
+        return None
+    options = _style_options(biz)
+    fresh = [o for o in options if o not in used]
+    if fresh:
+        return fresh[0]
+    # всё уже пробовали: берём ту, что рисовали давнее всех
+    oldest = min(options, key=lambda o: max((i for i, u in enumerate(used) if u == o), default=-1))
+    return oldest if oldest != current else options[(options.index(oldest) + 1) % len(options)]
+
+
 class SettingsIn(BaseModel):
     asset_id: int | None = None   # какое фото взять
     look: int | None = Field(default=None, ge=0, le=4)   # обычное оформление (сбрасывает референс)
@@ -633,12 +707,7 @@ def ad_settings(business_id: int, index: int, data: SettingsIn, user: sqlite3.Ro
         ref_id = data.ref_id
     elif data.look is not None:
         look, ref_id = data.look, None
-    prompt = _brief_prompt(biz, v["title"], v["text"], look, ref_id) if asset_id else ""
-    if brief:
-        conn.execute("UPDATE briefs SET asset_id = ?, look = ?, ref_id = ?, prompt = ? WHERE id = ?", (asset_id, look, ref_id, prompt, brief["id"]))
-    else:
-        conn.execute("INSERT INTO briefs (business_id, angle, title, body, asset_id, look, prompt, ref_id, status) VALUES (?,?,?,?,?,?,?,?, 'used')",
-                     (business_id, v.get("angle", ""), v["title"], v["text"], asset_id, look, prompt, ref_id))
+    _apply_style(conn, biz, v, brief, asset_id, look, ref_id)
     conn.commit()
     return {"ok": True}
 

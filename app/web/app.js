@@ -441,7 +441,7 @@ async function makeAllBanners() {
 }
 
 const AD_STATUS = {
-  ready: ["Готов", "ok"], working: ["Рисуется…", ""], failed: ["Не вышло, нарисуйте заново", "err"], none: ["Нужен баннер", "warn"],
+  ready: ["Готов", "ok"], working: ["Рисуется…", "work"], failed: ["Не вышло, нарисуйте заново", "err"], none: ["Нужен баннер", "warn"],
 };
 
 function adStatus(a) {
@@ -512,11 +512,13 @@ function adEditor(a) {
   const reload = async () => { await loadAds(); };
 
   // превью и версии баннера
-  const preview = el("div", { className: "ed-preview" });
+  const preview = el("div", { className: "ed-preview" + (working ? " busy" : "") });
   if (a.banner_url) preview.append(el("img", { src: `${a.banner_url}?t=${stamp}`, alt: a.title }));
-  else if (working) preview.append(el("div", { className: "spinner" }), el("div", { textContent: "Рисуем баннер… около минуты" }));
   else if (a.ai && a.ai.status === "failed") preview.append(el("div", { textContent: a.ai.error || "Не получилось. Нарисуйте заново." }));
-  else preview.append(el("i", { className: "hint", textContent: "Баннера пока нет" }), el("div", { textContent: "Выберите фото и подачу справа, затем нажмите «Нарисовать баннер»." }));
+  else if (!working) preview.append(el("i", { className: "hint", textContent: "Баннера пока нет" }), el("div", { textContent: "Выберите фото и подачу справа, затем нажмите «Нарисовать баннер»." }));
+  if (working) preview.append(el("div", { className: "busy-layer" }, el("div", { className: "spinner" }), el("div", { textContent: "Рисуем баннер… около минуты" })));
+  const failedNote = a.ai && a.ai.status === "failed" && a.banner_url
+    ? [el("p", { className: "notice", textContent: `Новый баннер не вышел: ${a.ai.error || "попробуйте ещё раз"}. Пока показан прежний.` })] : [];
   const versions = lastCreatives.filter((c) => c.kind === "ai_banner" && c.title === a.title && c.body === a.text && (c.status === "draft" || c.status === "approved") && c.url)
     .sort((x, y) => y.id - x.id).slice(0, 8);
   const strip = el("div", { className: "versions" });
@@ -597,6 +599,7 @@ function adEditor(a) {
   draw.addEventListener("click", async () => {
     const r = await creativeCall("POST", `/ads/${a.index}/ai-banner`);
     if (!r.ok) { say(errorText(r), "err"); return; }
+    if (r.data.varied) say(`Пробуем другую подачу: ${r.data.varied}.`);   // повтор без правок берёт следующую подачу
     await loadCreatives();
   });
   const again = el("button", { className: "secondary", textContent: "Другой текст" });
@@ -628,8 +631,8 @@ function adEditor(a) {
     el("div", {}, el("span", { className: "lab", textContent: "Текст объявления" }), textIn, counterEl(textIn, creativeLimits.text), saveBtn),
     el("div", {}, el("span", { className: "lab", textContent: "Фото" }), photoBox),
     ...(lastPhotos.length ? [el("div", {}, el("span", { className: "lab", textContent: "Подача" }), chips,
-      el("p", { className: "hint ed-note", textContent: "Подача сохраняется сразу, но баннер меняется после «Нарисовать»." }))] : []));
-  const box = el("div", {}, top, el("div", { className: "ed-grid" }, el("div", {}, preview, strip), fields), actions);
+      el("p", { className: "hint ed-note", textContent: "Подача сохраняется сразу, но баннер меняется после «Нарисовать». Если подачу не менять, «Нарисовать заново» сам берёт следующую подачу из ниши, чтобы вариант отличался." }))] : []));
+  const box = el("div", {}, top, el("div", { className: "ed-grid" }, el("div", {}, preview, strip, ...failedNote), fields), actions);
   if (a.ai && a.ai.prompt) {   // промпт для тех, кто хочет править сам
     const area = el("textarea", { rows: 7, maxLength: 4000, value: a.ai.prompt });
     const go = el("button", { className: "small", textContent: "Нарисовать по этому промпту" });
