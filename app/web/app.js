@@ -1687,6 +1687,7 @@ async function start() {
   $("chip-ideas").addEventListener("click", toAds("ideas"));
   $("ptile-ideas-go").addEventListener("click", toAds("ideas"));
   $("chip-photo").addEventListener("click", () => showPage("media"));
+  $("ptile-photo-go").addEventListener("click", () => showPage("media"));
   $("chip-budget").addEventListener("click", () => showPage("business"));
   $("units-empty-go").addEventListener("click", () => showPage("creatives"));
   $("briefs-gen").addEventListener("click", generateBriefs);
