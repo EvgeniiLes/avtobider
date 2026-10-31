@@ -559,8 +559,9 @@ function adEditor(a) {
 
   // фото
   const photoBox = el("div", { className: "photo-pick" });
+  const scratch = !!a.no_photo || !lastPhotos.length;   // баннер рисуется с нуля, без готового фото
   lastPhotos.forEach((p) => {
-    const b = el("button", { type: "button", className: "photo-pick-item" + (p.id === a.photo_id ? " sel" : ""), title: p.label }, el("img", { src: p.url, alt: p.label }));
+    const b = el("button", { type: "button", className: "photo-pick-item" + (p.id === a.photo_id && !a.no_photo ? " sel" : ""), title: p.label }, el("img", { src: p.url, alt: p.label }));
     b.addEventListener("click", async () => {
       if (p.id === a.photo_id) return;
       const r = await creativeCall("PUT", `/ads/${a.index}/settings`, { asset_id: p.id });
@@ -569,7 +570,18 @@ function adEditor(a) {
     });
     photoBox.append(b);
   });
-  if (!lastPhotos.length) photoBox.append(el("span", { className: "hint", textContent: "Фото пока нет: загрузите на странице «Бизнес» или нарисуйте в библиотеке ниже." }));
+  if (lastPhotos.length) {   // «без фото»: сервис рисует всю сцену сам по описанию бизнеса
+    const none = el("button", { type: "button", className: "photo-pick-item none" + (a.no_photo ? " sel" : ""), title: "Без фото: нарисовать с нуля" }, el("span", { textContent: "Без фото" }));
+    none.addEventListener("click", async () => {
+      if (a.no_photo) return;
+      const r = await creativeCall("PUT", `/ads/${a.index}/settings`, { no_photo: true });
+      if (!r.ok) { say(errorText(r), "err"); return; }
+      await reload();
+    });
+    photoBox.append(none);
+  } else {
+    photoBox.append(el("span", { className: "hint", textContent: "Фото пока нет: загрузите их в разделе «Фото и баннеры». Без фото баннер нарисуется с нуля." }));
+  }
 
   // подача
   const refChips = el("div", { className: "chips" });
@@ -585,15 +597,13 @@ function adEditor(a) {
     row.append(c);
   };
   const cap = (t) => t.charAt(0).toUpperCase() + t.slice(1);
-  if (lastPhotos.length) {
-    lastStyles.refs.forEach((r) => addChip(refChips, cap(r.label.length > 34 ? `${r.label.slice(0, 32)}…` : r.label), a.ref_id === r.id, { ref_id: r.id }));
-    lastStyles.looks.forEach((l) => addChip(lookChips, cap(l.label), !a.ref_id && a.look_no === l.no, { look: l.no }));
-  }
-  const chips = el("div", {}, el("span", { className: "sub", textContent: "По мотивам (вдохновение из рекламы вашей ниши)" }), refChips,
-    el("span", { className: "sub", textContent: "Обычное оформление" }), lookChips);
+  lastStyles.refs.forEach((r) => addChip(refChips, cap(r.label.length > 34 ? `${r.label.slice(0, 32)}…` : r.label), a.ref_id === r.id, { ref_id: r.id }));
+  if (!scratch) lastStyles.looks.forEach((l) => addChip(lookChips, cap(l.label), !a.ref_id && a.look_no === l.no, { look: l.no }));
+  const chips = el("div", {}, el("span", { className: "sub", textContent: scratch ? "По мотивам (идея из рекламы вашей ниши, без фото)" : "По мотивам (вдохновение из рекламы вашей ниши)" }), refChips,
+    ...(scratch ? [] : [el("span", { className: "sub", textContent: "Обычное оформление" }), lookChips]));
 
   // действия
-  const price = (creativePrices.ai_banner || 0.07) + (a.ref_id ? lastRefExtra : 0);
+  const price = (creativePrices.ai_banner || 0.07) + (a.ref_id && !scratch ? lastRefExtra : 0);   // референс картинкой стоит чуть дороже, словами бесплатно
   const draw = el("button", { textContent: `${ready ? "Нарисовать заново" : "Нарисовать баннер"} · ${usd(price)}` });
   draw.disabled = working;
   draw.addEventListener("click", async () => {
@@ -630,8 +640,9 @@ function adEditor(a) {
     el("div", {}, el("span", { className: "lab", textContent: "Заголовок на баннере" }), titleIn, counterEl(titleIn, creativeLimits.title)),
     el("div", {}, el("span", { className: "lab", textContent: "Текст объявления" }), textIn, counterEl(textIn, creativeLimits.text), saveBtn),
     el("div", {}, el("span", { className: "lab", textContent: "Фото" }), photoBox),
-    ...(lastPhotos.length ? [el("div", {}, el("span", { className: "lab", textContent: "Подача" }), chips,
-      el("p", { className: "hint ed-note", textContent: "Подача сохраняется сразу, но баннер меняется после «Нарисовать». Если подачу не менять, «Нарисовать заново» сам берёт следующую подачу из ниши, чтобы вариант отличался." }))] : []));
+    ...(a.no_photo ? [el("p", { className: "hint ed-note", textContent: "Баннер нарисуется с нуля по описанию бизнеса: сцену придумает арт-директор, ваши фото в нём не используются." })] : []),
+    el("div", {}, el("span", { className: "lab", textContent: "Подача" }), chips,
+      el("p", { className: "hint ed-note", textContent: "Подача сохраняется сразу, но баннер меняется после «Нарисовать». Если подачу не менять, «Нарисовать заново» сам берёт следующую подачу из ниши, чтобы вариант отличался." })));
   const box = el("div", {}, top, el("div", { className: "ed-grid" }, el("div", {}, preview, strip, ...failedNote), fields), actions);
   if (a.ai && a.ai.prompt) {   // промпт для тех, кто хочет править сам
     const area = el("textarea", { rows: 7, maxLength: 4000, value: a.ai.prompt });

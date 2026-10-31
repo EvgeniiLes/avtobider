@@ -106,6 +106,41 @@ def test_redrawing_without_changes_takes_the_next_style_and_keeps_the_old_banner
         assert not chosen.get("varied") and ads()["ads"][0]["look_no"] == 2                            # его выбор не трогаем
 
 
+def test_ad_without_a_photo_is_drawn_from_scratch_and_the_reference_works_in_words(monkeypatch):
+    monkeypatch.setenv("FAL_KEY", "fal-test")
+    fakes = Fakes(fal_done=True)
+    fakes.keep = 10 ** 8
+    with TestClient(app) as http:
+        bid = setup(http)
+        base = f"/api/businesses/{bid}"
+        photo = upload(http, base, "work")
+        put = lambda body: http.put(f"{base}/creatives/ads/0/settings", json=body)
+        ads = lambda: http.get(f"{base}/creatives/ads").json()
+        ref = ads()["styles"]["refs"][0]["id"]
+
+        assert put({"no_photo": True}).status_code == 200
+        ad = ads()["ads"][0]
+        assert ad["no_photo"] is True and ad["photo_id"] is None and "prompt" not in ad["ai"]        # промпт появится после заказа
+        assert put({"ref_id": ref}).status_code == 200 and ads()["ads"][0]["no_photo"] is True       # референс не возвращает фото
+
+        fakes.claude_text = json.dumps([ad["title"], "Записаться"], ensure_ascii=False)
+        assert http.post(f"{base}/creatives/ads/0/ai-banner").status_code == 200
+        _h, path, body = next(r for r in fakes.requests if r[0] == "queue.fal.run")
+        assert path.endswith("/gpt-image-2") and b"image_urls" not in body                            # рисует с нуля, фото не уходит
+        assert b"only as inspiration" in body                                                        # референс передан словами
+        http.get(f"{base}/creatives")
+        ad = ads()["ads"][0]
+        assert ad["ai"]["status"] == "ready" and ad["ai"]["prompt"] and ad["ref_id"] == ref and ad["no_photo"] is True
+
+        again = http.post(f"{base}/creatives/ads/0/ai-banner").json()                               # повтор без правок: следующий референс
+        assert again["varied"] and ads()["ads"][0]["ref_id"] != ref and ads()["ads"][0]["no_photo"] is True
+        http.get(f"{base}/creatives")
+
+        assert put({"asset_id": photo}).status_code == 200                                           # выбрали фото: снова баннер из фото
+        ad = ads()["ads"][0]
+        assert ad["no_photo"] is False and ad["photo_id"] == photo
+
+
 def test_renaming_the_text_keeps_the_photo_and_style_with_the_ad(monkeypatch):
     monkeypatch.setenv("FAL_KEY", "fal-test")
     Fakes()

@@ -119,9 +119,10 @@ def _text_block(title: str, price: str, cta: str, by_direction: bool = False) ->
 
 
 def banner_prompt(biz, title: str, price: str, cta: str, logo_corner: bool = False, index: int = 0, screen: bool = False,
-                  logo_ratio: float | None = None, scene: str = "") -> str:
+                  logo_ratio: float | None = None, scene: str = "", direction: str = "") -> str:
     """Запрос на баннер целиком: русский текст пишет сама модель, поэтому он короткий и в точных кавычках.
-    scene: сцена от арт-директора (кто в кадре и что делает); direction задаёт только оформление: цвета, шрифт, компоновку."""
+    scene: сцена от арт-директора (кто в кадре и что делает); direction задаёт только оформление: цвета, шрифт, компоновку.
+    direction (свой текст) заменяет оформление из списка: так подача по референсу работает и без фото владельца."""
     return (f"Purpose: one polished advertising banner for Yandex Direct, landscape 4:3. Business: {biz['kind']}; the brand name "
             f"«{biz['name']}» is NOT written on the banner. " + _visual_rules(biz)
             + f"Scene, follow it closely: {scene or 'one clear subject that shows what the business really offers'}. "
@@ -129,7 +130,7 @@ def banner_prompt(biz, title: str, price: str, cta: str, logo_corner: bool = Fal
             "Choose the composition freely like an art director (the text may sit on the left, right, top or bottom), but the text always lies on "
             "a calm area with strong contrast and never covers faces or the main subject. "
             + _text_block(title, price, cta)
-            + "Visual direction: " + DIRECTIONS[index % len(DIRECTIONS)] + ". A harmonious palette of 2-3 colors; it looks like an ad from a top agency. "
+            + "Visual direction: " + (direction or DIRECTIONS[index % len(DIRECTIONS)]) + ". A harmonious palette of 2-3 colors; it looks like an ad from a top agency. "
             + ONE_BANNER + AVOID
             + " Also forbidden: an invented app or website interface (a phone in the scene shows a plain dark screen or is turned away)."
             + (LOGO_RULE.format(ratio=logo_ratio or 2.5, width=36 if (logo_ratio or 2.5) >= 3 else 28) if logo_corner else "")
