@@ -4,6 +4,7 @@ import base64
 import hashlib
 import json
 import os
+import re
 import sqlite3
 from io import BytesIO
 from typing import Literal
@@ -172,8 +173,17 @@ def list_creatives(business_id: int, user: sqlite3.Row = Depends(current_user), 
     _refresh_working(conn, business_id, transport)
     rows = conn.execute("SELECT * FROM creatives WHERE business_id = ? ORDER BY id DESC", (business_id,)).fetchall()
     limit = get_settings().gen_limit_usd
+    shown: dict[tuple, tuple] = {}   # какой готовый баннер сейчас на объявлении: у кого свежее «вернули» или создан
+    for r in rows:
+        if r["kind"] == "ai_banner" and r["status"] in ("draft", "approved") and r["asset_id"]:
+            stamp = (r["picked_at"] or r["created_at"], r["id"])
+            if (r["title"], r["body"]) not in shown or stamp > shown[(r["title"], r["body"])][0]:
+                shown[(r["title"], r["body"])] = (stamp, r["id"])
+    items = [_row(r, business_id) for r in rows]
+    for item in items:
+        item["current"] = item["kind"] == "ai_banner" and shown.get((item["title"], item["body"]), (None, None))[1] == item["id"]
     return {
-        "creatives": [_row(r, business_id) for r in rows],
+        "creatives": items,
         "caps": _caps(),
         "spend": {"spent_usd": round(_spent_cents(conn, business_id) / 100, 2), "limit_usd": limit,
                   "total_usd": round(_spent_cents(conn, business_id, whole_time=True) / 100, 2)},
@@ -262,12 +272,14 @@ def ads(business_id: int, user: sqlite3.Row = Depends(current_user), conn: sqlit
         if brief:   # объявление сделано по идее стратега: показываем, что именно проверяем
             ai.update({"hypothesis": brief["hypothesis"], "audience": brief["audience"], "inspiration": refs.note(brief["ref_id"])})
         no_photo = bool(brief and brief["no_photo"])
+        auto_ref = None if brief or _extras() else _auto_ref(biz, i)   # подача, которую возьмём при первом заказе
         if photos and not _extras() and no_photo:   # без фото промпт собирается при заказе: показываем последний, если он был
             if meta.get("mode") == "scratch" and meta.get("prompt_text"):
                 ai["prompt"] = meta["prompt_text"]
         elif photos and not _extras():   # промпт, по которому рисуется баннер из фото: виден и правится на карточке
-            ai["prompt"] = (brief["prompt"] if brief and brief["prompt"] else None) or meta.get("prompt_text") or fal.photo_banner_prompt(
-                biz, v["title"], find_price(v["title"], v["text"], effective_description(biz)), profile(biz)["cta"], brief["look"] if brief else i)
+            ai["prompt"] = (brief["prompt"] if brief and brief["prompt"] else None) or meta.get("prompt_text") or (
+                _brief_prompt(biz, v["title"], v["text"], i % len(fal.PHOTO_LOOKS), auto_ref) if auto_ref else fal.photo_banner_prompt(
+                    biz, v["title"], find_price(v["title"], v["text"], effective_description(biz)), profile(biz)["cta"], brief["look"] if brief else i))
         if state == "ready":
             banner = f"/api/businesses/{business_id}/creatives/ads/{i}/banner.jpg"   # готовый ИИ-баннер важнее шаблона
         elif style == "ai":
@@ -278,7 +290,7 @@ def ads(business_id: int, user: sqlite3.Row = Depends(current_user), conn: sqlit
                       "photo_type": photo_type, "photo_label": PHOTO_TAGS.get(photo_type) or scene_label(photo_type),
                       "photo_id": None if no_photo else (brief["asset_id"] if brief and brief["asset_id"] else getattr(photo_for(photos, i)[1], "asset_id", None) if photos else None),
                       "no_photo": no_photo,
-                      "look_no": brief["look"] if brief else i % len(fal.PHOTO_LOOKS), "ref_id": brief["ref_id"] if brief else None})
+                      "look_no": brief["look"] if brief else i % len(fal.PHOTO_LOOKS), "ref_id": brief["ref_id"] if brief else auto_ref})
     return {
         "ads": items,
         "count": count,
@@ -322,7 +334,8 @@ def _logo_ratio(logo: bytes | None) -> float | None:
 def _ai_row(conn, business_id: int, variant: dict):
     """Последний заказ ИИ-баннера под этот вариант объявления (по заголовку и тексту)."""
     return conn.execute(
-        "SELECT * FROM creatives WHERE business_id = ? AND kind = 'ai_banner' AND title = ? AND body = ? ORDER BY id DESC LIMIT 1",
+        "SELECT * FROM creatives WHERE business_id = ? AND kind = 'ai_banner' AND title = ? AND body = ? "
+        "ORDER BY COALESCE(picked_at, created_at) DESC, id DESC LIMIT 1",
         (business_id, variant["title"], variant["text"])).fetchone()
 
 
@@ -330,7 +343,7 @@ def _ready_row(conn, business_id: int, variant: dict):
     """Последний готовый ИИ-баннер этого объявления (его видно, пока рисуется новая версия)."""
     return conn.execute(
         "SELECT * FROM creatives WHERE business_id = ? AND kind = 'ai_banner' AND title = ? AND body = ? "
-        "AND status IN ('draft', 'approved') AND asset_id IS NOT NULL ORDER BY id DESC LIMIT 1",
+        "AND status IN ('draft', 'approved') AND asset_id IS NOT NULL ORDER BY COALESCE(picked_at, created_at) DESC, id DESC LIMIT 1",
         (business_id, variant["title"], variant["text"])).fetchone()
 
 
@@ -379,6 +392,8 @@ def _order_banner(conn, biz, variants: list[dict], index: int, key: str, transpo
     no_photo = bool(brief and brief["no_photo"])   # владелец выбрал «без фото»: ИИ рисует всю сцену сам
     if photos and not extras and not no_photo:   # главный путь: настоящее фото владельца отдаётся модели вместе с промптом про оформление
         varied = ""
+        if brief is None and not custom_prompt:   # подача не выбрана: берём приём из ниши, у соседних объявлений разные
+            brief = _auto_style(conn, biz, v, index, getattr(photo_for(photos, index)[1], "asset_id", None)) or brief
         if not custom_prompt:   # повторный заказ без правок подачи: берём другую подачу, чтобы вариант отличался от прежних
             pick = _vary_style(conn, biz, v, brief, index)
             if pick:
@@ -409,11 +424,14 @@ def _order_banner(conn, biz, variants: list[dict], index: int, key: str, transpo
                           + (f"Баннер сделан по мотивам приёма «{refs.note(brief['ref_id'])}»: цвета и подача определяются этим приёмом, а не словами «светлое» "
                              "или «тёмное»; огромный заголовок или слово, которое частично перекрывается объектом, это задумка, а не недостаток. "
                              if ref_bytes else f"Оформление: {look}. ") + f"{biz['kind']}.")}
-        conn.execute("INSERT INTO creatives (business_id, kind, title, body, prompt, status, source, external_id) VALUES (?, 'ai_banner', ?, ?, ?, 'working', 'fal', ?)",
+        conn.execute("INSERT INTO creatives (business_id, kind, title, body, prompt, status, source, external_id, created_at) "   # дата с долями секунды: сравнивается с датой возврата версии
+                     "VALUES (?, 'ai_banner', ?, ?, ?, 'working', 'fal', ?, strftime('%Y-%m-%d %H:%M:%f', 'now'))",
                      (business_id, v["title"], v["text"], json.dumps(meta, ensure_ascii=False), json.dumps(job)))
         return what
     # баннер с нуля: фото нет или владелец выбрал «без фото». Сцену придумывает арт-директор, подача по референсу идёт словами
     varied = ""
+    if brief is None and not extras and not custom_prompt:   # подача не выбрана: берём приём из ниши
+        brief = _auto_style(conn, biz, v, index) or brief
     if not extras and not custom_prompt:   # повторный заказ без правок подачи берёт следующий референс
         pick = _vary_style(conn, biz, v, brief, index, scratch=True)
         if pick:
@@ -431,21 +449,32 @@ def _order_banner(conn, biz, variants: list[dict], index: int, key: str, transpo
     screen = extras and _screenshot(conn, business_id) is not None
     art = asyncio.run(art_direction(biz, v, index, [x for x in others + own_scenes if x][-8:], _logo_info(conn, biz, logo), screen, key, s.fal_text_model, transport))
     use_logo = bool(art["logo"]) and logo is not None
-    direction = (f"{refs.note(ref_id)}. Take this advertising idea only as inspiration for the layout, color mood and type weight; "
-                 "make an original design with your own scene and do not reuse any text, logo or character from it") if ref_id else ""
+    # референс уходит модели картинкой: по одной строке слов сходства почти нет, а картинка задаёт композицию, цвет и шрифт
+    ref_bytes = refs.load(ref_id) if ref_id else None
+    if ref_bytes:
+        _charge(conn, business_id, "ref_extra")
+        direction = (f"the attached image is ONLY a style inspiration (the idea of its composition, color mood, typography weight and feel: {refs.note(ref_id)}). "
+                     "Follow that layout idea closely, but make a new original banner with the scene above: do not copy or reuse its text, logo, products, people or characters")
+    else:
+        direction = (f"{refs.note(ref_id)}. Take this advertising idea only as inspiration for the layout, color mood and type weight; "
+                     "make an original design with your own scene and do not reuse any text, logo or character from it") if ref_id else ""
     prompt = custom_prompt or fal.banner_prompt(biz, v["title"], price, cta, logo_corner=use_logo, index=index + done_before, screen=screen,
                                                 logo_ratio=_logo_ratio(logo), scene=art["scene"], direction=direction)
-    job = asyncio.run(fal.start_image(prompt, key, s.fal_banner_model, transport))
+    job = (asyncio.run(fal.start_edit(prompt, [_bytes_url(ref_bytes, 900)], key, s.fal_banner_model, transport)) if ref_bytes
+           else asyncio.run(fal.start_image(prompt, key, s.fal_banner_model, transport)))
     meta = {"expect": expected, "logo": use_logo, "screen": screen, "concept": art["concept"], "audience": art["audience"], "scene": art["scene"],
-            "mode": "scratch", "ref": ref_id, "varied": varied,
+            "mode": "scratch", "ref": ref_id, "ref_img": bool(ref_bytes), "varied": varied,
             "logo_reason": art["logo_reason"], "prompt_text": prompt,
             "brief": ("ВАЖНО: на экране телефона вставлен НАСТОЯЩИЙ скриншот приложения владельца. Это не выдумка нейросети и не недостаток: "
                       "интерфейс на экране, его вид и надписи на нём не оценивай и не снижай за них оценку. "
                       if screen else
                       "ВАЖНО: экран телефона намеренно не показан, настоящего скриншота нет, это не недостаток. ")
                      + ("Логотип вставлен позже из файла владельца, это нормально. " if use_logo else "")
+                     + (f"Баннер сделан по мотивам приёма «{refs.note(ref_id)}»: подача, цвета и шрифт определяются этим приёмом, крупный заголовок это задумка, а не недостаток. "
+                        if ref_id else "")
                      + f"{biz['kind']} «{biz['name']}». Сюжет: {art['label']}. {art['scene']}"}
-    conn.execute("INSERT INTO creatives (business_id, kind, title, body, prompt, status, source, external_id) VALUES (?, 'ai_banner', ?, ?, ?, 'working', 'fal', ?)",
+    conn.execute("INSERT INTO creatives (business_id, kind, title, body, prompt, status, source, external_id, created_at) "   # дата с долями секунды: сравнивается с датой возврата версии
+                     "VALUES (?, 'ai_banner', ?, ?, ?, 'working', 'fal', ?, strftime('%Y-%m-%d %H:%M:%f', 'now'))",
                  (business_id, v["title"], v["text"], json.dumps(meta, ensure_ascii=False), json.dumps(job)))
     return art["scene"]
 
@@ -662,11 +691,36 @@ def _apply_style(conn, biz, v: dict, brief, asset_id: int | None, look: int, ref
                      (biz["id"], v.get("angle", ""), v["title"], v["text"], None if no_photo else asset_id, look, prompt, ref_id, int(no_photo)))
 
 
+_PROMO_NOTE = re.compile(r"цен|акци|скидк|%|срочн", re.IGNORECASE)
+
+
+def _niche_refs(biz, limit: int = 8) -> list[int]:
+    """Приёмы из ниши бизнеса. Пока в описании не разрешены скидки и акции, приёмы про цены и акции не берём."""
+    found = refs.suggest(f"{biz['name']} {biz['kind']} {effective_description(biz)}", limit=12)
+    if not biz["allow_promo"]:
+        found = [r for r in found if not _PROMO_NOTE.search(refs.note(r))]
+    return found[:limit]
+
+
+def _auto_ref(biz, index: int) -> int | None:
+    """Приём для объявления, у которого подача ещё не выбрана: у соседних объявлений разные, когда приёмы кончаются, берём обычное оформление."""
+    found = _niche_refs(biz)
+    return found[index] if index < len(found) else None
+
+
+def _auto_style(conn, biz, v: dict, index: int, asset_id: int | None = None):
+    """Первый заказ баннера без выбранной подачи: сохраняем приём из ниши как подачу объявления (она видна в редакторе)."""
+    ref = _auto_ref(biz, index)
+    if ref is None:
+        return None
+    _apply_style(conn, biz, v, None, asset_id, index % len(fal.PHOTO_LOOKS), ref)
+    return _brief_for(conn, biz["id"], v)
+
+
 def _style_options(biz, scratch: bool = False) -> list[tuple[int | None, int | None]]:
     """Подачи по порядку, (референс, оформление): сначала приёмы из ниши бизнеса, потом обычные оформления.
     Без фото обычных оформлений нет (они про кадр с фото): есть только референсы и «без референса»."""
-    text = f"{biz['name']} {biz['kind']} {effective_description(biz)}"
-    found = [(r, None) for r in refs.suggest(text, limit=8)]
+    found = [(r, None) for r in _niche_refs(biz)]
     return found + ([(None, None)] if scratch else [(None, n) for n in range(len(fal.PHOTO_LOOKS))])
 
 
@@ -680,6 +734,8 @@ def _used_styles(conn, business_id: int, variant: dict, scratch: bool = False) -
         if (meta.get("mode") == "photo") == scratch:
             continue
         if scratch:
+            if meta.get("ref") and not meta.get("ref_img"):   # приём передавали одними словами: по-настоящему он ещё не рисовался
+                continue
             used.append((meta.get("ref"), None))
             continue
         ref, look = meta.get("ref"), meta.get("look_no")
@@ -701,12 +757,18 @@ def _vary_style(conn, biz, variant: dict, brief, index: int, scratch: bool = Fal
     if current != used[-1]:
         return None
     options = _style_options(biz, scratch)
-    fresh = [o for o in options if o not in used]
-    if fresh:
-        return fresh[0]
-    # всё уже пробовали: берём ту, что рисовали давнее всех
-    oldest = min(options, key=lambda o: max((i for i, u in enumerate(used) if u == o), default=-1))
-    return oldest if oldest != current else options[(options.index(oldest) + 1) % len(options)]
+    # приёмы, которые уже стоят у соседних объявлений: по возможности не повторяем их, чтобы объявления отличались друг от друга
+    taken = {r["ref_id"] for r in conn.execute("SELECT ref_id FROM briefs WHERE business_id = ? AND status = 'used' AND ref_id IS NOT NULL "
+                                               "AND NOT (title = ? AND body = ?)", (biz["id"], variant["title"], variant["text"]))}
+    last_drawn = lambda o: max((i for i, u in enumerate(used) if u == o), default=-1)   # -1: этому объявлению ещё не рисовали
+    pick = lambda pool: min(pool, key=lambda o: (last_drawn(o), options.index(o)))   # сначала то, что не рисовали, потом то, что рисовали давнее всех
+    free = [o for o in options if o != current and (o[0] is None or o[0] not in taken)]
+    if free:
+        return pick(free)
+    if scratch and current == (None, None):
+        return None   # без референса другого пути нет: обычное направление и так сдвигается с каждым заказом
+    rest = [o for o in options if o != current]
+    return pick(rest) if rest else None
 
 
 class SettingsIn(BaseModel):
@@ -780,19 +842,18 @@ def update(business_id: int, creative_id: int, data: CreativeIn, user: sqlite3.R
 
 @router.post("/{creative_id}/restore")
 def restore_banner(business_id: int, creative_id: int, user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connection = Depends(get_db)):
-    """Вернуть прошлый баннер: копия становится самым свежим баннером этого объявления. Платить за новую генерацию не нужно."""
+    """Вернуть прошлый баннер на объявление. Копий не делаем: выбранная версия просто становится показываемой, бесплатно."""
     _own(conn, user, business_id)
     row = _own_creative(conn, business_id, creative_id)
     asset = conn.execute("SELECT stored_name FROM business_assets WHERE id = ?", (row["asset_id"],)).fetchone() if row["asset_id"] else None
     if row["kind"] != "ai_banner" or row["status"] not in ("draft", "approved") or asset is None:
         raise HTTPException(400, detail={"message": "Вернуть можно только готовый баннер."})
-    try:
-        data = _asset_path(business_id, asset["stored_name"]).read_bytes()
-    except OSError:
+    if not _asset_path(business_id, asset["stored_name"]).is_file():
         raise HTTPException(400, detail={"message": "Файл этого баннера уже удалён."})
-    asset_id = _save_asset(conn, business_id, "image", data, f"creative-{row['id']}-restored")   # своя копия файла: удаление одного не ломает другой
-    conn.execute("INSERT INTO creatives (business_id, kind, title, body, prompt, status, source, asset_id) VALUES (?, 'ai_banner', ?, ?, ?, 'draft', 'fal', ?)",
-                 (business_id, row["title"], row["body"], row["prompt"], asset_id))
+    newest = _ai_row(conn, business_id, {"title": row["title"], "text": row["body"]})
+    if newest is not None and newest["status"] == "working":
+        raise HTTPException(400, detail={"message": "Сейчас рисуется новая версия: дождитесь её, потом можно вернуть любую прежнюю."})
+    conn.execute("UPDATE creatives SET picked_at = strftime('%Y-%m-%d %H:%M:%f', 'now') WHERE id = ?", (creative_id,))
     conn.commit()
     return {"restored": True}
 

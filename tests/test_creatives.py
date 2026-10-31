@@ -357,7 +357,7 @@ def test_banner_is_made_from_the_owners_photo_with_an_editable_prompt(monkeypatc
         assert not any(r[0] == "fal.run" and b"\xd0\xa1\xd1\x86\xd0\xb5\xd0\xbd\xd0\xb0" in r[2] for r in fakes.requests)   # арт-директор не нужен
         http.get(f"{base}/creatives")
         ready = http.get(f"{base}/creatives/ads").json()["ads"][0]
-        assert ready["ai"]["status"] == "ready" and "оформление" in ready["ai"]["scene"] and ready["photo_label"] == "Наши работы"
+        assert ready["ai"]["status"] == "ready" and "по мотивам референса" in ready["ai"]["scene"] and ready["photo_label"] == "Наши работы"   # подачу выбрали сами: приём из ниши
         mine = "Make a clean light banner from the attached photo. Headline «" + ad["title"] + "», button «Записаться». No other text."
         assert http.post(f"{base}/creatives/ads/0/ai-banner", json={"prompt": mine}).status_code == 200
         assert b"Make a clean light banner" in [b for h, p, b in fakes.requests if h == "queue.fal.run"][-1]       # свой промпт ушёл как есть
@@ -389,25 +389,62 @@ def test_banner_history_and_restore(monkeypatch):
         failed = next(c for c in http.get(base).json()["creatives"] if c["status"] == "failed")
         assert http.post(f"{base}/{failed['id']}/restore").status_code == 400       # неудачный вернуть нельзя
         banners = [c for c in http.get(base).json()["creatives"] if c["kind"] == "ai_banner"]
-        assert len(banners) == 3 and len({c["url"] for c in banners if c["url"]}) == 2   # у копии свой файл
+        assert len(banners) == 2                                                    # возврат не плодит копий: в истории прежние два заказа
+        assert [c["current"] for c in banners if c["id"] == first] == [True] and not any(c["current"] for c in banners if c["status"] == "failed")
     with TestClient(app) as other:
         other.post("/api/auth/register", json={"email": "z@example.com", "password": "password123"})
         assert other.post(f"{base}/{first}/restore").status_code == 404             # чужое вернуть нельзя
 
 
+def test_restoring_an_older_version_only_moves_the_marker(monkeypatch):
+    monkeypatch.setenv("FAL_KEY", "fal-test")
+    fakes = Fakes(fal_done=True)
+    with TestClient(app) as http:
+        bid = setup(http)
+        base = f"/api/businesses/{bid}/creatives"
+        ad = _ai_ad(http, bid)
+        fakes.claude_text = json.dumps([ad["title"], "ЗАПИСАТЬСЯ"], ensure_ascii=False)
+        banners = lambda: sorted((c for c in http.get(base).json()["creatives"] if c["kind"] == "ai_banner"), key=lambda c: c["id"])
+        for color in ((200, 40, 40), (40, 40, 200)):
+            out = BytesIO(); Image.new("RGB", (900, 900), color).save(out, "PNG"); fakes.image = out.getvalue()
+            assert http.post(f"{base}/ads/4/ai-banner").status_code == 200
+            http.get(base)
+        old, new = banners()
+        assert [old["current"], new["current"]] == [False, True]
+        shown_new = http.get(f"{base}/ads/4/banner.jpg").content
+
+        assert http.post(f"{base}/{old['id']}/restore").json() == {"restored": True}
+        after = banners()
+        assert [b["id"] for b in after] == [old["id"], new["id"]] and [b["current"] for b in after] == [True, False]   # ни копий, ни перестановки
+        assert http.get(f"{base}/ads/4/banner.jpg").content != shown_new                       # на объявлении теперь прежняя версия
+        assert http.post(f"{base}/{old['id']}/restore").status_code == 200                       # повторное нажатие ничего не ломает
+        assert len(banners()) == 2
+
+        assert http.post(f"{base}/ads/4/ai-banner").status_code == 200                           # новый заказ снова становится показываемым
+        http.get(base)
+        third = banners()
+        assert len(third) == 3 and [b["current"] for b in third] == [False, False, True]
+
+        fakes.fal_done = False
+        assert http.post(f"{base}/ads/4/ai-banner").status_code == 200
+        assert http.post(f"{base}/{old['id']}/restore").status_code == 400                     # пока рисуется новая, вернуть нельзя
+
+
 def test_all_ai_banners_are_ordered_once_each_with_different_directions(monkeypatch):
     monkeypatch.setenv("FAL_KEY", "fal-test")
     fakes = Fakes(fal_done=False)
+    fakes.keep = 10 ** 7
     with TestClient(app) as http:
         bid = setup(http)
         base = f"/api/businesses/{bid}/creatives"
         assert http.post(f"{base}/ads/ai-banners").json() == {"started": 6}
         assert http.post(f"{base}/ads/ai-banners").json() == {"started": 0}        # повторно не платим за то, что уже рисуется
         prompts = [b.decode(errors="ignore") for h, _, b in fakes.requests if h == "queue.fal.run"]
-        assert len(prompts) == 6 and len({p.split("Visual direction:")[1][:40] for p in prompts}) == 5   # пять разных направлений на шесть баннеров
+        assert len(prompts) == 6 and len({p.split("Visual direction:")[1][:170] for p in prompts}) == 6   # у каждого баннера своё направление
+        assert sum("ONLY a style inspiration" in p for p in prompts) == 2                                       # у маникюра в каталоге два приёма: их берут первые два объявления, остальные идут обычными направлениями
         ads = http.get(f"{base}/ads").json()["ads"]
         assert all(a["ai"]["status"] == "working" for a in ads)
-        assert http.get(base).json()["spend"]["spent_usd"] == 0.42
+        assert http.get(base).json()["spend"]["spent_usd"] == 0.46     # шесть баннеров и два референса картинкой
 
 
 def test_ai_banner_with_typos_is_rejected(monkeypatch):

@@ -496,10 +496,17 @@ function setStep(step) {
   window.scrollTo({ top: 0 });
 }
 
+// Цена одного баннера: референс картинкой (баннер из фото) стоит чуть дороже, словами (без фото) бесплатно.
+function adPrice(a) {
+  return (creativePrices.ai_banner || 0.07) + (a.ref_id ? lastRefExtra : 0);
+}
+
+const missingAds = () => lastAds.filter((a) => a.ai && a.ai.status !== "ready" && a.ai.status !== "working");
+
 async function makeAllBanners() {
-  const need = lastAds.filter((a) => a.ai && a.ai.status !== "ready" && a.ai.status !== "working").length;
+  const need = missingAds().length;
   if (!need) { say("Все баннеры уже нарисованы или рисуются."); return; }
-  const price = usd(need * (creativePrices.ai_banner || 0.07));
+  const price = usd(missingAds().reduce((sum, a) => sum + adPrice(a), 0));
   if (!(await askConfirm("Нарисовать недостающие баннеры?", `Баннеров: ${need}, это платно: около ${price}. Нейросеть делает каждый целиком, текст на них сервис проверит сам. Готовятся около минуты.`, "Нарисовать"))) return;
   const r = await creativeCall("POST", "/ads/ai-banners");
   if (!r.ok) { say(errorText(r), "err"); return; }
@@ -554,7 +561,7 @@ function renderBannerStep(fromPoll = false) {
   $("banners-count").textContent = lastAds.length ? `Баннеры готовы у ${ready} из ${lastAds.length}.` : "";
   const all = $("ads-ai-all");
   all.hidden = need === 0;
-  all.textContent = `Нарисовать все недостающие · ${usd(need * (creativePrices.ai_banner || 0.07))}`;
+  all.textContent = `Нарисовать все недостающие · ${usd(missingAds().reduce((sum, a) => sum + adPrice(a), 0))}`;
 
   const stamp = Date.now();
   $("ads").replaceChildren(...lastAds.map((a) => {
@@ -592,8 +599,8 @@ function adEditor(a) {
   if (versions.length > 1) {
     strip.append("Версии:");
     versions.forEach((v, i) => {
-      const img = el("img", { src: v.url, alt: `Версия ${versions.length - i}`, title: i === 0 ? "Сейчас на объявлении" : "Вернуть эту версию", className: i === 0 ? "cur" : "" });
-      if (i > 0) img.addEventListener("click", async () => {
+      const img = el("img", { src: v.url, alt: `Версия ${versions.length - i}`, title: v.current ? "Сейчас на объявлении" : "Вернуть эту версию", className: v.current ? "cur" : "" });
+      if (!v.current) img.addEventListener("click", async () => {
         const r = await creativeCall("POST", `/${v.id}/restore`);
         say(r.ok ? "Версия возвращена." : errorText(r), r.ok ? "ok" : "err");
         await loadCreatives();
@@ -670,7 +677,7 @@ function adEditor(a) {
     ...(scratch ? [] : [el("span", { className: "sub", textContent: "Обычное оформление" }), lookChips]));
 
   // действия
-  const price = (creativePrices.ai_banner || 0.07) + (a.ref_id && !scratch ? lastRefExtra : 0);   // референс картинкой стоит чуть дороже, словами бесплатно
+  const price = adPrice(a);
   const draw = el("button", { textContent: `${ready ? "Нарисовать заново" : "Нарисовать баннер"} · ${usd(price)}` });
   draw.disabled = working;
   draw.addEventListener("click", async () => {
@@ -824,11 +831,6 @@ function renderBannerHistory(banners) {
   const box = $("banner-history-box");
   box.hidden = banners.length === 0;
   if (!banners.length) return;
-  const newest = new Map();   // для каждого объявления самый свежий заказ: он и показан на карточке
-  for (const c of banners) {
-    const key = `${c.title}\u0000${c.body}`;
-    if (!newest.has(key) || newest.get(key).id < c.id) newest.set(key, c);
-  }
   const ready = banners.filter((c) => c.status === "draft" || c.status === "approved").length;
   $("banner-history-title").textContent = `История баннеров (${banners.length}, готовых ${ready})`;
   const grid = $("banner-history");
@@ -841,7 +843,7 @@ function renderBannerHistory(banners) {
       tile.append(el("div", { className: "wait", title: why, textContent: why.length > 150 ? `${why.slice(0, 147)}…` : why }));
     } else tile.append(el("img", { src: c.url, alt: c.title }));
     const m = c.meta || {};
-    const current = newest.get(`${c.title}\u0000${c.body}`).id === c.id && (c.status === "draft" || c.status === "approved");
+    const current = !!c.current;
     const when = (c.created_at || "").slice(0, 16).replace("T", " ");
     const detail = [m.scene, m.audience && `для: ${m.audience}`, m.logo ? "с логотипом" : ""].filter(Boolean).join(", ");
     tile.append(el("div", { className: "cap" }, el("b", { textContent: c.title }), el("span", { textContent: [detail, when].filter(Boolean).join(" · ") })));

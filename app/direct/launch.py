@@ -261,7 +261,7 @@ def ai_scenes_for(conn: sqlite3.Connection, biz) -> dict[tuple, str]:
     """Сюжет каждого готового ИИ-баннера (ключ как у ai_banners_for): для сравнения сцен в результатах."""
     found: dict[tuple, str] = {}
     for r in conn.execute("SELECT title, body, prompt FROM creatives WHERE business_id = ? AND kind = 'ai_banner' "
-                          "AND status IN ('draft', 'approved') ORDER BY id", (biz["id"],)):
+                          "AND status IN ('draft', 'approved') ORDER BY COALESCE(picked_at, created_at), id", (biz["id"],)):
         try:
             concept = json.loads(r["prompt"] or "{}").get("concept")
         except ValueError:
@@ -278,7 +278,7 @@ def ai_banners_for(conn: sqlite3.Connection, biz) -> dict[tuple, bytes]:
     logo = logo_for(conn, biz)
     rows = conn.execute(
         "SELECT c.title, c.body, c.prompt, a.stored_name FROM creatives c JOIN business_assets a ON a.id = c.asset_id "
-        "WHERE c.business_id = ? AND c.kind = 'ai_banner' AND c.status IN ('draft', 'approved') ORDER BY c.id", (biz["id"],)).fetchall()
+        "WHERE c.business_id = ? AND c.kind = 'ai_banner' AND c.status IN ('draft', 'approved') ORDER BY COALESCE(c.picked_at, c.created_at), c.id", (biz["id"],)).fetchall()
     for r in rows:  # более поздний заказ перекрывает ранний
         try:
             picture = prepare_for_direct(_file(biz["id"], r["stored_name"]))

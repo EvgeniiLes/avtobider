@@ -37,7 +37,7 @@ def test_ads_carry_everything_the_editor_needs(monkeypatch):
         assert [x["no"] for x in data["styles"]["looks"]] == [0, 1, 2, 3, 4] and data["styles"]["refs"]            # подачи есть всегда
         assert data["ref_extra"] == 0.02
         ad = data["ads"][0]
-        assert ad["photo_id"] in (first, second) and ad["look_no"] == 0 and ad["ref_id"] is None
+        assert ad["photo_id"] in (first, second) and ad["look_no"] == 0 and ad["ref_id"] == data["styles"]["refs"][0]["id"]   # подача по умолчанию: первый приём ниши
 
 
 def test_photo_and_style_are_saved_per_ad_and_change_the_prompt(monkeypatch):
@@ -126,8 +126,8 @@ def test_ad_without_a_photo_is_drawn_from_scratch_and_the_reference_works_in_wor
         fakes.claude_text = json.dumps([ad["title"], "Записаться"], ensure_ascii=False)
         assert http.post(f"{base}/creatives/ads/0/ai-banner").status_code == 200
         _h, path, body = next(r for r in fakes.requests if r[0] == "queue.fal.run")
-        assert path.endswith("/gpt-image-2") and b"image_urls" not in body                            # рисует с нуля, фото не уходит
-        assert b"only as inspiration" in body                                                        # референс передан словами
+        assert path.endswith("/gpt-image-2/edit") and body.count(b"data:image/jpeg;base64") == 1       # фото владельца не уходит, уходит только картинка референса
+        assert b"ONLY a style inspiration" in body                                                   # и сказано, что её нельзя копировать
         http.get(f"{base}/creatives")
         ad = ads()["ads"][0]
         assert ad["ai"]["status"] == "ready" and ad["ai"]["prompt"] and ad["ref_id"] == ref and ad["no_photo"] is True
@@ -139,6 +139,43 @@ def test_ad_without_a_photo_is_drawn_from_scratch_and_the_reference_works_in_wor
         assert put({"asset_id": photo}).status_code == 200                                           # выбрали фото: снова баннер из фото
         ad = ads()["ads"][0]
         assert ad["no_photo"] is False and ad["photo_id"] == photo
+
+
+def test_first_order_takes_a_different_niche_reference_for_each_ad(monkeypatch):
+    monkeypatch.setenv("FAL_KEY", "fal-test")
+    Fakes(fal_done=False)
+    with TestClient(app) as http:
+        bid = setup(http, kind="Барбершоп", description="Мужские стрижки и оформление бороды. Работаем ежедневно с 10 до 22.")
+        base = f"/api/businesses/{bid}/creatives"
+        shown = [a["ref_id"] for a in http.get(f"{base}/ads").json()["ads"]]
+        assert shown[0] and all(shown[:5]) and len(set(shown[:5])) == 5          # у первых пяти объявлений разные приёмы ниши
+        assert shown[5] is None                                                    # приёмы кончились: дальше обычное оформление
+        assert not {29, 36} & set(shown)                                           # приёмы про акции и цену не берём, пока скидки не разрешены
+
+        assert http.post(f"{base}/ads/ai-banners").json() == {"started": 6}
+        assert [a["ref_id"] for a in http.get(f"{base}/ads").json()["ads"]] == shown   # выбранные подачи сохранились на карточках
+        assert all(r is None for r in [a["ref_id"] for a in http.get(f"{base}/ads").json()["ads"]][5:])
+
+
+def test_redrawing_does_not_repeat_a_reference_that_a_neighbour_ad_already_uses(monkeypatch):
+    monkeypatch.setenv("FAL_KEY", "fal-test")
+    fakes = Fakes(fal_done=True)
+    with TestClient(app) as http:
+        bid = setup(http, kind="Барбершоп", description="Мужские стрижки и оформление бороды. Работаем ежедневно с 10 до 22.")
+        base = f"/api/businesses/{bid}/creatives"
+        ads = lambda: http.get(f"{base}/ads").json()["ads"]
+        titles = [a["title"] for a in ads()]
+        fakes.claude_text = json.dumps(titles + ["Записаться"], ensure_ascii=False)
+        assert http.post(f"{base}/ads/ai-banners").json() == {"started": 6}
+        http.get(base)
+        taken = {a["ref_id"] for a in ads()[:5]}
+        assert len(taken) == 5 and ads()[5]["ref_id"] is None
+
+        again = http.post(f"{base}/ads/5/ai-banner").json()                     # у шестого объявления приёмов не осталось: берём обычное направление
+        assert not again.get("varied") and ads()[5]["ref_id"] is None
+        http.get(base)
+        first = http.post(f"{base}/ads/0/ai-banner").json()                     # у первого свободных приёмов нет, соседи заняли все
+        assert ads()[0]["ref_id"] in taken or first.get("varied") == "без референса"
 
 
 def test_renaming_the_text_keeps_the_photo_and_style_with_the_ad(monkeypatch):
