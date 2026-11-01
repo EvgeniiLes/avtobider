@@ -24,6 +24,7 @@ from app.config import get_settings
 from app.db import get_db
 from app.creative.logo import has_transparency, remove_background
 from app.deps import creative_transport, current_user
+from app.direct.advice import budget_advice
 
 router = APIRouter(prefix="/api/businesses", tags=["businesses"])
 
@@ -53,6 +54,7 @@ class BusinessIn(BaseModel):
     kind: str = Field(min_length=1, max_length=80)
     description: str = Field(default="", max_length=2000)
     city: str = Field(default="", max_length=100)
+    nationwide: bool = False   # онлайн-услуга: показывать рекламу по всей России, город не нужен
     address: str = Field(default="", max_length=300)   # подробный адрес и как найти: улица, дом, этаж, ориентир (город отдельно, он нужен для региона)
     site_url: str = Field(default="", max_length=300)
     maps_url: str = Field(default="", max_length=500)
@@ -139,6 +141,7 @@ def _business(row: sqlite3.Row, assets: list[sqlite3.Row] | None = None) -> dict
         "kind": row["kind"],
         "description": row["description"],
         "city": row["city"],
+        "nationwide": bool(row["nationwide"]),
         "address": row["address"],
         "allow_promo": bool(row["allow_promo"]),
         "site_url": row["site_url"],
@@ -185,6 +188,22 @@ def options():
     }
 
 
+class AdviceIn(BaseModel):
+    weekly_budget: float = Field(default=0, ge=0, le=100_000_000)
+    avg_check: float = Field(default=0, ge=0, le=100_000_000)
+    target_cpa: float = Field(default=0, ge=0, le=100_000_000)
+    client_share_percent: float = Field(default=30, ge=1, le=100)
+    description: str = Field(default="", max_length=2000)
+
+
+@router.post("/budget-advice")
+def budget_advice_for(data: AdviceIn, user: sqlite3.Row = Depends(current_user)):
+    """Рекомендация по бюджету по цифрам из формы: бизнес ещё можно не сохранять, считаем на лету."""
+    biz = {"weekly_budget_micro": _micro(data.weekly_budget), "avg_check_micro": _micro(data.avg_check),
+           "target_cpa_micro": _micro(data.target_cpa), "client_share": data.client_share_percent / 100}
+    return budget_advice(biz, data.description)
+
+
 @router.get("")
 def list_businesses(user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connection = Depends(get_db)):
     rows = conn.execute("SELECT * FROM businesses WHERE user_id = ? ORDER BY id", (user["id"],)).fetchall()
@@ -198,11 +217,11 @@ def create_business(data: BusinessIn, user: sqlite3.Row = Depends(current_user),
         raise HTTPException(400, detail={"message": f"Можно добавить не больше {MAX_BUSINESSES} бизнесов."})
     cur = conn.execute(
         "INSERT INTO businesses (user_id, name, kind, description, city, site_url, maps_url, tone, color_main, color_extra, "
-        "avg_check_micro, target_cpa_micro, weekly_budget_micro, client_share, mode, visual_hint, address, allow_promo) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "avg_check_micro, target_cpa_micro, weekly_budget_micro, client_share, mode, visual_hint, address, allow_promo, nationwide) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (
             user["id"], data.name, data.kind, data.description, data.city, data.site_url, data.maps_url, data.tone,
             data.color_main, data.color_extra, _micro(data.avg_check), _micro(data.target_cpa), _micro(data.weekly_budget),
-            data.client_share_percent / 100, data.mode, data.visual_hint.strip(), data.address, int(data.allow_promo),
+            data.client_share_percent / 100, data.mode, data.visual_hint.strip(), data.address, int(data.allow_promo), int(data.nationwide),
         ),
     )
     conn.commit()
@@ -225,11 +244,11 @@ def update_business(
     _own(conn, user, business_id)
     conn.execute(
         "UPDATE businesses SET name=?, kind=?, description=?, city=?, site_url=?, maps_url=?, tone=?, color_main=?, color_extra=?, "
-        "avg_check_micro=?, target_cpa_micro=?, weekly_budget_micro=?, client_share=?, mode=?, visual_hint=?, address=?, allow_promo=? WHERE id=?",
+        "avg_check_micro=?, target_cpa_micro=?, weekly_budget_micro=?, client_share=?, mode=?, visual_hint=?, address=?, allow_promo=?, nationwide=? WHERE id=?",
         (
             data.name, data.kind, data.description, data.city, data.site_url, data.maps_url, data.tone, data.color_main,
             data.color_extra, _micro(data.avg_check), _micro(data.target_cpa), _micro(data.weekly_budget),
-            data.client_share_percent / 100, data.mode, data.visual_hint.strip(), data.address, int(data.allow_promo), business_id,
+            data.client_share_percent / 100, data.mode, data.visual_hint.strip(), data.address, int(data.allow_promo), int(data.nationwide), business_id,
         ),
     )
     conn.commit()

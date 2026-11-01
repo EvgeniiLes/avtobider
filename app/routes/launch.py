@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 from app.config import get_settings
 from app.db import get_db
+from app.creative.angles import is_nationwide
 from app.deps import client_factory, current_user
 from app.direct.client import DirectError
 from app.direct.launch import STATE_LABELS, launch, plan_launch, text_candidates
@@ -44,7 +45,7 @@ def _plan_for(conn, user, biz, account_id, factory):
 
     async def go():
         async with factory(token, api_version=s.direct_api_version, login=login) as client:
-            region = await client.find_region_id(biz["city"]) if biz["city"].strip() else None
+            region = None if is_nationwide(biz) or not biz["city"].strip() else await client.find_region_id(biz["city"])   # вся Россия: регион задаст сам план
             minimum = await client.min_weekly_budget("RUB")
             return region, minimum
 

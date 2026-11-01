@@ -66,8 +66,8 @@ def checklist(biz: sqlite3.Row, accounts: int, units: int) -> list[dict]:
     """Шаги до запуска рекламы простыми словами. Первый невыполненный шаг без пометки «скоро» показываем как следующий."""
     steps = [
         {"key": "described", "title": "Бизнес описан", "title_todo": "Бизнес не описан",
-         "done": all([biz["name"], biz["kind"], biz["description"].strip(), biz["city"]]),
-         "hint": "Заполните название, чем занимаетесь, расскажите о бизнесе и укажите город.", "page": "business"},
+         "done": all([biz["name"], biz["kind"], biz["description"].strip(), biz["city"] or biz["nationwide"]]),
+         "hint": "Заполните название, чем занимаетесь, расскажите о бизнесе и укажите город (или отметьте, что показываете рекламу по всей России).", "page": "business"},
         {"key": "money", "title": "Бюджет и цена клиента заданы", "title_todo": "Бюджет и цена клиента не заданы",
          "done": biz["weekly_budget_micro"] > 0 and (biz["target_cpa_micro"] > 0 or biz["avg_check_micro"] > 0),
          "hint": "Укажите бюджет на неделю и сколько готовы платить за клиента (или средний чек).", "page": "business"},
@@ -300,7 +300,7 @@ def analyze(business_id: int, user: sqlite3.Row = Depends(current_user), conn: s
     rows = conn.execute("SELECT * FROM ad_units WHERE business_id = ? ORDER BY id", (business_id,)).fetchall()
     if not rows:
         raise HTTPException(400, detail={"message": "Пока нечего разбирать: объявлений ещё нет."})
-    lines = [f"Бизнес: {biz['kind']}, {biz['city']}. Недельный бюджет {_rub(biz['weekly_budget_micro'])} ₽, "
+    lines = [f"Бизнес: {biz['kind']}, {'вся Россия, онлайн' if biz['nationwide'] else biz['city']}. Недельный бюджет {_rub(biz['weekly_budget_micro'])} ₽, "
              f"цель по цене клиента {_rub(biz['target_cpa_micro'])} ₽."]
     total_imp = 0
     for u in rows:

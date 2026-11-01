@@ -67,7 +67,7 @@ def test_preview_shows_what_will_be_created(isolated):
 
 @pytest.mark.parametrize("change,message", [
     ({"site_url": ""}, "сайт или ссылку"),
-    ({"city": ""}, "город"),
+    ({"city": ""}, "всей России"),   # без города и без отметки «по всей России» запуск объясняет, что делать
     ({"city": "Нигдеград"}, "Не нашёл город"),
     ({"weekly_budget": 100}, "слишком мал"),
 ])
@@ -76,6 +76,49 @@ def test_preview_explains_problems_in_plain_words(isolated, change, message):
         bid = setup(http, FakeDirect(), isolated, **change)
         r = http.get(f"/api/businesses/{bid}/launch/preview")
         assert r.status_code == 400 and message in r.json()["detail"]["message"]
+
+
+def test_online_business_is_shown_across_russia_and_needs_no_city(isolated):
+    fake = FakeDirect(regions={})     # Яндекс не нашёл бы ни одного города, и для онлайн-услуги это не важно
+    with TestClient(app) as http:
+        bid = setup(http, fake, isolated, city="", nationwide=True, description="Онлайн-консультации по всей стране. Запись на сайте.")
+        assert http.get(f"/api/businesses/{bid}").json()["nationwide"] is True
+        plan = http.get(f"/api/businesses/{bid}/launch/preview").json()
+        assert plan["city"] == "вся Россия" and plan["warnings"] == []
+        steps = {s["key"]: s for s in http.get(f"/api/businesses/{bid}/overview").json()["checklist"]}
+        assert steps["described"]["done"] is True                                  # города нет, а бизнес описан
+        assert http.post(f"/api/businesses/{bid}/launch", json={"marking_confirmed": True}).status_code == 200
+        assert list(fake.group_regions.values()) == [[225]]                         # регион показа «Россия», а не город
+
+
+def test_launch_preview_warns_when_the_budget_is_below_the_recommended_one(isolated):
+    fake = FakeDirect()
+    with TestClient(app) as http:
+        bid = setup(http, fake, isolated, weekly_budget=25000, target_cpa=0, avg_check=39000)   # цена обращения 3 510 ₽: для десяти обращений нужно около 56 000 ₽
+        warnings = http.get(f"/api/businesses/{bid}/launch/preview").json()["warnings"]
+        assert any("Рекомендуем около 56" in w.replace(" ", " ") for w in warnings)
+        enough = setup_second_business_with(http, bid, weekly_budget=60000)
+        assert not any("Рекомендуем" in w for w in http.get(f"/api/businesses/{enough}/launch/preview").json()["warnings"])
+
+
+def setup_second_business_with(http, first_id, **change):
+    """Ещё один бизнес того же владельца с теми же данными, но другими цифрами."""
+    body = http.get(f"/api/businesses/{first_id}").json()
+    body.update(change)
+    for key in ("id", "status", "assets", "maps_org_id"):
+        body.pop(key, None)
+    return http.post("/api/businesses", json=body).json()["id"]
+
+
+def test_a_business_with_a_city_but_marked_nationwide_never_mentions_the_city_in_ads(isolated):
+    fake = FakeDirect()
+    with TestClient(app) as http:
+        bid = setup(http, fake, isolated, nationwide=True)                        # город «Москва» остался в карточке, но показываем по всей России
+        plan = http.get(f"/api/businesses/{bid}/launch/preview").json()
+        assert all("Москва" not in v["title"] + v["text"] for v in plan["variants"])
+        http.post(f"/api/businesses/{bid}/launch", json={"marking_confirmed": True})
+        assert list(fake.group_regions.values()) == [[225]]
+        assert http.put(f"/api/businesses/{bid}", json={"name": "Лотос", "kind": "Маникюрный салон", "city": "Москва", "nationwide": False}).json()["nationwide"] is False
 
 
 def test_preview_needs_a_cabinet():

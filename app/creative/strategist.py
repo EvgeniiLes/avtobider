@@ -9,7 +9,7 @@ import re
 
 import httpx
 
-from app.creative.angles import ANGLES, available, effective_description, profile, prompt_block
+from app.creative.angles import ANGLES, available, effective_description, profile, prompt_block, where_text
 from app.creative.refs import REFS, catalog_text
 from app.creative.texts_ai import FAL_CHAT_URL, facts_of
 from app.direct.texts import check, unsupported_claims
@@ -40,7 +40,7 @@ SYSTEM = (
 
 def _user_prompt(biz, photos: list[dict], count: int) -> str:
     p = profile(biz)
-    lines = [f"Бизнес: {biz['name']}", f"Чем занимается: {biz['kind']}", f"Город: {biz['city'] or 'не указан'}",
+    lines = [f"Бизнес: {biz['name']}", f"Чем занимается: {biz['kind']}", f"Где показываем рекламу: {where_text(biz)}",
              f"Факты от владельца: {facts_of(biz) or 'нет'}", f"Действие клиента на кнопке: «{p['cta']}»",
              prompt_block(facts_of(biz))]
     if photos:

@@ -14,6 +14,7 @@ class FakeDirect:
         self.min_weekly = min_weekly
         self.campaigns: dict[int, dict] = {}
         self.groups: dict[int, int] = {}      # группа → кампания
+        self.group_regions: dict[int, list[int]] = {}   # группа → регионы показа
         self.ads: dict[int, dict] = {}
         self.calls: list[tuple[str, str]] = []
         self.report_rows: list[tuple] = []  # (день, номер кампании, показы, клики, расход в микро[, обращения])
@@ -115,6 +116,7 @@ class FakeDirect:
         if service == "adgroups":
             gid = self._next()
             self.groups[gid] = params["AdGroups"][0]["CampaignId"]
+            self.group_regions[gid] = params["AdGroups"][0]["RegionIds"]
             return ok({"AddResults": [{"Id": gid}]})
         if service == "ads":
             if method == "add":

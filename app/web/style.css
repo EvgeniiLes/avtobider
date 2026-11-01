@@ -115,6 +115,10 @@ input[type=color] { width: 56px; height: 40px; padding: 2px; border: 1px solid v
 .status { min-height: 1.4em; margin: 10px 0 0; font-size: 14px; }
 .status.err { color: var(--err); }
 .status.ok { color: var(--ok); font-weight: 600; }
+.advice { margin-top: 16px; padding: 14px 18px; border-radius: var(--radius-sm); background: var(--ok-soft); color: var(--ok); font-size: 14px; }
+.advice.low, .advice.tiny, .advice.blocked, .advice.none { background: var(--warn-soft); color: var(--warn); }
+.advice .sum { font-weight: 700; line-height: 1.4; }
+.advice .hint { color: inherit; opacity: .85; margin: 8px 0 0; font-size: 13px; }
 .notice { background: var(--warn-soft); border-radius: var(--radius-sm); padding: 12px 18px; margin: 0 0 14px; font-size: 14px; color: var(--warn); }
 .notice-row { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
 .notice-row span { flex: 1 1 260px; }

@@ -198,11 +198,39 @@ function getColor(id) {
   return input.dataset.empty === "1" ? "" : input.value;
 }
 
+// Рекомендация по бюджету: считается на сервере по цифрам из формы, пока человек печатает (бизнес сохранять не нужно)
+let adviceTimer = 0;
+function scheduleAdvice() {
+  clearTimeout(adviceTimer);
+  adviceTimer = setTimeout(loadAdvice, 450);
+}
+
+async function loadAdvice() {
+  const box = $("b-advice");
+  const f = readForm();
+  const r = await api("POST", "/api/businesses/budget-advice", {
+    weekly_budget: f.weekly_budget, avg_check: f.avg_check, target_cpa: f.target_cpa, client_share_percent: f.client_share_percent, description: f.description,
+  });
+  if (!r.ok) { box.hidden = true; return; }
+  box.className = `advice ${r.data.level}`;
+  box.replaceChildren(el("div", { className: "sum", textContent: r.data.summary }), ...r.data.details.map((d) => el("p", { className: "hint", textContent: d })));
+  box.hidden = false;
+}
+
+// Показ по всей России: город не нужен, поле отключаем и объясняем почему
+function syncNationwide() {
+  const on = $("b-nationwide").checked;
+  $("b-city").disabled = on;
+  $("b-city-hint").textContent = on ? "Рекламу покажем по всей России, город не нужен." : "Только название города: по нему сервис выбирает, где показывать рекламу.";
+}
+
 function fillForm(b) {
   $("b-name").value = b ? b.name : "";
   $("b-kind").value = b ? b.kind : "";
   $("b-description").value = b ? b.description : "";
   $("b-city").value = b ? b.city : "";
+  $("b-nationwide").checked = !!(b && b.nationwide);
+  syncNationwide();
   $("b-address").value = b ? (b.address || "") : "";
   $("b-promo").checked = !!(b && b.allow_promo);
   $("b-site").value = b ? b.site_url : "";
@@ -220,6 +248,7 @@ function fillForm(b) {
   $("business-delete").hidden = !b;
   setStatus("business-status", "");
   setStatus("files-status", "");
+  loadAdvice();
 }
 
 function rememberedBusiness() {
@@ -364,7 +393,8 @@ function readForm() {
     name: $("b-name").value,
     kind: $("b-kind").value,
     description: $("b-description").value,
-    city: $("b-city").value,
+    city: $("b-nationwide").checked ? "" : $("b-city").value,
+    nationwide: $("b-nationwide").checked,
     address: $("b-address").value,
     allow_promo: $("b-promo").checked,
     site_url: $("b-site").value,
@@ -1427,7 +1457,7 @@ async function openLaunch() {
   if (!result.ok) { say(errorText(result), "err"); $("launch-card").hidden = true; return; }
   const p = result.data;
   $("launch-summary").textContent =
-    `Кабинет: ${p.account}. Город: ${p.city}. Одна кампания: ${adsPhrase(p.count)} с общим бюджетом ${p.weekly} ₽ в неделю. Ведёт на: ${p.link}.`;
+    `Кабинет: ${p.account}. Где показывать: ${p.city}. Одна кампания: ${adsPhrase(p.count)} с общим бюджетом ${p.weekly} ₽ в неделю. Ведёт на: ${p.link}.`;
   $("launch-variants").replaceChildren(...p.variants.map((v) =>
     el("li", {}, el("div", { className: "t", textContent: v.title }), el("div", { className: "hint", textContent: v.text }))));
   $("launch-warnings").replaceChildren(...p.warnings.map((w) => el("li", { textContent: w })));
@@ -1737,6 +1767,8 @@ async function start() {
   $("m-save").addEventListener("click", saveMetrika);
   $("m-clear").addEventListener("click", clearMetrika);
   $("marking-ok").addEventListener("change", () => { $("launch-go").disabled = !$("marking-ok").checked; });
+  $("b-nationwide").addEventListener("change", syncNationwide);
+  for (const id of ["b-budget", "b-cpa", "b-check", "b-share", "b-description"]) $(id).addEventListener("input", scheduleAdvice);
   $("launch-go").addEventListener("click", confirmLaunch);
   $("mk-save").addEventListener("click", saveMarking);
   $("mk-open").addEventListener("click", () => showPage("accounts"));

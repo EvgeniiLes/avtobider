@@ -82,9 +82,10 @@ def _first_sentence(description: str, limit: int) -> str:
 def draft_variants(biz, count: int = 6) -> list[dict]:
     """Запасные варианты объявлений без ИИ. Без выдуманных фактов: только данные владельца. Подбираются под тип бизнеса:
     для онлайн-проекта нет «рядом с вами» и «записи», кнопка и призыв по сути услуги."""
-    from app.creative.angles import effective_description, profile  # импорт здесь, чтобы не было круга
+    from app.creative.angles import effective_description, is_nationwide, profile  # импорт здесь, чтобы не было круга
     pr = profile(biz)
-    name, kind, city = biz["name"].strip(), biz["kind"].strip(), biz["city"].strip()
+    name, kind = biz["name"].strip(), biz["kind"].strip()
+    city = "" if is_nationwide(biz) else biz["city"].strip()   # показ по всей России: города в объявлении нет
     kind_l = kind[:1].lower() + kind[1:]
     own = _first_sentence(effective_description(biz), TEXT_MAX)
     act, where = pr["cta_sentence"], (f" в городе {city}" if city and pr["local"] else "")

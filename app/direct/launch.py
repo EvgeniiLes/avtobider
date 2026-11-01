@@ -12,7 +12,8 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 
 from app.creative.compose import style_for
-from app.direct.client import DirectClient, DirectError
+from app.creative.angles import is_nationwide
+from app.direct.client import RUSSIA_REGION_ID, DirectClient, DirectError
 from app.direct.negatives import negatives_for
 from app.direct.texts import check, draft_variants
 from app.engine.util import EngineError, MICRO, day_add, plural, rub
@@ -75,10 +76,14 @@ def text_candidates(conn: sqlite3.Connection, biz) -> list[dict]:
     return chosen
 
 
+THREE_ADS_POOL = 3000   # с какого недельного лимита кампании (₽) кладём в неё три объявления
+TWO_ADS_POOL = 1500     # и с какого два
+
+
 def ads_for_budget(pool_micro: int) -> int:
     """Сколько объявлений класть в кампанию: чем меньше денег, тем меньше вариантов, иначе у каждого мало кликов для сравнения."""
     rubles = pool_micro / MICRO
-    return MAX_ADS if rubles >= 3000 else 2 if rubles >= 1500 else 1
+    return MAX_ADS if rubles >= THREE_ADS_POOL else 2 if rubles >= TWO_ADS_POOL else 1
 
 
 def start_split(biz, min_weekly_micro: int = MIN_WEEKLY) -> tuple[int, int]:
@@ -118,9 +123,10 @@ def plan_launch(biz, region_id: int | None, min_weekly_micro: int = MIN_WEEKLY, 
     """Считает, что будет создано. Если создавать нечего или нельзя, объясняет простыми словами."""
     if not (biz["site_url"] or _maps_id(biz)):
         raise EngineError("Укажите сайт или ссылку на ваш бизнес в Яндекс Картах: без них объявлению некуда вести.", "no_target_link")
-    if not biz["city"].strip():
-        raise EngineError("Укажите город, где показывать рекламу.", "no_city")
-    if region_id is None:
+    nationwide = is_nationwide(biz)   # онлайн-услуга: показываем по всей России, города нет и искать его в Яндексе не нужно
+    if not nationwide and not biz["city"].strip():
+        raise EngineError("Укажите город, где показывать рекламу, или отметьте «Показывать по всей России».", "no_city")
+    if region_id is None and not nationwide:
         raise EngineError(f"Не нашёл город «{biz['city']}» в Яндексе. Проверьте, как он написан (например, «Москва»).", "no_region")
     if biz["weekly_budget_micro"] <= 0:
         raise EngineError("Укажите бюджет на неделю.", "no_budget")
@@ -139,10 +145,14 @@ def plan_launch(biz, region_id: int | None, min_weekly_micro: int = MIN_WEEKLY, 
     if count < MAX_ADS:
         warnings.append(f"При таком бюджете в кампанию войдёт {plural(count, 'объявление', 'объявления', 'объявлений')}: "
                         "на каждое придётся мало кликов. Больше бюджет, больше вариантов для сравнения.")
+    from app.direct.advice import budget_advice   # здесь, чтобы не было круга
+    advice = budget_advice(biz, biz["description"])
+    if advice["level"] == "low":   # хватает на запуск и сравнение, но не на подбор ставок под обращения: владелец должен знать об этом до запуска
+        warnings.append(advice["summary"])
     counters = [int(biz["metrika_counter_id"])] if biz["metrika_counter_id"] else None
     return Plan(
-        count=count, campaign_micro=start_pool, variants=variants, region_id=region_id,
-        city=biz["city"], href=biz["site_url"], business_id=_maps_id(biz), warnings=warnings, counter_ids=counters,
+        count=count, campaign_micro=start_pool, variants=variants, region_id=RUSSIA_REGION_ID if nationwide else region_id,
+        city="вся Россия" if nationwide else biz["city"], href=biz["site_url"], business_id=_maps_id(biz), warnings=warnings, counter_ids=counters,
         own_count=own, negatives=negatives_for(biz["kind"]),
     )
 

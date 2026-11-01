@@ -4,7 +4,7 @@ import re
 
 import httpx
 
-from app.creative.angles import ANGLES, business_block, effective_description, prompt_block
+from app.creative.angles import ANGLES, business_block, effective_description, prompt_block, where_text
 from app.direct.texts import TEXT_MAX, TITLE_MAX, check, fit, unsupported_claims
 
 API_URL = "https://api.anthropic.com/v1/messages"
@@ -34,7 +34,7 @@ def facts_of(biz) -> str:
 
 def build_prompt(biz, count: int, hint: str = "") -> str:
     parts = [
-        f"Бизнес: {biz['name']}", f"Чем занимается: {biz['kind']}", f"Город: {biz['city'] or 'не указан'}",
+        f"Бизнес: {biz['name']}", f"Чем занимается: {biz['kind']}", f"Где показываем рекламу: {where_text(biz)}",
         f"Описание от владельца: {effective_description(biz) or 'нет'}",
     ]
     try:

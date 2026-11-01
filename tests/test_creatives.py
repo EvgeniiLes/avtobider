@@ -558,6 +558,23 @@ def test_the_service_draws_the_caption_on_every_finished_banner_even_with_a_cust
         assert _ai_ad(http, bid)["ai"]["status"] == "ready" and bottom_and_top()[0][1] > 200
 
 
+def test_the_model_is_told_where_ads_are_shown_and_not_to_write_a_city_for_a_nationwide_business(monkeypatch):
+    monkeypatch.setenv("FAL_KEY", "fal-test")
+    fakes = Fakes(claude_text="[]")
+    fakes.keep = 10 ** 6
+    asked = lambda: [json.loads(b)["messages"][-1]["content"] for h, p, b in fakes.requests if "chat/completions" in p]
+    with TestClient(app) as http:
+        local = setup(http)
+        http.post(f"/api/businesses/{local}/creatives/texts/generate", json={"count": 3})
+        assert any("Где показываем рекламу: Москва" in q for q in asked())
+
+        fakes.requests.clear()
+        online = http.post("/api/businesses", json={"name": "Сервис", "kind": "Онлайн-консультации", "city": "", "nationwide": True, "weekly_budget": 20000,
+                                                    "description": "Консультации по видео.", "site_url": "a.ru"}).json()["id"]
+        http.post(f"/api/businesses/{online}/creatives/texts/generate", json={"count": 3})
+        assert any("Где показываем рекламу: вся Россия, онлайн" in q and "про город и «рядом» не пиши" in q for q in asked())
+
+
 def test_foreign_prices_are_the_amounts_the_ad_does_not_name():
     from app.creative.texts_ai import foreign_prices
     expected = ["Аудит от 9 000 ₽", "Записаться", "от 9 000 ₽"]

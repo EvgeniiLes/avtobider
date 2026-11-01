@@ -60,6 +60,24 @@ def profile(biz) -> dict:
     return {"online": online, "local": local, "cta": cta, "cta_sentence": CTA_SENTENCES[cta], "appointment": cta == "Записаться"}
 
 
+def is_nationwide(biz) -> bool:
+    """Владелец выбрал «показывать по всей России»: онлайн-услуга без города. Тогда регион показа вся Россия, а город в рекламе не упоминаем."""
+    try:
+        return bool(biz["nationwide"])
+    except (KeyError, IndexError):
+        return False
+
+
+def where_text(biz) -> str:
+    """Где показываем рекламу, словами для подсказок модели."""
+    if is_nationwide(biz):
+        return "вся Россия, онлайн: города в объявлении нет, про город и «рядом» не пиши"
+    try:
+        return biz["city"] or "не указан"
+    except (KeyError, IndexError):
+        return "не указан"
+
+
 PROMO = re.compile(r"скидк|акци[июяе]|акционн|подар|комплимент|бонус|\d\s?%", re.I)
 
 
