@@ -350,7 +350,7 @@ def _window(conn, unit_ids: list[int], start: str, end: str) -> dict:
 def _campaign_step(conn, platform, biz, today, as_of, cfg, lead_target, cpa, propose, block_growth) -> list[int]:
     """Решения про всю общую кампанию: перевести на «Максимум конверсий», когда обращений достаточно, и осторожно добавить бюджет.
 
-    Яндекс учится на данных кампании и сбивается от частых правок, поэтому после запуска её две недели не трогаем
+    Яндекс учится на данных кампании и сбивается от частых правок, поэтому после запуска её неделю не трогаем
     (warmup_days), а дальше правим не чаще раза в неделю (cooldown_days) и не больше чем на raise_step."""
     camp = conn.execute("SELECT * FROM campaigns WHERE business_id = ? AND external_id IS NOT NULL ORDER BY id LIMIT 1", (biz["id"],)).fetchone()
     if camp is None or camp["state"] != "active":
