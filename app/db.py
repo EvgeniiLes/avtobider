@@ -127,6 +127,16 @@ CREATE TABLE IF NOT EXISTS goal_stats (
     PRIMARY KEY (unit_id, day, goal_id)
 );
 
+-- Что уже отправлено владельцу в Telegram (отчёт недели, тревоги): чтобы не слать одно и то же каждые 30 минут.
+CREATE TABLE IF NOT EXISTS notifications (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    business_id INTEGER NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+    kind        TEXT NOT NULL,
+    key         TEXT NOT NULL,
+    sent_at     TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (business_id, kind, key)
+);
+
 -- Реальные поисковые запросы, по которым показывалась реклама (отчёт Директа за последние 30 дней, обновляется раз в день):
 -- по ним сервис находит запросы, которые тратят деньги впустую (в минус-слова), и те, что приводят обращения (в ключевые фразы).
 CREATE TABLE IF NOT EXISTS search_queries (
@@ -292,7 +302,11 @@ ADDED_COLUMNS = [
     ("business_assets", "ai_note", "TEXT NOT NULL DEFAULT ''"),
     ("changes", "status", "TEXT NOT NULL DEFAULT 'applied'"),
     # Директ: одна кампания на весь бизнес, объявления-варианты лежат внутри неё и делят один недельный лимит
-    ("businesses", "counter_health", "TEXT NOT NULL DEFAULT ''"),     # результат последней проверки счётчика Метрики (JSON), см. app/direct/counter_health.py
+    ("users", "telegram_chat", "TEXT NOT NULL DEFAULT ''"),           # чат владельца с ботом, куда идут отчёты и тревоги
+    ("users", "telegram_code", "TEXT NOT NULL DEFAULT ''"),           # одноразовый код привязки, пока владелец не нажал «Start» в боте
+    ("users", "telegram_code_at", "TEXT NOT NULL DEFAULT ''"),
+    ("users", "notify_on", "INTEGER NOT NULL DEFAULT 1"),             # 0: отчёты и тревоги выключены
+    ("businesses", "counter_health", "TEXT NOT NULL DEFAULT ''"),    # результат последней проверки счётчика Метрики (JSON), см. app/direct/counter_health.py
     ("businesses", "queries_day", "TEXT NOT NULL DEFAULT ''"),       # день, когда последний раз загружали поисковые запросы
     ("businesses", "audience", "TEXT NOT NULL DEFAULT ''"),          # профиль целевой аудитории (JSON), см. app/direct/audience.py
     ("businesses", "nationwide", "INTEGER NOT NULL DEFAULT 0"),      # 1: показывать рекламу по всей России, города нет (онлайн-услуга)

@@ -168,6 +168,7 @@ function showPage(name, push = true) {
   if (name === "stats") { setStatus("history-status", ""); loadHistory(); }
   if (name === "accounts") {
     loadMarking();
+    loadTelegram();
     if (accountsList.length) showCampaigns(accountsList[0].id);  // кампании кабинета видны сразу
   }
 }
@@ -1470,6 +1471,64 @@ async function loadGoals() {
   $("goals-table").querySelector("tbody").replaceChildren(...goals.map(row));
 }
 
+/* ---------- Итоги недели ---------- */
+
+async function loadReport() {
+  const result = await api("GET", `/api/businesses/${currentBusiness.id}/report`);
+  const report = result.ok ? result.data.report : null;
+  $("report-card").hidden = !report;
+  if (report) $("report-text").textContent = report.text;
+}
+
+/* ---------- Telegram ---------- */
+
+function renderTelegram(s) {
+  $("tg-unlinked").hidden = !s.configured || s.linked;
+  $("tg-linked").hidden = !s.linked;
+  $("tg-note").hidden = s.configured;
+  $("tg-note").textContent = s.configured ? "" : "Telegram на сервере пока не настроен: администратору нужно создать бота и записать его токен (см. docs/deployment.md).";
+  $("tg-notify").checked = s.notify;
+  $("tg-steps").hidden = !s.code;
+  $("tg-connect").textContent = s.code ? "Получить новый код" : "Подключить Telegram";
+  if (s.code) { $("tg-code").textContent = s.code; $("tg-link").href = s.link; }
+}
+
+async function loadTelegram() {
+  const r = await api("GET", "/api/telegram");
+  if (r.ok) renderTelegram(r.data);
+}
+
+async function connectTelegram() {
+  const r = await api("POST", "/api/telegram/connect");
+  if (!r.ok) { setStatus("tg-status", errorText(r), "err"); return; }
+  setStatus("tg-status", "", "");
+  renderTelegram(r.data);
+}
+
+async function checkTelegram() {
+  setStatus("tg-status", "Ищем ваше сообщение боту…", "");
+  const r = await api("POST", "/api/telegram/check");
+  if (!r.ok) { setStatus("tg-status", errorText(r), "err"); return; }
+  renderTelegram(r.data);
+  setStatus("tg-status", r.data.found ? `Готово: подключён чат «${r.data.name}». Бот прислал приветствие.` : "Пока не вижу вашего сообщения. Нажмите «Start» в боте и повторите.", r.data.found ? "ok" : "");
+}
+
+async function testTelegram() {
+  setStatus("tg-status", "Отправляем…", "");
+  const r = await api("POST", "/api/telegram/test");
+  setStatus("tg-status", r.ok ? "Отправили, проверьте Telegram." : errorText(r), r.ok ? "ok" : "err");
+}
+
+async function setTelegramNotify() {
+  const r = await api("PUT", "/api/telegram", { notify: $("tg-notify").checked });
+  if (r.ok) { renderTelegram(r.data); setStatus("tg-status", r.data.notify ? "Уведомления включены." : "Уведомления выключены.", "ok"); }
+}
+
+async function disconnectTelegram() {
+  const r = await api("DELETE", "/api/telegram");
+  if (r.ok) { renderTelegram(r.data); setStatus("tg-status", "Telegram отключён.", "ok"); }
+}
+
 /* ---------- Поисковые запросы ---------- */
 
 function queryChecks(boxId, title, items, key, text) {
@@ -1625,7 +1684,7 @@ async function loadStats() {
   renderGoal(data);
   if (data.real || data.example) loadSeries(); else renderChart([]);
   if (data.real || data.example) loadInsights(); else $("insights-card").hidden = true;
-  if (data.real) { loadGoals(); loadQueries(); } else { $("goals-card").hidden = true; $("queries-card").hidden = true; }
+  if (data.real) { loadReport(); loadGoals(); loadQueries(); } else { $("report-card").hidden = true; $("goals-card").hidden = true; $("queries-card").hidden = true; }
   renderDecisions();
   $("example-notice").hidden = !data.example;
   $("stats-needs").textContent = data.real || data.example ? data.needs : "";
@@ -2008,6 +2067,11 @@ async function start() {
   $("ideas-next").addEventListener("click", () => setStep("banners"));
   $("banners-next").addEventListener("click", () => setStep("launch"));
   $("launch-back").addEventListener("click", () => setStep("banners"));
+  $("tg-connect").addEventListener("click", connectTelegram);
+  $("tg-check").addEventListener("click", checkTelegram);
+  $("tg-test").addEventListener("click", testTelegram);
+  $("tg-notify").addEventListener("change", setTelegramNotify);
+  $("tg-disconnect").addEventListener("click", disconnectTelegram);
   $("q-analyze").addEventListener("click", analyzeQueries);
   $("q-apply").addEventListener("click", applyQueries);
   $("aud-bids-apply").addEventListener("click", () => changeBids("POST"));

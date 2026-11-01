@@ -42,6 +42,9 @@ class Settings:
     direct_client_login: str
     db_path: Path
     secret_key: str
+    telegram_token: str = ""   # токен бота от @BotFather: через него сервис пишет владельцу отчёты и тревоги
+    telegram_bot: str = ""     # имя бота без @: нужно для ссылки «открыть бота»
+    telegram_api: str = ""     # адрес Bot API; с серверов в России api.telegram.org обычно закрыт, тогда сюда ставят свой промежуточный адрес
 
     @property
     def uploads_dir(self) -> Path:
@@ -87,4 +90,7 @@ def get_settings() -> Settings:
         direct_client_login=os.environ.get("DIRECT_CLIENT_LOGIN", "").strip(),
         db_path=db_path,
         secret_key=_secret_key(db_path),
+        telegram_token=os.environ.get("TELEGRAM_BOT_TOKEN", "").strip(),
+        telegram_bot=os.environ.get("TELEGRAM_BOT_NAME", "").strip().lstrip("@"),
+        telegram_api=(os.environ.get("TELEGRAM_API_BASE", "").strip() or "https://api.telegram.org").rstrip("/"),
     )

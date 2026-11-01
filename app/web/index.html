@@ -571,6 +571,12 @@
             </div>
           </div>
 
+          <div class="card" id="report-card" hidden>
+            <h2>Итоги недели</h2>
+            <p class="hint">Семь полных дней до вчера в сравнении с неделей раньше. То же самое сервис присылает в Telegram по понедельникам.</p>
+            <pre id="report-text" class="report"></pre>
+          </div>
+
           <div class="card" id="goals-card" hidden>
             <h2>Действия посетителей</h2>
             <p class="hint" id="goals-hint"></p>
@@ -675,6 +681,30 @@
             <button id="mk-save">Передать в Директ</button>
             <span id="mk-status" class="hint"></span>
           </div>
+        </div>
+
+        <div class="card" id="tg-card">
+          <h2>Отчёты и тревоги в Telegram</h2>
+          <p class="hint">По понедельникам бот пришлёт итоги недели, а при проблемах напишет сразу: объявление не прошло проверку, показов нет, на счёте нет денег, счётчик Метрики не считает.</p>
+          <p id="tg-note" class="notice" hidden></p>
+          <div id="tg-unlinked" hidden>
+            <button id="tg-connect" class="small">Подключить Telegram</button>
+            <div id="tg-steps" hidden>
+              <ol class="steps">
+                <li>Откройте <a id="tg-link" target="_blank" rel="noopener">бота в Telegram</a> и нажмите «Start». Код привязки: <strong id="tg-code" class="code"></strong></li>
+                <li>Вернитесь сюда и нажмите «Я нажал Start». Код действует полчаса.</li>
+              </ol>
+              <button id="tg-check" class="small">Я нажал Start</button>
+            </div>
+          </div>
+          <div id="tg-linked" hidden>
+            <label class="check"><input type="checkbox" id="tg-notify"> Присылать итоги недели и тревоги</label>
+            <div class="upload-row">
+              <button id="tg-test" class="small secondary">Прислать пробное сообщение</button>
+              <button id="tg-disconnect" class="small secondary">Отключить</button>
+            </div>
+          </div>
+          <p id="tg-status" class="status" role="status"></p>
         </div>
 
         <div class="card">

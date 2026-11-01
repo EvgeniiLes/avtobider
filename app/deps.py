@@ -19,6 +19,11 @@ def creative_transport():
     return None
 
 
+def telegram_transport():
+    """Транспорт для запросов к Telegram. В тестах подменяется заглушкой."""
+    return None
+
+
 def platform_transport():
     """Транспорт для запросов к VK Рекламе и Авито. В тестах подменяется заглушкой."""
     return None

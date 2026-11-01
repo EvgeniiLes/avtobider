@@ -10,6 +10,7 @@ import time
 from app.config import get_settings, load_env
 from app.db import connect, init_db
 from app.direct.runner import sync_and_run
+from app.notifier import make_sender, run as notify
 
 log = logging.getLogger("autobider.worker")
 DEFAULT_INTERVAL_MINUTES = 30
@@ -22,10 +23,11 @@ def real_businesses(conn):
     ).fetchall()
 
 
-def run_once(transport=None) -> int:
+def run_once(transport=None, telegram_transport=None) -> int:
     """Один проход по всем бизнесам с настоящей рекламой. Ошибка одного не мешает остальным."""
     conn = connect(get_settings().db_path)
     done = 0
+    send = make_sender(telegram_transport)
     try:
         for biz in real_businesses(conn):
             try:
@@ -35,6 +37,11 @@ def run_once(transport=None) -> int:
                 done += 1
             except Exception:  # служба не должна падать из-за одного бизнеса
                 log.exception("бизнес %s: неожиданная ошибка", biz["id"])
+            try:   # отчёт и тревоги владельцу: после обновления данных, чтобы они были свежими; сбой отправки не мешает остальному
+                fresh = conn.execute("SELECT * FROM businesses WHERE id = ?", (biz["id"],)).fetchone()
+                notify(conn, fresh, send)
+            except Exception:
+                log.exception("бизнес %s: не удалось разослать уведомления", biz["id"])
     finally:
         conn.close()
     return done

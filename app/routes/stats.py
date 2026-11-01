@@ -22,6 +22,7 @@ from app.engine.cycle import (
 from app.config import get_settings
 from app.direct.client import DirectError
 from app.direct.counter_health import load_health
+from app.reports import week_report
 from app.direct.launch import STATE_LABELS
 from app.direct.runner import account_token
 from app.platforms.direct import DirectPlatform
@@ -252,6 +253,17 @@ def goals(business_id: int, days: int = 14, user: sqlite3.Row = Depends(current_
                       "cost": _ratio(total["spend"], n)})
     items.sort(key=lambda i: (not i["main"], -i["count"]))
     return {"connected": bool(biz["metrika_counter_id"]), "days": days, "clicks": total["clicks"], "spend": _rub(total["spend"]), "goals": items}
+
+
+@router.get("/report")
+def report(business_id: int, user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connection = Depends(get_db)):
+    """Итоги прошедшей недели: то же, что сервис присылает в Telegram по понедельникам."""
+    biz = _own(conn, user, business_id)
+    real = conn.execute("SELECT 1 FROM campaigns WHERE business_id = ? AND source = 'direct'", (business_id,)).fetchone() is not None
+    if not real:
+        return {"report": None}
+    data = week_report(conn, biz, date.today().isoformat())
+    return {"report": {"text": data["text"], "start": data["start"], "end": data["end"]}}
 
 
 STYLE_LABELS = {"photo": "Фото-герой", "luxe": "Тёмный люкс", "pastel": "Пастель", "bold": "Яркая типографика", "card": "Светлая карточка", "ai": "ИИ-дизайн"}
