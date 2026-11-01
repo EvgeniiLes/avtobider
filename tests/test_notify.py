@@ -169,6 +169,9 @@ def test_week_report_compares_with_the_week_before_and_names_the_best_and_the_we
         data = week_report(conn, biz(), today)
         text = rep(data["text"])
         assert text.startswith("Итоги недели «Лотос»") and data["end"] == day_add(today, -1)
+        day = rep(data["day_text"])
+        assert day.startswith("Итоги дня «Лотос»") and "Вчера: потрачено 500 ₽, кликов 30, 3 обращения" in day
+        assert "За 7 дней: потрачено 3 500 ₽ (неделей ранее 1 400 ₽, +150%), 21 обращение, цена обращения 167 ₽" in day and "Слабое:" in day
         assert "Потрачено: 3 500 ₽ (неделей ранее 1 400 ₽, +150%)" in text
         assert "Клики: 210 (было 70, +200%)" in text
         assert "Обращения: 21 (было 7, +200%), цена обращения 167 ₽" in text
@@ -218,30 +221,25 @@ def biz_row(conn, bid):
 MONDAY_10_MSK = datetime(2026, 11, 2, 7, 0, tzinfo=timezone.utc)   # понедельник, 10:00 по Москве
 
 
-def test_weekly_report_goes_out_once_a_week_on_monday_morning_and_not_before(isolated):
+def test_daily_report_goes_out_once_a_day_after_nine_in_the_morning(isolated):
     with TestClient(app) as http:
         conn, bid = owner_with_chat(http, FakeDirect(), isolated)
         sent = []
         send = lambda chat, text: sent.append((chat, text))
-        sunday = datetime(2026, 11, 1, 20, 0, tzinfo=timezone.utc)
-        assert notifier.run(conn, biz_row(conn, bid), send, now=sunday) == []                       # воскресенье: ещё рано
-        early = datetime(2026, 11, 2, 5, 30, tzinfo=timezone.utc)                                   # понедельник 8:30 по Москве
+        early = datetime(2026, 11, 2, 5, 30, tzinfo=timezone.utc)                                   # 8:30 по Москве: ещё рано
         assert notifier.run(conn, biz_row(conn, bid), send, now=early) == []
         out = notifier.run(conn, biz_row(conn, bid), send, now=MONDAY_10_MSK)
-        assert len(out) == 1 and out[0].startswith("Итоги недели «Лотос»") and sent[0][0] == "777"
-        assert notifier.run(conn, biz_row(conn, bid), send, now=MONDAY_10_MSK + timedelta(hours=3)) == []   # в ту же неделю второй раз не шлём
-        assert len(notifier.run(conn, biz_row(conn, bid), send, now=MONDAY_10_MSK + timedelta(days=7))) == 1  # на следующей неделе снова
+        assert len(out) == 1 and out[0].startswith("Итоги дня «Лотос»") and sent[0][0] == "777"
+        assert notifier.run(conn, biz_row(conn, bid), send, now=MONDAY_10_MSK + timedelta(hours=3)) == []   # в тот же день второй раз не шлём
+        assert len(notifier.run(conn, biz_row(conn, bid), send, now=MONDAY_10_MSK + timedelta(days=1))) == 1  # на следующий день снова
         conn.close()
 
 
-def test_a_missed_monday_is_made_up_on_tuesday_but_not_later_in_the_week(isolated):
+def test_a_report_missed_in_the_morning_is_sent_on_the_first_pass_afterwards(isolated):
     with TestClient(app) as http:
         conn, bid = owner_with_chat(http, FakeDirect(), isolated)
-        send = lambda chat, text: None
-        wednesday = datetime(2026, 11, 4, 7, 0, tzinfo=timezone.utc)
-        assert notifier.run(conn, biz_row(conn, bid), send, now=wednesday) == []        # подключили в среду: отчёта за «неделю» ещё нет
-        tuesday = datetime(2026, 11, 3, 7, 0, tzinfo=timezone.utc)
-        assert len(notifier.run(conn, biz_row(conn, bid), send, now=tuesday)) == 1
+        evening = datetime(2026, 11, 3, 18, 0, tzinfo=timezone.utc)                                  # 21:00 по Москве
+        assert len(notifier.run(conn, biz_row(conn, bid), lambda chat, text: None, now=evening)) == 1
         conn.close()
 
 
@@ -262,6 +260,10 @@ def test_nothing_is_sent_without_a_chat_or_when_the_owner_switched_it_off_or_the
         conn.close()
 
 
+def alerts_only(messages):
+    return [m for m in messages if not m.startswith('Итоги дня')]
+
+
 def test_alerts_are_sent_once_and_repeat_only_after_their_pause(isolated):
     with TestClient(app) as http:
         conn, bid = owner_with_chat(http, FakeDirect(), isolated)
@@ -272,12 +274,12 @@ def test_alerts_are_sent_once_and_repeat_only_after_their_pause(isolated):
         sent = []
         send = lambda chat, text: sent.append(text)
         tuesday = datetime(2026, 11, 3, 7, 0, tzinfo=timezone.utc)
-        first = notifier.run(conn, biz_row(conn, bid), send, now=tuesday)
+        first = alerts_only(notifier.run(conn, biz_row(conn, bid), send, now=tuesday))
         assert any("Метрика не получает визитов" in t for t in first) and any("не прошло проверку" in t and "Запрещённое слово" in t for t in first)
         assert notifier.run(conn, biz_row(conn, bid), send, now=tuesday + timedelta(hours=2)) == []          # тот же день: тишина
-        later = notifier.run(conn, biz_row(conn, bid), send, now=tuesday + timedelta(days=1))
+        later = alerts_only(notifier.run(conn, biz_row(conn, bid), send, now=tuesday + timedelta(days=1)))
         assert later == []                                                                                    # счётчик: не чаще раза в 3 дня; объявление: один раз
-        again = notifier.run(conn, biz_row(conn, bid), send, now=tuesday + timedelta(days=4))
+        again = alerts_only(notifier.run(conn, biz_row(conn, bid), send, now=tuesday + timedelta(days=4)))
         assert len(again) == 1 and "Метрика не получает визитов" in again[0]
         conn.close()
 

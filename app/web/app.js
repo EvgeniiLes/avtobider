@@ -1477,7 +1477,7 @@ async function loadReport() {
   const result = await api("GET", `/api/businesses/${currentBusiness.id}/report`);
   const report = result.ok ? result.data.report : null;
   $("report-card").hidden = !report;
-  if (report) $("report-text").textContent = report.text;
+  if (report) $("report-text").textContent = `${report.day_text}\n\n———\n\n${report.text}`;
 }
 
 /* ---------- Telegram ---------- */

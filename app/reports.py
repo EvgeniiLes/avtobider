@@ -63,7 +63,9 @@ def week_report(conn: sqlite3.Connection, biz, today: str) -> dict:
               "clients_estimated": not marks["days"], "best": best, "worst": worst, "done": done, "waiting": waiting,
               "counter": {"level": health["level"], "title": health["title"]} if health and health["level"] in ("bad", "warn") else None,
               "waste": {"count": len(waste), "spend": sum(w["spend"] for w in waste)} if waste else None, "name": biz["name"]}
+    report["day"] = period(conn, biz["id"], end, end)
     report["text"] = week_text(report)
+    report["day_text"] = day_text(report)
     return report
 
 
@@ -82,11 +84,24 @@ def week_text(r: dict) -> str:
                 lines.append(f"Клиентов: {r['clients']}{' (оценка по доле обращений)' if r['clients_estimated'] else ''}")
         else:
             lines.append(NO_CONVERSIONS)
-        if r["best"]:
-            b = r["best"]
-            lines.append(f"Лучшее объявление: «{b['title']}», {plural(b['leads'], 'обращение', 'обращения', 'обращений')} по {rub(b['spend'] / b['leads'])}.")
-        if r["worst"]:
-            lines.append(f"Слабое: «{r['worst']['title']}», потратило {rub(r['worst']['spend'])}, обращений нет.")
+        lines += _best_and_worst(r)
+    lines += _tail(r)
+    return "\n".join(lines)
+
+
+def _best_and_worst(r: dict) -> list[str]:
+    lines = []
+    if r["best"]:
+        b = r["best"]
+        lines.append(f"Лучшее объявление: «{b['title']}», {plural(b['leads'], 'обращение', 'обращения', 'обращений')} по {rub(b['spend'] / b['leads'])}.")
+    if r["worst"]:
+        lines.append(f"Слабое: «{r['worst']['title']}», потратило {rub(r['worst']['spend'])}, обращений нет.")
+    return lines
+
+
+def _tail(r: dict) -> list[str]:
+    """Общий конец отчётов: что сделал сервис, что ждёт решения, запросы без обращений, состояние счётчика."""
+    lines = []
     if r["done"]:
         lines += ["", "Что сделал сервис:"] + [f"• {t}" for t in r["done"]]
     if r["waiting"]:
@@ -95,6 +110,31 @@ def week_text(r: dict) -> str:
         lines.append(f"Запросов без обращений: {r['waste']['count']} на {rub(r['waste']['spend'])}. Посмотрите «Результаты», карточка «Поисковые запросы».")
     if r["counter"]:
         lines.append(f"Внимание: {r['counter']['title'].lower()}.")
+    return lines
+
+
+def day_text(r: dict) -> str:
+    """Дневной отчёт: вчерашний день, неделя с накопительным итогом, и то же, что требует внимания."""
+    day, week, before = r["day"], r["cur"], r["prev"]
+    lines = [f"Итоги дня «{r['name']}», {_short(r['end'])}", ""]
+    if not (day["spend"] or day["clicks"] or day["impressions"]):
+        lines.append("Вчера показов и расхода не было.")
+    else:
+        part = f"Вчера: потрачено {rub(day['spend'])}, кликов {day['clicks']}"
+        if r["conversions"]:
+            part += f", {plural(day['leads'], 'обращение', 'обращения', 'обращений')}"
+        lines.append(part)
+    if week["spend"]:
+        line = f"За 7 дней: потрачено {rub(week['spend'])} (неделей ранее {rub(before['spend'])}{_change(week['spend'], before['spend'])})"
+        if r["conversions"]:
+            line += f", {plural(week['leads'], 'обращение', 'обращения', 'обращений')}"
+            if week["leads"]:
+                line += f", цена обращения {rub(week['spend'] / week['leads'])}"
+        lines.append(line)
+        if not r["conversions"]:
+            lines.append(NO_CONVERSIONS)
+        lines += _best_and_worst(r)
+    lines += _tail(r)
     return "\n".join(lines)
 
 

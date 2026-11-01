@@ -263,7 +263,7 @@ def report(business_id: int, user: sqlite3.Row = Depends(current_user), conn: sq
     if not real:
         return {"report": None}
     data = week_report(conn, biz, date.today().isoformat())
-    return {"report": {"text": data["text"], "start": data["start"], "end": data["end"]}}
+    return {"report": {"text": data["text"], "day_text": data["day_text"], "start": data["start"], "end": data["end"]}}
 
 
 STYLE_LABELS = {"photo": "Фото-герой", "luxe": "Тёмный люкс", "pastel": "Пастель", "bold": "Яркая типографика", "card": "Светлая карточка", "ai": "ИИ-дизайн"}

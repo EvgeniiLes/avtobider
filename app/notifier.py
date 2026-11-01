@@ -15,7 +15,7 @@ from app.reports import alerts, week_report
 
 log = logging.getLogger("autobider.notify")
 MSK = timezone(timedelta(hours=3))   # у России нет перехода на летнее время
-REPORT_WEEKDAY, REPORT_HOUR = 0, 9   # понедельник, 9:00
+REPORT_HOUR = 9                      # дневной отчёт приходит после 9:00 по Москве
 
 
 def make_sender(transport=None):
@@ -50,13 +50,9 @@ def run(conn: sqlite3.Connection, biz, send, now: datetime | None = None) -> lis
     today = local.date().isoformat()
     messages = []
 
-    iso = local.isocalendar()
-    week = f"{iso[0]}-W{iso[1]:02d}"
-    # окно отправки: понедельник с 9:00 и весь вторник (если в понедельник сервис не работал); в другие дни отчёт не шлём,
-    # иначе первое же подключение Telegram в среду выдало бы отчёт за неделю, которой у рекламы не было
-    in_window = (local.weekday() == REPORT_WEEKDAY and local.hour >= REPORT_HOUR) or local.weekday() == REPORT_WEEKDAY + 1
-    if in_window and not _sent(conn, biz["id"], "week_report", week):
-        messages.append(("week_report", week, week_report(conn, biz, today)["text"]))
+    # дневной отчёт: каждый день после 9:00 по Москве, один раз за день (если сервис в 9:00 не работал, придёт при первом проходе после)
+    if local.hour >= REPORT_HOUR and not _sent(conn, biz["id"], "day_report", today):
+        messages.append(("day_report", today, week_report(conn, biz, today)["day_text"]))
     for a in alerts(conn, biz, today):
         if _sent(conn, biz["id"], a["kind"], a["key"], a["cooldown"], now_utc):
             continue
