@@ -1108,6 +1108,7 @@ async function loadMetrika() {
     return;
   }
   $("metrika-form").hidden = false;
+  $("m-auto").hidden = Boolean(selected.counter && selected.goal);   // счётчик уже выбран: создавать второй не нужно
   const counter = $("m-counter");
   // пока ничего не сохранено, первый счётчик из списка не должен выглядеть выбранным: иначе кажется, что Метрика уже подключена
   counter.replaceChildren(choosePlaceholder(), ...counters.map((c) => el("option", { value: c.id, textContent: c.site ? `${c.name} (${c.site})` : c.name })));
