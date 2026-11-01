@@ -108,7 +108,7 @@ def render_banner(biz, variant: dict, photo: bytes, logo: bytes | None, index: i
     """Баннер объявления: предложение, название бизнеса, цена (только названная владельцем) и кнопка «Записаться»."""
     from app.creative.angles import profile
     from app.creative.compose import find_price, make_banner, style_for
-    price = find_price(variant["title"], variant["text"], biz["description"])
+    price = find_price(variant["title"], variant["text"], fallback=biz["description"])
     # у каждого объявления свой шаблон (их пять и они непохожи): так варианты по-настоящему различаются для сравнения
     return make_banner(photo, variant["title"], biz["color_main"], logo, banner_layout(index // 5),
                        brand=biz["name"], badge=price, cta=profile(biz)["cta"], style=style_for(index), body=variant["text"])

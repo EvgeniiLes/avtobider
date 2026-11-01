@@ -73,5 +73,16 @@ def test_price_is_taken_only_from_real_texts():
     assert find_price("", None) == ""
 
 
+def test_price_from_the_description_is_used_only_when_it_is_unambiguous():
+    from app.creative.compose import find_price as raw_price
+    find_price = lambda *a, **k: raw_price(*a, **k).replace(" ", " ")   # в ответе неразрывные пробелы, в проверках обычные
+    prices = "Аудит от 9 000 ₽ (1 неделя). Пилот от 39 000 ₽ (4–6 недель)."
+    assert find_price("Аудит бизнес-процессов от 9 000 ₽", "Карта процессов", fallback=prices) == "от 9 000 ₽"   # цена самого объявления главнее
+    assert find_price("Пилот с поддержкой 30 дней", "Решение под ключ", fallback=prices) == ""                   # прайс из двух цен: чужую не берём
+    assert find_price("Маникюр", "Запись онлайн", fallback="Маникюр от 2 200 ₽, гель-лак. Снова от 2 200 ₽") == "от 2 200 ₽"   # цена одна, хоть и повторена
+    assert find_price("Бесплатный разбор за 30 минут", "Без обязательств", fallback="Консультация от 2 200 ₽") == ""   # у бесплатного цены нет
+    assert find_price("Бесплатный разбор, потом от 9 000 ₽", "", fallback=prices) == "от 9 000 ₽"                  # а названная в тексте остаётся
+
+
 def test_bad_color_falls_back_to_default():
     assert Image.open(BytesIO(make_banner(img(900, 900), "Текст", "красный"))).size == (1200, 900)

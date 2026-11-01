@@ -284,7 +284,7 @@ def ads(business_id: int, user: sqlite3.Row = Depends(current_user), conn: sqlit
         elif photos and not _extras():   # промпт, по которому рисуется баннер из фото: виден и правится на карточке
             ai["prompt"] = (brief["prompt"] if brief and brief["prompt"] else None) or meta.get("prompt_text") or (
                 _brief_prompt(biz, v["title"], v["text"], i % len(fal.PHOTO_LOOKS), auto_ref) if auto_ref else fal.photo_banner_prompt(
-                    biz, v["title"], find_price(v["title"], v["text"], effective_description(biz)), profile(biz)["cta"], brief["look"] if brief else i))
+                    biz, v["title"], find_price(v["title"], v["text"], fallback=effective_description(biz)), profile(biz)["cta"], brief["look"] if brief else i))
         if state == "ready":
             banner = f"/api/businesses/{business_id}/creatives/ads/{i}/banner.jpg"   # готовый ИИ-баннер важнее шаблона
         elif style == "ai":
@@ -388,7 +388,7 @@ def _order_banner(conn, biz, variants: list[dict], index: int, key: str, transpo
     business_id = biz["id"]
     v = variants[index]
     s = get_settings()
-    price = find_price(v["title"], v["text"], biz["description"])
+    price = find_price(v["title"], v["text"], fallback=biz["description"])
     cta = profile(biz)["cta"]
     expected = [v["title"], cta] + ([price] if price else [])   # на баннере только заголовок, кнопка и цена: подписи с названием нет
     extras = _extras()   # экран со скриншотом и логотип в слоте: пока выключены, сначала добиваемся хорошего базового баннера
@@ -679,7 +679,7 @@ def add_text(business_id: int, data: TextIn, user: sqlite3.Row = Depends(current
 
 def _brief_prompt(biz, title: str, text: str, look: int, ref_id: int | None) -> str:
     """Промпт баннера из фото для выбранной подачи: по мотивам референса или в одном из обычных оформлений."""
-    price = find_price(title, text, effective_description(biz))
+    price = find_price(title, text, fallback=effective_description(biz))
     cta = profile(biz)["cta"]
     if ref_id:
         return fal.reference_banner_prompt(biz, title, price, cta, f"take inspiration from this idea: {refs.note(ref_id)}")

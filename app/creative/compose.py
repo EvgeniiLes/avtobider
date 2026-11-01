@@ -102,16 +102,37 @@ def _scrim(size: tuple[int, int], layout: str, strength: int = 215) -> Image.Ima
 PRICE = re.compile(r"(?:от\s*)?(\d{1,3}(?:[\s ]\d{3})+|\d{3,6})\s*(?:₽|руб\.?|р\.)", re.IGNORECASE)
 
 
-def find_price(*texts: str) -> str:
-    """Цена вида «от 2 200 ₽», только если она действительно названа в текстах бизнеса. Ничего не придумываем."""
+FREE = re.compile(r"бесплатн|без оплаты|даром", re.IGNORECASE)
+
+
+def _price_in(text: str) -> list[tuple[int, str]]:
+    """Все цены в тексте: (сумма, «от » или пусто) в порядке появления."""
+    found = []
+    for m in PRICE.finditer(text or ""):
+        digits = re.sub(r"\D", "", m.group(1))
+        if digits and int(digits) > 0:
+            found.append((int(digits), "от " if re.search(r"от\s*$", text[:m.start(1)], re.IGNORECASE) else ""))
+    return found
+
+
+def _label(amount: int, prefix: str) -> str:
+    return f"{prefix}{amount:,}".replace(",", " ") + " ₽"   # неразрывные пробелы: сумма и знак рубля не переносятся
+
+
+def find_price(*texts: str, fallback: str = "") -> str:
+    """Цена вида «от 2 200 ₽» для баннера, только если она действительно названа. Ничего не придумываем.
+
+    Сначала цена из текста самого объявления (texts). Нет её: цена из fallback (описание бизнеса), но только когда она там одна.
+    В прайсе из нескольких цен непонятно, какая относится к этому объявлению, а чужая цена на баннере хуже, чем никакой
+    (пилот за 39 000 ₽ не должен получить «от 9 000 ₽» от аудита). У бесплатного предложения цены нет."""
     for text in texts:
-        m = PRICE.search(text or "")
-        if m:
-            digits = re.sub(r"\D", "", m.group(1))
-            if digits and int(digits) > 0:
-                prefix = "от " if re.search(r"от\s*$", (text or "")[:m.start(1)], re.IGNORECASE) else ""
-                return f"{prefix}{int(digits):,}".replace(",", " ") + " ₽"
-    return ""
+        own = _price_in(text)
+        if own:
+            return _label(*own[0])
+    if any(FREE.search(text or "") for text in texts):
+        return ""
+    prices = _price_in(fallback)
+    return _label(*prices[0]) if prices and len({amount for amount, _ in prices}) == 1 else ""
 
 
 STYLES = ("photo", "luxe", "pastel", "bold", "ai")  # пять непохожих шаблонов: основа для сравнения вариантов (A/B)

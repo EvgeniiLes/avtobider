@@ -78,7 +78,7 @@ def generate(business_id: int, data: GenerateIn, user: sqlite3.Row = Depends(cur
     conn.execute("DELETE FROM briefs WHERE business_id = ? AND status = 'idea'", (business_id,))
     for b in found:
         asset_id = photos[b["photo"]]["asset_id"] if photos and b["photo"] is not None else None
-        price = find_price(b["title"], b["text"], effective_description(biz))
+        price = find_price(b["title"], b["text"], fallback=effective_description(biz))
         ref_id = b["ref"] if asset_id else None
         if not asset_id:
             prompt = ""
