@@ -106,7 +106,7 @@ select { appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmln
 input[type=file] { max-width: 100%; color: var(--muted); }
 /* поля подряд без подписи и пустой абзац-распорка перед кнопкой не должны слипаться */
 form > input + input, form > input + select, form > select + input, form > textarea + input { margin-top: 10px; }
-form > input + .hint, form > select + .hint, form > textarea + .hint { margin-top: 8px; }
+input + .hint, select + .hint, textarea + .hint { margin-top: 8px; }
 p:empty:not([class]) { margin: 0; height: 14px; }
 input[type=color] { width: 56px; height: 40px; padding: 2px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); }
 .row { display: flex; gap: 24px; flex-wrap: wrap; }
