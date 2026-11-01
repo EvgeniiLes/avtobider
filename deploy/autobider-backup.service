@@ -3,4 +3,4 @@ Description=Автобидер: резервная копия базы и фай
 
 [Service]
 Type=oneshot
-ExecStart=/opt/autobider/deploy/backup.sh
+ExecStart=/bin/bash /opt/autobider/deploy/backup.sh
