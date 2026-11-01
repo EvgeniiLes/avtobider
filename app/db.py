@@ -127,6 +127,18 @@ CREATE TABLE IF NOT EXISTS goal_stats (
     PRIMARY KEY (unit_id, day, goal_id)
 );
 
+-- Реальные поисковые запросы, по которым показывалась реклама (отчёт Директа за последние 30 дней, обновляется раз в день):
+-- по ним сервис находит запросы, которые тратят деньги впустую (в минус-слова), и те, что приводят обращения (в ключевые фразы).
+CREATE TABLE IF NOT EXISTS search_queries (
+    business_id INTEGER NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+    query       TEXT NOT NULL,
+    impressions INTEGER NOT NULL DEFAULT 0,
+    clicks      INTEGER NOT NULL DEFAULT 0,
+    spend_micro INTEGER NOT NULL DEFAULT 0,
+    leads       INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (business_id, query)
+);
+
 -- Оценка объявления в каждом цикле (нужна для подтверждения решения двумя оценками подряд).
 CREATE TABLE IF NOT EXISTS evaluations (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -280,7 +292,8 @@ ADDED_COLUMNS = [
     ("business_assets", "ai_note", "TEXT NOT NULL DEFAULT ''"),
     ("changes", "status", "TEXT NOT NULL DEFAULT 'applied'"),
     # Директ: одна кампания на весь бизнес, объявления-варианты лежат внутри неё и делят один недельный лимит
-    ("businesses", "audience", "TEXT NOT NULL DEFAULT ''"),           # профиль целевой аудитории (JSON), см. app/direct/audience.py
+    ("businesses", "queries_day", "TEXT NOT NULL DEFAULT ''"),        # день, когда последний раз загружали поисковые запросы
+    ("businesses", "audience", "TEXT NOT NULL DEFAULT ''"),          # профиль целевой аудитории (JSON), см. app/direct/audience.py
     ("businesses", "nationwide", "INTEGER NOT NULL DEFAULT 0"),      # 1: показывать рекламу по всей России, города нет (онлайн-услуга)
     ("campaigns", "external_id", "INTEGER"),                          # номер кампании в Директе
     ("campaigns", "weekly_micro", "INTEGER NOT NULL DEFAULT 0"),      # недельный лимит кампании

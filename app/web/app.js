@@ -1394,6 +1394,70 @@ async function loadGoals() {
   $("goals-table").querySelector("tbody").replaceChildren(...goals.map(row));
 }
 
+/* ---------- Поисковые запросы ---------- */
+
+function queryChecks(boxId, title, items, key, text) {
+  $(boxId).replaceChildren(...(items.length ? [el("div", { className: "launch-head", textContent: title })] : []), ...items.map((item) => {
+    const input = el("input", { type: "checkbox", checked: true });
+    input.dataset.value = item[key];
+    return el("label", { className: "check" }, input, ` ${text(item)}`);
+  }));
+}
+
+function renderQueryProposals(minus, keywords) {
+  queryChecks("q-minus", "Добавить в минус-слова", minus, "word",
+    (g) => `«${g.word}»: ${g.queries.length} ${plural(g.queries.length, "запрос", "запроса", "запросов")}, ${g.clicks} ${plural(g.clicks, "клик", "клика", "кликов")}, ${money(g.spend)}. Например: ${g.queries.slice(0, 2).join("; ")}${g.why ? ` (${g.why})` : ""}`);
+  queryChecks("q-keys", "Добавить как ключевые фразы (приводили обращения)", keywords, "phrase",
+    (k) => `«${k.phrase}»: ${k.leads} ${plural(k.leads, "обращение", "обращения", "обращений")} при ${k.clicks} ${plural(k.clicks, "клике", "кликах", "кликах")}`);
+  $("queries-proposals").hidden = !(minus.length || keywords.length);
+}
+
+async function loadQueries() {
+  const card = $("queries-card");
+  const result = await api("GET", `/api/businesses/${currentBusiness.id}/queries`);
+  if (!result.ok || !result.data.launched) { card.hidden = true; return; }
+  const d = result.data;
+  card.hidden = false;
+  $("queries-hint").textContent = d.queries.length
+    ? `Реальные запросы, по которым показывалась реклама за последние 30 дней (обновлено ${d.synced}). Здесь видно, что приводит обращения, а что только тратит деньги.`
+    : "Запросы появятся после первых показов: сервис забирает их у Директа раз в день.";
+  const row = (g) => el("tr", {}, ...[g.query, String(g.clicks), money(g.spend), String(g.leads)].map((v) => el("td", { textContent: v })));
+  $("queries-table").querySelector("tbody").replaceChildren(...d.queries.map(row));
+  $("queries-table").hidden = !d.queries.length;
+  $("queries-waste").hidden = !d.waste.length;
+  $("queries-waste").textContent = d.waste.length
+    ? `Потратили больше ${d.waste_from} ₽ и не принесли обращений: ${d.waste.map((w) => `«${w.query}» (${money(w.spend)})`).join(", ")}. Нажмите «Разобрать запросы ИИ», чтобы получить слова для минуса.` : "";
+  $("q-analyze").hidden = !d.ai_ready || !d.queries.some((x) => x.clicks > 0);
+  renderQueryProposals([], d.keywords);
+  if (!d.has_profile && d.queries.length) setStatus("q-status", "Чтобы применять правки, составьте профиль аудитории на шаге «Запуск» вкладки «Объявления».", "");
+}
+
+async function analyzeQueries() {
+  const button = $("q-analyze");
+  button.disabled = true;
+  setStatus("q-status", "ИИ разбирает запросы…", "");
+  const [found, current] = await Promise.all([
+    api("POST", `/api/businesses/${currentBusiness.id}/queries/analyze`), api("GET", `/api/businesses/${currentBusiness.id}/queries`)]);
+  button.disabled = false;
+  if (!found.ok) { setStatus("q-status", errorText(found), "err"); return; }
+  renderQueryProposals(found.data.minus, current.ok ? current.data.keywords : []);
+  setStatus("q-status", found.data.minus.length
+    ? `Проверено запросов: ${found.data.checked}. Нецелевые слова ниже: уберите галочки с лишних и примените.`
+    : `Проверено запросов: ${found.data.checked}. Нецелевых запросов ИИ не нашёл.`, "ok");
+}
+
+async function applyQueries() {
+  const picked = (boxId) => [...$(boxId).querySelectorAll("input:checked")].map((i) => i.dataset.value);
+  const button = $("q-apply");
+  button.disabled = true;
+  const r = await api("POST", `/api/businesses/${currentBusiness.id}/queries/apply`, { minus: picked("q-minus"), keywords: picked("q-keys") });
+  button.disabled = false;
+  if (!r.ok) { setStatus("q-status", errorText(r), "err"); return; }
+  const skipped = r.data.skipped.length ? ` Не принято: ${r.data.skipped.map((s) => `«${s.item}» (${s.reason})`).join("; ")}.` : "";
+  setStatus("q-status", `Готово. В Директ добавлено минус-слов: ${r.data.minus.length}, фраз: ${r.data.keywords.length}.${skipped}`, "ok");
+  await loadQueries();
+}
+
 async function loadSeries() {
   const result = await api("GET", `/api/businesses/${currentBusiness.id}/series?days=14`);
   renderChart(result.ok ? result.data.days : []);
@@ -1485,7 +1549,7 @@ async function loadStats() {
   renderGoal(data);
   if (data.real || data.example) loadSeries(); else renderChart([]);
   if (data.real || data.example) loadInsights(); else $("insights-card").hidden = true;
-  if (data.real) loadGoals(); else $("goals-card").hidden = true;
+  if (data.real) { loadGoals(); loadQueries(); } else { $("goals-card").hidden = true; $("queries-card").hidden = true; }
   renderDecisions();
   $("example-notice").hidden = !data.example;
   $("stats-needs").textContent = data.real || data.example ? data.needs : "";
@@ -1868,6 +1932,8 @@ async function start() {
   $("ideas-next").addEventListener("click", () => setStep("banners"));
   $("banners-next").addEventListener("click", () => setStep("launch"));
   $("launch-back").addEventListener("click", () => setStep("banners"));
+  $("q-analyze").addEventListener("click", analyzeQueries);
+  $("q-apply").addEventListener("click", applyQueries);
   $("aud-build").addEventListener("click", buildAudience);
   $("aud-save").addEventListener("click", saveAudience);
   $("ads-launch").addEventListener("click", () => { showPage("home"); openLaunch(); });

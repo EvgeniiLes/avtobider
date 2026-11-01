@@ -23,6 +23,9 @@ class FakeDirect:
         self.images: list[str] = []
         self.advertiser = {"tin_type": None, "tin": None, "name": None, "phone": ""}  # данные рекламодателя в «кабинете»
         self.update_error = ""
+        self.query_rows: list[tuple] = []          # отчёт по поисковым запросам нашей кампании
+        self.query_foreign_rows: list[tuple] = []  # и чужой кампании того же кабинета
+        self.query_requests: list[dict] = []
         self.keywords: list[dict] = []          # добавленные фразы и автотаргетинг групп
         self.reject_keywords: set[str] = set()  # фразы, которые Директ «не принимает»
         self.reject_autotargeting = False
@@ -104,7 +107,9 @@ class FakeDirect:
                 return ok({"SuspendResults" if method == "suspend" else "ResumeResults": [{"Id": i} for i in ids()]})
             if method == "update":
                 item = params["Campaigns"][0]
-                unified = item["UnifiedCampaign"]
+                if "NegativeKeywords" in item:
+                    self.negatives[item["Id"]] = item["NegativeKeywords"]["Items"]
+                unified = item.get("UnifiedCampaign", {})
                 if "BiddingStrategy" in unified:
                     search = unified["BiddingStrategy"]["Search"]
                     self.campaigns[item["Id"]].update(Limit=self._limit(search), Strategy=search["BiddingStrategyType"],
@@ -170,8 +175,24 @@ class FakeDirect:
                 return ok({"ModerateResults": [{"Id": i} for i in ids()]})
         return httpx.Response(404)
 
+    def _query_report(self, params) -> httpx.Response:
+        """Отчёт по поисковым запросам: строки query_rows = (запрос, показы, клики, расход в микро[, обращения]) по нашей первой кампании.
+        Строки query_foreign_rows относятся к чужой кампании кабинета и в наши запросы попасть не должны."""
+        self.query_requests.append(params)
+        goals = params.get("Goals") or []
+        cols = ["CampaignId", "Query", "Impressions", "Clicks", "Cost"] + ([f"Conversions_{goals[0]}_AUTO"] if goals else [])
+        mine = next(iter(self.campaigns), 0)
+        lines = ["\t".join(cols)]
+        for campaign, rows in ((mine, self.query_rows), (999, self.query_foreign_rows)):
+            for row in rows:
+                values = [campaign, *row[:4]] + ([row[4] if len(row) > 4 else 0] if goals else [])
+                lines.append("\t".join(map(str, values)))
+        return httpx.Response(200, text="\n".join(lines))
+
     def _report(self, body) -> httpx.Response:
         params = body["params"]
+        if params["ReportType"] == "SEARCH_QUERY_PERFORMANCE_REPORT":
+            return self._query_report(params)
         self.report_requests.append(params)
         goals = params.get("Goals") or []
         if len(goals) > 1 and self.single_goal_only:

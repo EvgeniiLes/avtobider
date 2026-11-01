@@ -559,6 +559,28 @@
             </div>
           </div>
 
+          <div class="card" id="queries-card" hidden>
+            <h2>Поисковые запросы</h2>
+            <p class="hint" id="queries-hint"></p>
+            <div class="table-wrap">
+              <table id="queries-table">
+                <thead><tr><th>Запрос</th><th>Клики</th><th>Расход</th><th>Обращения</th></tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+            <p class="notice" id="queries-waste" hidden></p>
+            <div id="queries-proposals" hidden>
+              <h3>Что предлагает сервис</h3>
+              <div id="q-minus"></div>
+              <div id="q-keys"></div>
+              <div class="upload-row"><button id="q-apply" class="small">Применить выбранное в Директе</button></div>
+            </div>
+            <div class="upload-row">
+              <button id="q-analyze" class="small">Разобрать запросы ИИ</button>
+              <span id="q-status" class="status" role="status"></span>
+            </div>
+          </div>
+
           <details id="clients-box" class="card" hidden>
             <summary>Записать, сколько клиентов пришло из рекламы</summary>
             <p class="hint">Метрика видит обращения, но не знает, кто в итоге стал клиентом. Укажите число, и цена клиента станет точной, а не оценкой.</p>

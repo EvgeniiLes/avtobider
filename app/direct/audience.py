@@ -116,10 +116,22 @@ def _same_word(a: str, b: str) -> bool:
     return common >= shortest - 2
 
 
+def _guard(biz, profile: dict | None) -> set[str]:
+    """Слова, которые нельзя ставить в минус: из собственных фраз бизнеса и из его вида деятельности."""
+    guard = {w for phrase in (profile or {}).get("keywords", []) for w in phrase.split(" ")}
+    return guard | set(re.findall(r"[a-zа-яё0-9]+", str(biz["kind"]).lower()))
+
+
+def is_safe_negative(word: str, biz, profile: dict | None) -> bool:
+    """Слово можно ставить в минус: оно допустимо по правилам Директа и не режет фразы и вид деятельности бизнеса."""
+    cleaned = clean_negatives([word])
+    guard = _guard(biz, profile)
+    return bool(cleaned) and not any(_same_word(p, g) for p in cleaned[0].split(" ") for g in guard)
+
+
 def effective_negatives(biz, profile: dict | None) -> list[str]:
     """Минус-слова кампании: общий список ниши плюс слова от ИИ. Слово, которое режет собственную фразу бизнеса или его вид деятельности, убираем."""
-    guard = {w for phrase in (profile or {}).get("keywords", []) for w in phrase.split(" ")}
-    guard |= set(re.findall(r"[a-zа-яё0-9]+", str(biz["kind"]).lower()))
+    guard = _guard(biz, profile)
     result, seen = [], set()
     for word in negatives_for(biz["kind"]) + list((profile or {}).get("negatives", [])):
         parts = word.split(" ")

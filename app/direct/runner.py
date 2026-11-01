@@ -12,6 +12,7 @@ from app.config import get_settings
 from app.direct.client import DirectClient, DirectError
 from app.direct.goals import fetch_goals, save_goals
 from app.direct.launch import sync_units
+from app.direct.queries import sync_queries
 from app.engine.config import DIRECT_CONFIG
 from app.engine.cycle import run_cycle
 from app.engine.util import EngineError
@@ -85,7 +86,12 @@ def sync_and_run(conn: sqlite3.Connection, biz: sqlite3.Row, today: str | None =
 
         async def go():
             async with DirectClient(token, api_version=s.direct_api_version, login=login, transport=transport) as client:
-                return await sync_units(client, conn, biz, today)
+                result = await sync_units(client, conn, biz, today)
+                try:
+                    await sync_queries(client, conn, biz, today)   # поисковые запросы раз в день; сбой этого отчёта не должен ломать остальное
+                except DirectError:
+                    pass
+                return result
 
         synced = asyncio.run(go())
         biz = conn.execute("SELECT * FROM businesses WHERE id = ?", (biz["id"],)).fetchone()

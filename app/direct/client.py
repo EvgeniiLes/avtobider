@@ -299,7 +299,7 @@ class DirectClient:
                 rejected.append({"phrase": item["Keyword"], "reason": message})
             else:
                 added += 1
-        if not added and not auto:
+        if autotargeting is not None and not added and not auto:   # группа осталась бы совсем без запросов (при добавлении в готовую группу это не так)
             raise DirectError(auto_error or (rejected[0]["reason"] if rejected else "Яндекс Директ не принял ключевые фразы."))
         return {"added": added, "rejected": rejected, "autotargeting": auto, "autotargeting_error": auto_error}
 
@@ -455,6 +455,32 @@ class DirectClient:
                 "goals": by_goal,
             })
         return out
+
+    async def search_queries(self, date_from: str, date_to: str, goal_id: str | None = None, campaign_ids: list | None = None) -> list[dict]:
+        """Реальные поисковые запросы, по которым показывались объявления: за период, по запросам (без разбивки по дням).
+        Показы, клики, расход (микрорубли) и обращения по цели «обращение» (если она задана). Отчёт охватывает весь кабинет,
+        поэтому campaign_ids оставляет только запросы наших кампаний."""
+        fields = ["CampaignId", "Query", "Impressions", "Clicks", "Cost"]
+        if goal_id:
+            fields.append("Conversions")
+        rows = await self.report("SEARCH_QUERY_PERFORMANCE_REPORT", fields, date_from, date_to, name="autobider-queries", goals=[goal_id] if goal_id else None)
+        mine = {str(c) for c in campaign_ids} if campaign_ids else None
+        totals: dict[str, dict] = {}
+        for r in rows:
+            query = (r.get("Query") or "").strip()
+            if not query or query == "--" or (mine is not None and r.get("CampaignId") not in mine):
+                continue
+            item = totals.setdefault(query, {"query": query, "impressions": 0, "clicks": 0, "spend_micro": 0, "leads": 0})
+            item["impressions"] += _to_int(r["Impressions"])
+            item["clicks"] += _to_int(r["Clicks"])
+            item["spend_micro"] += _to_int(r["Cost"])
+            item["leads"] += sum(_to_int(v) for k, v in r.items() if k.startswith("Conversions"))
+        return list(totals.values())
+
+    async def set_negative_keywords(self, campaign_id: int, words: list[str]) -> None:
+        """Минус-слова кампании целиком (Директ заменяет весь список, поэтому присылаем его полностью)."""
+        result = await self.call("campaigns", "update", {"Campaigns": [{"Id": campaign_id, "NegativeKeywords": {"Items": words}}]})
+        self._result_item(result, "UpdateResults")
 
     async def set_counters(self, campaign_id: int, counter_ids: list[int]) -> None:
         """Привязывает счётчики Метрики к кампании (нужно, чтобы Директ считал обращения)."""
