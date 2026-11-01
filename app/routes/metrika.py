@@ -2,6 +2,7 @@
 import asyncio
 import sqlite3
 from datetime import date
+from urllib.parse import urlsplit
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
@@ -21,10 +22,19 @@ router = APIRouter(prefix="/api/businesses/{business_id}/metrika", tags=["metrik
 BASE = "https://api-metrika.yandex.net/management/v1"
 
 HOW_TO = (
-    "Чтобы сервис видел обращения, на вашем сайте должен стоять счётчик Яндекс Метрики и цель «Обращение». "
-    "Создайте цель в Метрике типа «JavaScript-событие» с идентификатором lead и вызывайте "
-    "ym(НОМЕР_СЧЁТЧИКА, 'reachGoal', 'lead') при заявке или звонке. Потом выберите счётчик и цель здесь."
+    "Метрика показывает сервису, сколько людей пришло с рекламы и сколько из них позвонили или написали. Без неё сервис следит только за бюджетом. "
+    "Проще всего нажать «Создать счётчик автоматически»: сервис заведёт его в вашей Метрике и подготовит цели. "
+    "Потом останется вставить номер счётчика в настройки вашего сайта (в конструкторах есть поле «Яндекс.Метрика»)."
 )
+
+# Цели, которые сервис заводит сам. Первые три Метрика определяет сама по счётчику, без кода на сайте; «lead» нужна только тем, у кого сайт делает разработчик.
+AUTO_GOALS = [
+    ("phone", "Клик по номеру телефона", {"type": "phone", "conditions": [{"type": "contain", "url": ""}]}),
+    ("messenger", "Переход в мессенджер", {"type": "messenger", "conditions": [{"type": "contain", "url": ""}]}),
+    ("email", "Клик по e-mail", {"type": "email", "conditions": [{"type": "contain", "url": ""}]}),
+    ("lead", "Заявка: событие lead (для сайтов с разработчиком)", {"type": "action", "conditions": [{"type": "exact", "url": "lead"}]}),
+]
+MAIN_GOAL_ORDER = ("phone", "messenger", "email", "lead")   # что считать «обращением», если создалось несколько
 
 
 def _token(conn, user, biz) -> str:
@@ -80,6 +90,52 @@ def goals(business_id: int, counter_id: str, user: sqlite3.Row = Depends(current
 
     data = asyncio.run(go())
     return {"goals": [{"id": str(g["id"]), "name": g.get("name", str(g["id"]))} for g in data.get("goals", [])]}
+
+
+async def _post(http: httpx.AsyncClient, token: str, path: str, body: dict) -> httpx.Response:
+    try:
+        return await http.post(f"{BASE}{path}", json=body, headers={"Authorization": f"OAuth {token}"})
+    except httpx.HTTPError:
+        raise HTTPException(502, detail={"message": "Не удалось связаться с Яндекс Метрикой. Попробуйте позже."})
+
+
+@router.post("/auto")
+def create_automatically(business_id: int, user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connection = Depends(get_db),
+                         http: httpx.AsyncClient = Depends(yandex_http)):
+    """Сервис сам заводит счётчик на сайт бизнеса и типовые цели. Нужен доступ к Метрике на запись (даётся при подключении кабинета).
+    Возвращает номер счётчика, номер цели «обращение» и что осталось сделать владельцу; выбор счётчика и цели сохраняет вызывающий (PUT)."""
+    biz = _own(conn, user, business_id)
+    token = _token(conn, user, biz)
+    host = (urlsplit(biz["site_url"] if "://" in biz["site_url"] else f"https://{biz['site_url']}").hostname or "").lower()
+    if not host:
+        raise HTTPException(400, detail={"message": "Сначала укажите сайт на странице «Бизнес»: счётчик создаётся под адрес сайта."})
+    bare = host[4:] if host.startswith("www.") else host
+
+    async def go():
+        async with http:
+            made = await _post(http, token, "/counters", {"counter": {
+                "name": f"{biz['name']}: сайт {bare}"[:255], "site2": {"site": bare}, "mirrors2": [{"site": f"www.{bare}"}],
+                "code_options": {"clickmap": 1, "visor": 0}}})
+            if made.status_code in (401, 403):
+                raise HTTPException(409, detail={"message": "У сервиса нет права создавать счётчики в вашей Метрике. Подключите кабинет заново и разрешите доступ к Метрике на запись."})
+            if made.status_code != 200 or not (made.json().get("counter") or {}).get("id"):
+                raise HTTPException(502, detail={"message": "Яндекс Метрика не создала счётчик. Попробуйте позже или создайте его в Метрике сами и выберите ниже."})
+            counter = int(made.json()["counter"]["id"])
+            goals, skipped = {}, []
+            for key, name, body in AUTO_GOALS:
+                r = await _post(http, token, f"/counter/{counter}/goals", {"goal": {"name": name, **body}})
+                goal_id = (r.json().get("goal") or {}).get("id") if r.status_code == 200 else None
+                if goal_id:
+                    goals[key] = {"id": str(goal_id), "name": name}
+                else:
+                    skipped.append(name)   # Метрика не приняла эту цель: остальное не страдает
+            return counter, goals, skipped
+
+    counter, goals, skipped = asyncio.run(go())
+    main = next((goals[k] for k in MAIN_GOAL_ORDER if k in goals), None)
+    return {"counter_id": str(counter), "goals": list(goals.values()), "skipped": skipped, "main_goal": main, "site": bare,
+            "next": f"Вставьте номер счётчика {counter} в настройки сайта: в конструкторах (Tilda, Wix, Яндекс Бизнес, Рег.ру и др.) для этого есть поле «Яндекс.Метрика». "
+                    "Если сайт делал разработчик, отправьте ему готовый код ниже. Через несколько минут после первых посещений нажмите «Проверить счётчик»."}
 
 
 @router.get("/health")

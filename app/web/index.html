@@ -301,7 +301,9 @@
         <div class="card" id="metrika-card" hidden>
           <h2>Обращения с сайта (Яндекс Метрика)</h2>
           <p id="metrika-howto" class="hint"></p>
-          <p class="hint">Сервис запоминает все цели счётчика (клик по кнопке, открытие формы, звонок, заявка…) по дням и объявлениям. Обращением считается та цель, которую вы выберете ниже, по ней сервис принимает решения. Остальные видны на странице результатов: по ним понятно, где посетители отваливаются.</p>
+          <div class="upload-row"><button id="m-auto" class="small">Создать счётчик автоматически</button></div>
+          <p id="m-auto-next" class="notice proposals" hidden></p>
+          <p class="hint">Обращением считается цель, которую вы выберете ниже (например, звонок или переход в мессенджер): по ней сервис решает, какие объявления оставить. Остальные цели счётчика видны на странице результатов.</p>
           <div id="metrika-form" hidden>
             <label for="m-counter">Счётчик</label>
             <select id="m-counter"></select>
@@ -316,7 +318,7 @@
             <button id="m-health-check" class="small secondary">Проверить счётчик</button>
           </div>
           <details id="m-snippet" hidden>
-            <summary>Код для сайта: счётчик и цели «заявка», «звонок», «Telegram»</summary>
+            <summary>Для разработчика сайта: готовый код счётчика и целей</summary>
             <ol id="m-snippet-steps" class="hint"></ol>
             <textarea id="m-snippet-code" rows="10" readonly spellcheck="false"></textarea>
             <ul id="m-snippet-goals" class="hint"></ul>

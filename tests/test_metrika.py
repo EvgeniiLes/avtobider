@@ -68,7 +68,7 @@ def test_list_save_and_clear(isolated):
         bid = setup(http, fake, isolated)
         seen = metrika_stub()
         data = http.get(f"/api/businesses/{bid}/metrika/counters").json()
-        assert data["counters"] == [{"id": "555", "name": "Салон", "site": "salon.ru"}] and "reachGoal" in data["how_to"]
+        assert data["counters"] == [{"id": "555", "name": "Салон", "site": "salon.ru"}] and "автоматически" in data["how_to"] and "reachGoal" not in data["how_to"]   # подсказка для владельца без кода
         assert seen[0][1] == "OAuth tok"
         goals = http.get(f"/api/businesses/{bid}/metrika/counters/555/goals").json()["goals"]
         assert [g["name"] for g in goals] == ["Обращение", "Просмотр"]
@@ -325,3 +325,65 @@ def test_a_counter_that_counts_nothing_stops_decisions_by_leads_until_it_works(i
         assert conn.execute("SELECT COUNT(*) FROM evaluations").fetchone()[0] > 0
         assert http.get(f"/api/businesses/{bid}/overview").json()["counter"]["level"] == "ok"
         conn.close()
+
+# ---------- автосоздание счётчика ----------
+
+def auto_stub(counter_status=200, reject_types=()):
+    """Метрика, которая умеет создавать счётчик и цели; reject_types: типы целей, которые она «не принимает»."""
+    seen = []
+
+    def handler(request):
+        body = json.loads(request.content) if request.content else {}
+        seen.append((request.method, request.url.path, body))
+        if request.url.path.endswith("/counters") and request.method == "POST":
+            return httpx.Response(counter_status, json={"counter": {"id": 777}} if counter_status == 200 else {})
+        if request.url.path.endswith("/goals") and request.method == "POST":
+            goal = body["goal"]
+            if goal["type"] in reject_types:
+                return httpx.Response(400, json={"errors": [{"message": "bad"}]})
+            return httpx.Response(200, json={"goal": {"id": 9000 + len(seen)}})
+        return httpx.Response(404, json={})
+
+    app.dependency_overrides[yandex_http] = lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    return seen
+
+
+def test_service_creates_the_counter_and_the_usual_goals_itself(isolated):
+    with TestClient(app) as http:
+        bid = setup(http, FakeDirect(), isolated)
+        seen = auto_stub()
+        data = http.post(f"/api/businesses/{bid}/metrika/auto").json()
+        assert data["counter_id"] == "777" and data["site"] == "salon.ru" and data["skipped"] == []
+        assert [g["name"] for g in data["goals"]][:3] == ["Клик по номеру телефона", "Переход в мессенджер", "Клик по e-mail"]
+        assert data["main_goal"]["name"] == "Клик по номеру телефона"            # «обращением» становится звонок: для него не нужен код на сайте
+        assert "Вставьте номер счётчика 777" in data["next"]
+        created = seen[0][2]["counter"]
+        assert created["site2"] == {"site": "salon.ru"} and created["mirrors2"] == [{"site": "www.salon.ru"}]
+        assert [b["goal"]["type"] for _, _, b in seen[1:]] == ["phone", "messenger", "email", "action"]
+
+
+def test_goals_metrika_refuses_are_skipped_and_the_next_best_becomes_the_main_one(isolated):
+    with TestClient(app) as http:
+        bid = setup(http, FakeDirect(), isolated)
+        auto_stub(reject_types=("phone",))
+        data = http.post(f"/api/businesses/{bid}/metrika/auto").json()
+        assert data["skipped"] == ["Клик по номеру телефона"] and data["main_goal"]["name"] == "Переход в мессенджер"
+
+
+def test_without_write_access_to_metrika_the_owner_is_told_what_to_do(isolated):
+    with TestClient(app) as http:
+        bid = setup(http, FakeDirect(), isolated)
+        auto_stub(counter_status=403)
+        r = http.post(f"/api/businesses/{bid}/metrika/auto")
+        assert r.status_code == 409 and "на запись" in r.json()["detail"]["message"]
+
+
+def test_auto_counter_needs_a_site(isolated):
+    with TestClient(app) as http:
+        bid = setup(http, FakeDirect(), isolated)
+        conn = connect(isolated)
+        conn.execute("UPDATE businesses SET site_url = ''")
+        conn.commit()
+        conn.close()
+        auto_stub()
+        assert http.post(f"/api/businesses/{bid}/metrika/auto").status_code == 400

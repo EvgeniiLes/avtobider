@@ -1161,6 +1161,24 @@ async function copySnippet() {
   }
 }
 
+async function createMetrikaAuto() {
+  const button = $("m-auto");
+  button.disabled = true;
+  setStatus("metrika-status", "Создаём счётчик и цели в вашей Метрике…", "");
+  const made = await api("POST", `/api/businesses/${currentBusiness.id}/metrika/auto`);
+  if (!made.ok) { button.disabled = false; setStatus("metrika-status", errorText(made), "err"); return; }
+  const d = made.data;
+  let saved = false;
+  if (d.main_goal) {   // сразу сохраняем выбор: счётчик и первая подходящая цель
+    saved = (await api("PUT", `/api/businesses/${currentBusiness.id}/metrika`, { counter_id: d.counter_id, goal_id: d.main_goal.id })).ok;
+  }
+  button.disabled = false;
+  $("m-auto-next").hidden = false;
+  $("m-auto-next").textContent = `${d.next}${d.skipped.length ? ` Метрика не приняла цели: ${d.skipped.join(", ")}.` : ""}${saved ? ` Обращением выбрана цель «${d.main_goal.name}».` : " Выберите счётчик и цель ниже и нажмите «Сохранить»."}`;
+  setStatus("metrika-status", `Счётчик ${d.counter_id} создан.`, "ok");
+  await loadMetrika();
+}
+
 const choosePlaceholder = () => el("option", { value: "", textContent: "— выберите —" });
 
 async function loadGoals(selectedGoal) {
@@ -2124,6 +2142,7 @@ async function start() {
   $("connect-cancel").addEventListener("click", stopConnect);
   $("m-counter").addEventListener("change", () => { loadGoals(""); loadSnippet(); });
   $("m-snippet-copy").addEventListener("click", copySnippet);
+  $("m-auto").addEventListener("click", createMetrikaAuto);
   $("m-health-check").addEventListener("click", () => loadHealth(true));
   $("m-save").addEventListener("click", saveMetrika);
   $("m-clear").addEventListener("click", clearMetrika);
