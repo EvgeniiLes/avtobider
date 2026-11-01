@@ -738,15 +738,25 @@ function adEditor(a) {
 }
 
 function renderLaunchStep() {
-  const missing = lastAds.filter((a) => !(a.ai && a.ai.status === "ready")).length;
+  const live = lastAds.filter((a) => !a.reserve), spare = lastAds.filter((a) => a.reserve);
+  const missing = live.filter((a) => !(a.ai && a.ai.status === "ready")).length;
   $("launch-warn").hidden = missing === 0;
   $("launch-warn").textContent = `У объявлений без ИИ-баннера (${missing}) сервис соберёт обычную шаблонную картинку. Вернитесь к баннерам, если хотите нарисовать им баннеры.`;
-  $("launch-list").replaceChildren(...lastAds.map((a) => {
+  const row = (a, n) => {
     const [label, tone] = adStatus(a);
     const pic = a.banner_url ? el("img", { className: "pic", src: a.banner_url, alt: "" }) : el("span", { className: "pic" });
-    return el("div", { className: "launch-row" }, pic, el("div", {}, el("div", { className: "t", textContent: a.title }), el("div", { className: "hint", textContent: a.text })),
-      el("span", { className: `st ${tone}`, textContent: label }));
-  }));
+    const status = a.reserve ? el("span", { className: "st spare", textContent: "Запасное" }) : el("span", { className: `st ${tone}`, textContent: label });
+    return el("div", { className: "launch-row" + (a.reserve ? " spare" : " live") }, el("span", { className: "num", textContent: a.reserve ? "·" : String(n) }), pic,
+      el("div", {}, el("div", { className: "t", textContent: a.title }), el("div", { className: "hint", textContent: a.text })), status);
+  };
+  const parts = [];
+  if (live.length) parts.push(el("div", { className: "launch-head live", textContent: `Пойдут в рекламу: ${live.length}` }), ...live.map((a, i) => row(a, i + 1)));
+  if (spare.length) {
+    parts.push(el("div", { className: "launch-head", textContent: `Запасные: ${spare.length}` }),
+      el("div", { className: "hint", textContent: "В показ не идут. Нужны, чтобы заменить слабое объявление, когда сервис его остановит." }), ...spare.map((a) => row(a, 0)));
+  }
+  $("launch-list").replaceChildren(...parts);
+  $("ads-launch").textContent = live.length ? `Создать рекламу из ${live.length} ${plural(live.length, "объявления", "объявлений", "объявлений")}` : "Создать рекламу из этих объявлений";
 }
 
 function updateIdeasCount() {

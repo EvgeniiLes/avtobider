@@ -418,6 +418,13 @@ button.chip.sel { background: var(--lav); color: var(--lav-ink); border-color: v
 .launch-row .t { font-weight: 600; font-size: 14px; }
 .launch-row .st { margin-left: auto; font-size: 13px; font-weight: 700; white-space: nowrap; }
 .launch-row .st.ok { color: var(--ok); } .launch-row .st.warn { color: var(--warn); } .launch-row .st.err { color: var(--err); }
+.launch-head { margin: 10px 2px 0; font-size: 12.5px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+.launch-head.live { color: var(--mint-ink); }
+.launch-row .num { flex: none; width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 800; background: var(--mint); color: var(--mint-ink); }
+.launch-row.live { border-color: var(--mint); background: #fff; }
+.launch-row.spare { border-style: dashed; opacity: .6; }
+.launch-row.spare .num { background: var(--soft); color: var(--muted); }
+.launch-row .st.spare { color: var(--muted); }
 .media-sec { margin-bottom: 18px; }
 .media-sec h3:first-child { margin-top: 0; }
 @media (max-width: 1100px) { .ed-grid { grid-template-columns: minmax(0, 1fr); } .ed-preview { max-width: 460px; } }
