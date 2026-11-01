@@ -7,11 +7,13 @@ from app.direct.client import DirectClient
 
 
 class FakeDirect:
-    def __init__(self, regions=None, min_weekly=300_000_000, fail_add_after=None):
+    def __init__(self, regions=None, min_weekly=300_000_000, fail_add_after=None, fail_ads_after=None):
         self.fail_add_after = fail_add_after  # после стольких созданных кампаний Директ начинает отказывать
+        self.fail_ads_after = fail_ads_after  # после стольких созданных объявлений отказывает при создании следующего
         self.regions = regions if regions is not None else {"москва": 213}
         self.min_weekly = min_weekly
         self.campaigns: dict[int, dict] = {}
+        self.groups: dict[int, int] = {}      # группа → кампания
         self.ads: dict[int, dict] = {}
         self.calls: list[tuple[str, str]] = []
         self.report_rows: list[tuple] = []  # (день, номер кампании, показы, клики, расход в микро[, обращения])
@@ -32,6 +34,11 @@ class FakeDirect:
     def _next(self) -> int:
         self._id += 1
         return self._id
+
+    @staticmethod
+    def _limit(search: dict) -> int:
+        """Недельный лимит из описания стратегии (кликов или конверсий)."""
+        return (search.get("WbMaximumClicks") or search["WbMaximumConversionRate"])["WeeklySpendLimit"]
 
     # управление состоянием из тестов
     def accept_all(self, state="OFF", payment="DISALLOWED"):
@@ -68,13 +75,15 @@ class FakeDirect:
         if service == "campaigns":
             if method == "add":
                 item = params["Campaigns"][0]
-                limit = item["TextCampaign"]["BiddingStrategy"]["Search"]["WbMaximumClicks"]["WeeklySpendLimit"]
+                search = item["TextCampaign"]["BiddingStrategy"]["Search"]
+                limit = self._limit(search)
                 if self.fail_add_after is not None and len(self.campaigns) >= self.fail_add_after:
                     return ok({"AddResults": [{"Errors": [{"Code": 9000, "Message": "Достигнут лимит кампаний"}]}]})
                 if limit < self.min_weekly:
                     return ok({"AddResults": [{"Errors": [{"Code": 4000, "Message": "Недельный бюджет меньше минимума"}]}]})
                 cid = self._next()
-                self.campaigns[cid] = {"Id": cid, "Name": item["Name"], "Limit": limit, "Status": "DRAFT", "State": "OFF", "StatusPayment": "ALLOWED"}
+                self.campaigns[cid] = {"Id": cid, "Name": item["Name"], "Limit": limit, "Strategy": search["BiddingStrategyType"], "Status": "DRAFT",
+                                       "State": "OFF", "StatusPayment": "ALLOWED"}
                 self.negatives[cid] = (item.get("NegativeKeywords") or {}).get("Items", [])
                 return ok({"AddResults": [{"Id": cid}]})
             if method == "get":
@@ -89,7 +98,9 @@ class FakeDirect:
                 item = params["Campaigns"][0]
                 unified = item["UnifiedCampaign"]
                 if "BiddingStrategy" in unified:
-                    self.campaigns[item["Id"]]["Limit"] = unified["BiddingStrategy"]["Search"]["WbMaximumClicks"]["WeeklySpendLimit"]
+                    search = unified["BiddingStrategy"]["Search"]
+                    self.campaigns[item["Id"]].update(Limit=self._limit(search), Strategy=search["BiddingStrategyType"],
+                                                      GoalId=search.get("WbMaximumConversionRate", {}).get("GoalId"))
                 if "CounterIds" in unified:
                     self.campaigns[item["Id"]]["CounterIds"] = unified["CounterIds"]["Items"]
                 return ok({"UpdateResults": [{"Id": item["Id"]}]})
@@ -102,13 +113,31 @@ class FakeDirect:
             self.images.append(item["Name"])
             return ok({"AddResults": [{"AdImageHash": f"hash{len(self.images)}"}]})
         if service == "adgroups":
-            return ok({"AddResults": [{"Id": self._next()}]})
+            gid = self._next()
+            self.groups[gid] = params["AdGroups"][0]["CampaignId"]
+            return ok({"AddResults": [{"Id": gid}]})
         if service == "ads":
             if method == "add":
                 item = params["Ads"][0]
+                if self.fail_ads_after is not None and len(self.ads) >= self.fail_ads_after:
+                    return ok({"AddResults": [{"Errors": [{"Code": 9001, "Message": "Не удалось создать объявление"}]}]})
                 aid = self._next()
-                self.ads[aid] = {"group": item["AdGroupId"], "ad": item["TextAd"]}
+                self.ads[aid] = {"group": item["AdGroupId"], "campaign": self.groups[item["AdGroupId"]], "ad": item["TextAd"], "suspended": False}
                 return ok({"AddResults": [{"Id": aid}]})
+            if method == "get":
+                wanted = params["SelectionCriteria"].get("CampaignIds") or list(self.campaigns)
+                found = []
+                for aid, ad in self.ads.items():
+                    camp = self.campaigns.get(ad["campaign"])
+                    if camp is None or camp["Id"] not in wanted:
+                        continue
+                    state = "SUSPENDED" if ad["suspended"] else "ON" if camp["State"] == "ON" else "OFF"   # у Директа State объявления учитывает кампанию
+                    found.append({"Id": aid, "CampaignId": camp["Id"], "State": state, "Status": camp["Status"], "StatusClarification": camp.get("Note", "")})
+                return ok({"Ads": found})
+            if method in ("suspend", "resume"):
+                for i in ids():
+                    self.ads[i]["suspended"] = method == "suspend"
+                return ok({"SuspendResults" if method == "suspend" else "ResumeResults": [{"Id": i} for i in ids()]})
             if method == "update":
                 item = params["Ads"][0]
                 self.ads[item["Id"]]["ad"].update(item["TextAd"])
@@ -129,10 +158,10 @@ class FakeDirect:
             cols.append(f"Conversions_{goals[0]}_AUTO" if goals else "Conversions")
         lines = ["\t".join(cols)]
         for row in self.report_rows:
-            day, camp_index, imp, clicks, cost = row[:5]
+            day, ad_index, imp, clicks, cost = row[:5]   # ad_index: номер объявления по порядку создания
             leads = row[5] if len(row) > 5 else 0
-            camp = list(self.campaigns)[camp_index]
-            ad = list(self.ads)[camp_index]
+            ad = list(self.ads)[ad_index]
+            camp = self.ads[ad]["campaign"]
             values = [day, camp, ad, imp, clicks, cost]
             if len(cols) > 6:
                 values.append(leads)

@@ -15,7 +15,7 @@ from app.creative.angles import label as angle_label
 from app.creative.texts_ai import analyze_results
 from app.db import get_db
 from app.deps import creative_transport, current_user
-from app.engine.config import EngineConfig
+from app.engine.config import DIRECT_CONFIG as cfg_direct, EngineConfig
 from app.engine.cycle import (
     CLASS_LABELS, approve, reject, resume_all, rollback, run_cycle, stop_all, target_cpa_micro, target_lead_micro, unit_stats,
 )
@@ -24,7 +24,7 @@ from app.direct.client import DirectError
 from app.direct.launch import STATE_LABELS
 from app.direct.runner import account_token
 from app.platforms.direct import DirectPlatform
-from app.engine.util import EngineError, MICRO, day_add
+from app.engine.util import EngineError, MICRO, day_add, days_between
 from app.platforms.simulator import SimulatedPlatform, advance_day, get_today, reset_demo, start_demo
 from app.routes.businesses import _own
 
@@ -33,9 +33,11 @@ router = APIRouter(prefix="/api/businesses/{business_id}", tags=["stats"])
 ACTION_LABELS = {
     "pause": "Остановка",
     "set_budget": "Изменение бюджета",
+    "set_strategy": "Смена стратегии",
     "start_test": "Сравнение двух вариантов",
     "rollback": "Отмена",
 }
+STRATEGY_LABELS = {"clicks": "Максимум кликов", "conversions": "Максимум конверсий"}
 STATUS = {"conflict": 409, "stale": 409, "not_found": 404}
 
 
@@ -121,6 +123,14 @@ def overview(business_id: int, user: sqlite3.Row = Depends(current_user), conn: 
         uid for r in conn.execute("SELECT unit_a, unit_b FROM experiments WHERE business_id = ? AND status = 'running'", (business_id,))
         for uid in (r["unit_a"], r["unit_b"])
     }
+    camp = conn.execute("SELECT * FROM campaigns WHERE business_id = ? AND external_id IS NOT NULL ORDER BY id LIMIT 1", (business_id,)).fetchone()
+    if camp is not None:   # одна кампания на всю рекламу: бюджет и стратегия общие
+        week_leads = sum(unit_stats(conn, u["id"], day_add(today, -6), today)["leads"] for u in units)
+        result["campaign"] = {
+            "weekly": _rub(camp["weekly_micro"]), "strategy": camp["strategy"], "strategy_label": STRATEGY_LABELS.get(camp["strategy"], camp["strategy"]),
+            "leads_week": week_leads, "switch_at": cfg_direct.switch_leads, "conversions": conversions,
+            "warmup_left": max(0, cfg_direct.warmup_days - days_between(camp["created_day"], today)) if camp["created_day"] else 0,
+        }
     for u in units:
         s = unit_stats(conn, u["id"], start, today)
         if real and conversions and not s["clients"]:
@@ -136,7 +146,7 @@ def overview(business_id: int, user: sqlite3.Row = Depends(current_user), conn: 
             "active": u["state"] == "active",
             "variant": u["variant_of"] is not None,
             "in_test": u["id"] in in_test,
-            "weekly_budget": _rub(u["budget_micro"]),
+            "weekly_budget": None if camp is not None else _rub(u["budget_micro"]),   # в общей кампании у объявления своего бюджета нет
             "spend": _rub(s["spend"]),
             "clicks": s["clicks"],
             "leads": s["leads"],
@@ -394,7 +404,7 @@ def changes(business_id: int, user: sqlite3.Row = Depends(current_user), conn: s
                 "day": r["day"],
                 "who": "Вы" if r["actor"] == "user" else "Автобидер",
                 "action": ACTION_LABELS.get(r["action"], r["action"]),
-                "unit": r["unit_title"] or "",
+                "unit": r["unit_title"] or ("Вся кампания" if r["campaign_id"] else ""),
                 "reason": r["reason_text"],
                 "status": r["status"],
                 "reverted": r["reverted_by"] is not None,

@@ -26,6 +26,8 @@ CTR = 0.03
 
 
 class SimulatedPlatform:
+    shared_budget = False   # у каждого примерного объявления свой бюджет
+
     def __init__(self, conn: sqlite3.Connection):
         self.conn = conn
 

@@ -59,8 +59,8 @@ def _plan_json(plan, account, marking_confirmed: bool = False) -> dict:
         "marking": {"confirmed": marking_confirmed, "help": MARKING_HELP},
         "account": account["title"],
         "count": plan.count,
-        "per_unit": round(plan.per_unit_micro / MICRO),
-        "total": round(plan.per_unit_micro * plan.count / MICRO),
+        "weekly": round(plan.campaign_micro / MICRO),
+        "total": round(plan.campaign_micro / MICRO),
         "city": plan.city,
         "link": plan.href or "Профиль организации в Яндекс Картах",
         "variants": plan.variants,
@@ -115,7 +115,7 @@ def start_launch(business_id: int, data: LaunchIn, user: sqlite3.Row = Depends(c
         reset_demo(conn, business_id)  # примерные данные заменяются настоящей рекламой
     except (EngineError, DirectError) as e:
         raise _fail(e)
-    return {"created": len(unit_ids), "message": "Объявления созданы и отправлены на проверку в Яндекс."}
+    return {"created": len(unit_ids), "message": "Кампания с объявлениями создана и отправлена на проверку в Яндекс."}
 
 
 @router.post("/sync")

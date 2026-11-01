@@ -26,6 +26,23 @@ ERROR_HINTS = {
 }
 
 
+def bidding_strategy(strategy: str, weekly_limit_micro: int, goal_id: str | None = None) -> dict:
+    """Стратегия показов. clicks: «Максимум кликов» с недельным лимитом. conversions: «Максимум конверсий» по цели Метрики
+    (Яндекс сам подбирает ставки под обращения; ему нужно не меньше 10 конверсий в неделю). Показы в сетях всегда выключены."""
+    if strategy == "conversions":
+        try:
+            goal = int(goal_id or 0)
+        except ValueError:
+            goal = 0
+        if not goal:
+            raise DirectError("Для стратегии по обращениям нужна цель Яндекс Метрики: выберите её на странице «Бизнес».")
+        search = {"BiddingStrategyType": "WB_MAXIMUM_CONVERSION_RATE",
+                  "WbMaximumConversionRate": {"WeeklySpendLimit": weekly_limit_micro, "GoalId": goal}}
+    else:
+        search = {"BiddingStrategyType": "WB_MAXIMUM_CLICKS", "WbMaximumClicks": {"WeeklySpendLimit": weekly_limit_micro}}
+    return {"Search": search, "Network": {"BiddingStrategyType": "SERVING_OFF"}}
+
+
 class DirectError(Exception):
     """Ошибка при обращении к Директу. message можно показывать пользователю."""
 
@@ -236,13 +253,7 @@ class DirectClient:
         """Кампания на поиске с автоматической стратегией и жёстким недельным бюджетом.
 
         Показы в сетях выключены (SERVING_OFF), чтобы бюджет шёл только на поиск."""
-        text_campaign = {"BiddingStrategy": {
-            "Search": {
-                "BiddingStrategyType": "WB_MAXIMUM_CLICKS",
-                "WbMaximumClicks": {"WeeklySpendLimit": weekly_limit_micro},
-            },
-            "Network": {"BiddingStrategyType": "SERVING_OFF"},
-        }}
+        text_campaign = {"BiddingStrategy": bidding_strategy("clicks", weekly_limit_micro)}
         if counter_ids:
             text_campaign["CounterIds"] = {"Items": counter_ids}
         item = {"Name": name, "StartDate": start_date, "TextCampaign": text_campaign}
@@ -291,19 +302,31 @@ class DirectClient:
         for i in range(len(ad_ids)):
             self._result_item(result, "ModerateResults", i)
 
-    async def set_weekly_limit(self, campaign_id: int, weekly_limit_micro: int) -> None:
-        """Меняет недельный лимит кампании (Директ хранит её как единую перфоманс-кампанию)."""
+    async def set_strategy(self, campaign_id: int, strategy: str, weekly_limit_micro: int, goal_id: str | None = None) -> None:
+        """Меняет стратегию и недельный лимит кампании (Директ хранит её как единую перфоманс-кампанию)."""
         result = await self.call("campaigns", "update", {"Campaigns": [{
             "Id": campaign_id,
-            "UnifiedCampaign": {"BiddingStrategy": {
-                "Search": {
-                    "BiddingStrategyType": "WB_MAXIMUM_CLICKS",
-                    "WbMaximumClicks": {"WeeklySpendLimit": weekly_limit_micro},
-                },
-                "Network": {"BiddingStrategyType": "SERVING_OFF"},
-            }},
+            "UnifiedCampaign": {"BiddingStrategy": bidding_strategy(strategy, weekly_limit_micro, goal_id)},
         }]})
         self._result_item(result, "UpdateResults")
+
+    async def get_campaign(self, campaign_id: int) -> dict | None:
+        """Состояние одной кампании (State, Status, StatusPayment). None, если её нет в кабинете."""
+        result = await self.call("campaigns", "get", {
+            "SelectionCriteria": {"Ids": [campaign_id]},
+            "FieldNames": ["Id", "State", "Status", "StatusPayment", "StatusClarification"],
+        })
+        found = result.get("Campaigns", [])
+        return found[0] if found else None
+
+    async def list_ads(self, campaign_ids: list[int]) -> list[dict]:
+        """Объявления кампаний с состоянием показа и результатом проверки. State объявления уже учитывает состояние кампании."""
+        result = await self.call("ads", "get", {
+            "SelectionCriteria": {"CampaignIds": campaign_ids},
+            "FieldNames": ["Id", "CampaignId", "State", "Status", "StatusClarification"],
+            "Page": {"Limit": PAGE_SIZE},
+        })
+        return result.get("Ads", [])
 
     async def delete_campaigns(self, campaign_ids: list[int]) -> None:
         result = await self.call("campaigns", "delete", {"SelectionCriteria": {"Ids": campaign_ids}})

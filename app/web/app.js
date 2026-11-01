@@ -525,7 +525,7 @@ function adStatus(a) {
 async function loadAds() {
   const result = await creativeCall("GET", "/ads");
   if (!result.ok) return;
-  const { ads, count, per_unit, site, has_maps, has_images, rejected_photos, photos, styles, ref_extra } = result.data;
+  const { ads, count, weekly, site, has_maps, has_images, rejected_photos, photos, styles, ref_extra } = result.data;
   lastAds = ads;
   lastPhotos = photos || [];
   lastStyles = styles || { looks: [], refs: [] };
@@ -541,8 +541,8 @@ async function loadAds() {
   $("ads-summary").textContent = !count
     ? "Бюджет слишком мал для запуска: увеличьте его на странице «Бизнес». Так будут выглядеть объявления."
     : target
-      ? `При запуске будет создано объявлений: ${count}, по ${per_unit} ₽ в неделю каждое. Каждое ведёт на ${target}.`
-      : `При запуске будет создано объявлений: ${count}, по ${per_unit} ₽ в неделю каждое. Чтобы запустить, укажите сайт или ссылку на Яндекс Карты на странице «Бизнес»: объявлению нужно куда вести.`;
+      ? `При запуске будет создана одна кампания: ${adsPhrase(count)} и бюджет ${weekly} ₽ в неделю на все. В показ пойдут первые ${count} из списка, остальные запасные. Объявления ведут на ${target}.`
+      : `При запуске будет создана одна кампания: ${adsPhrase(count)} и бюджет ${weekly} ₽ в неделю на все. Чтобы запустить, укажите сайт или ссылку на Яндекс Карты на странице «Бизнес»: объявлению нужно куда вести.`;
   const note = $("ads-note");
   note.hidden = has_images;
   note.textContent = rejected_photos
@@ -568,7 +568,7 @@ function renderBannerStep(fromPoll = false) {
     const [label, tone] = adStatus(a);
     const pic = a.banner_url ? el("img", { className: "pic", src: `${a.banner_url}?t=${stamp}`, alt: "" }) : el("span", { className: "pic", textContent: a.ai && a.ai.status === "working" ? "…" : "нет" });
     const item = el("button", { className: "ad-item" + (adKey(a) === selectedAd ? " sel" : ""), type: "button" }, pic,
-      el("span", {}, el("span", { className: "t", textContent: a.title }), el("span", { className: `st ${tone}`, textContent: label })));
+      el("span", {}, el("span", { className: "t", textContent: a.title }), el("span", { className: `st ${tone}`, textContent: label + (a.reserve ? " · запасное" : "") })));
     item.addEventListener("click", () => { selectedAd = adKey(a); renderBannerStep(); });
     return item;
   }));
@@ -1159,6 +1159,8 @@ function plural(n, one, few, many) {
   return many;
 }
 
+const adsPhrase = (n) => `${n} ${plural(n, "объявление", "объявления", "объявлений")}`;   // «3 объявления»
+
 function svgEl(tag, attrs) {
   const node = document.createElementNS("http://www.w3.org/2000/svg", tag);
   for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
@@ -1378,6 +1380,17 @@ async function loadStats() {
     fill.className = "fill" + (b.percent >= 100 ? " full" : b.percent >= 90 ? " warn" : "");
   }
 
+  const line = $("campaign-line"), camp = data.campaign;   // реклама в Директе — одна кампания: бюджет и стратегия у неё общие
+  line.hidden = !camp;
+  if (camp) {
+    const parts = [`Одна кампания: бюджет ${money(camp.weekly)} в неделю делят все объявления.`];
+    if (camp.strategy === "conversions") parts.push("Работает на «Максимум конверсий»: Яндекс подбирает ставки под обращения.");
+    else if (!camp.conversions) parts.push("Сейчас оплата за клики («Максимум кликов»). Подключите Метрику на странице «Бизнес»: когда обращений станет 10 в неделю, сервис переведёт кампанию на «Максимум конверсий».");
+    else parts.push(`Сейчас оплата за клики («Максимум кликов»). Обращений за неделю: ${camp.leads_week} из ${camp.switch_at}. Когда их станет ${camp.switch_at}, сервис переведёт кампанию на «Максимум конверсий»: Яндекс начнёт подбирать ставки под обращения.`);
+    if (camp.warmup_left > 0) parts.push(`Ещё ${camp.warmup_left} ${plural(camp.warmup_left, "день", "дня", "дней")} сервис кампанию не трогает: Яндексу нужно время, чтобы собрать данные.`);
+    line.textContent = parts.join(" ");
+  }
+
   const body = $("units-table").querySelector("tbody");
   body.replaceChildren();
   $("units-table").hidden = data.units.length === 0;
@@ -1401,7 +1414,7 @@ async function openLaunch() {
   if (!result.ok) { say(errorText(result), "err"); $("launch-card").hidden = true; return; }
   const p = result.data;
   $("launch-summary").textContent =
-    `Кабинет: ${p.account}. Город: ${p.city}. Объявлений: ${p.count}, по ${p.per_unit} ₽ в неделю каждое (всего ${p.total} ₽). Ведёт на: ${p.link}.`;
+    `Кабинет: ${p.account}. Город: ${p.city}. Одна кампания: ${adsPhrase(p.count)} с общим бюджетом ${p.weekly} ₽ в неделю. Ведёт на: ${p.link}.`;
   $("launch-variants").replaceChildren(...p.variants.map((v) =>
     el("li", {}, el("div", { className: "t", textContent: v.title }), el("div", { className: "hint", textContent: v.text }))));
   $("launch-warnings").replaceChildren(...p.warnings.map((w) => el("li", { textContent: w })));

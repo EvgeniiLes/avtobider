@@ -57,10 +57,10 @@ def test_preview_shows_what_will_be_created(isolated):
     with TestClient(app) as http:
         bid = setup(http, fake, isolated)
         plan = http.get(f"/api/businesses/{bid}/launch/preview").json()
-        assert plan["count"] == 6 and plan["city"] == "Москва" and plan["link"] == "https://salon.ru"
-        assert plan["per_unit"] * plan["count"] <= BUDGET * 0.9 * 0.7 + 6
+        assert plan["count"] == 3 and plan["city"] == "Москва" and plan["link"] == "https://salon.ru"
+        assert plan["weekly"] <= BUDGET * 0.9 * 0.7 + 6 and plan["total"] == plan["weekly"]   # одна кампания, один недельный лимит
         assert all(len(v["title"]) <= 56 and len(v["text"]) <= 81 for v in plan["variants"])
-        assert len({v["title"] for v in plan["variants"]}) == 6
+        assert len({v["title"] for v in plan["variants"]}) == 3
         assert plan["warnings"] == []
         assert fake.campaigns == {}  # просмотр ничего не создаёт
 
@@ -87,21 +87,24 @@ def test_preview_needs_a_cabinet():
         assert r.status_code == 400 and "подключите рекламный кабинет" in r.json()["detail"]["message"]
 
 
-def test_launch_creates_campaigns_with_hard_budgets_and_sends_to_moderation(isolated):
+def test_launch_creates_one_campaign_with_several_ads_and_sends_to_moderation(isolated):
     fake = FakeDirect()
     with TestClient(app) as http:
         bid = setup(http, fake, isolated)
         r = http.post(f"/api/businesses/{bid}/launch", json={"marking_confirmed": True})
-        assert r.status_code == 200 and r.json()["created"] == 6
-        assert len(fake.campaigns) == 6 and all(c["Status"] == "MODERATION" for c in fake.campaigns.values())
-        assert sum(c["Limit"] for c in fake.campaigns.values()) <= BUDGET * MICRO * 0.9 * 0.7 + 6
-        assert all(c["Limit"] >= 300 * MICRO for c in fake.campaigns.values())
+        assert r.status_code == 200 and r.json()["created"] == 3
+        (cid, campaign), = fake.campaigns.items()                                  # одна кампания на всю рекламу
+        assert campaign["Status"] == "MODERATION" and campaign["Strategy"] == "WB_MAXIMUM_CLICKS"   # пока обращений мало, платим за клики
+        assert 300 * MICRO <= campaign["Limit"] <= BUDGET * MICRO * 0.9 * 0.7 + 6
+        assert len(fake.ads) == 3 and {a["campaign"] for a in fake.ads.values()} == {cid} and len({a["group"] for a in fake.ads.values()}) == 1
         assert ("ads", "moderate") in fake.calls
-        assert all("обучение" in w and "бесплатно" in w and "лампа" in w for w in fake.negatives.values())  # минус-слова ниши «маникюр»
+        assert "обучение" in fake.negatives[cid] and "бесплатно" in fake.negatives[cid] and "лампа" in fake.negatives[cid]   # минус-слова ниши «маникюр»
         again = http.post(f"/api/businesses/{bid}/launch", json={"marking_confirmed": True})
         assert again.status_code == 400 and "уже создана" in again.json()["detail"]["message"]
         ov = http.get(f"/api/businesses/{bid}/overview").json()
-        assert ov["real"] and not ov["example"] and len(ov["units"]) == 6
+        assert ov["real"] and not ov["example"] and len(ov["units"]) == 3
+        assert all(u["weekly_budget"] is None for u in ov["units"])               # у объявления своего бюджета нет, он общий
+        assert ov["campaign"]["strategy"] == "clicks" and ov["campaign"]["weekly"] == campaign["Limit"] // MICRO and ov["campaign"]["switch_at"] == 10
         assert {u["verdict"] for u in ov["units"]} == {"На проверке в Яндексе"}
         assert any("проверяет" in n for n in ov["notices"]) and any("Метрика" in n for n in ov["notices"])
 
@@ -120,9 +123,9 @@ def test_launch_adds_banners_from_uploaded_photos_and_logo(isolated):
             r = http.post(f"/api/businesses/{bid}/assets", data={"kind": kind, "tag": "work"}, files={"file": ("a.png", png(color), "image/png")})
             assert r.status_code == 200, r.text
         assert http.post(f"/api/businesses/{bid}/launch", json={"marking_confirmed": True}).status_code == 200
-        assert len(fake.images) == 6 and fake.images[0].startswith("autobider-")
+        assert len(fake.images) == 3 and fake.images[0].startswith("autobider-")
         attached = [a["ad"].get("AdImageHash") for a in fake.ads.values()]
-        assert all(h and h.startswith("hash") for h in attached) and len(set(attached)) == 6  # у каждого объявления свой баннер
+        assert all(h and h.startswith("hash") for h in attached) and len(set(attached)) == 3  # у каждого объявления свой баннер
 
 
 def test_launch_without_photos_has_no_banners(isolated):
@@ -148,13 +151,22 @@ def test_launch_requires_advertiser_data_for_marking(isolated):
 
 
 def test_launch_cleans_up_when_direct_refuses(isolated):
-    fake = FakeDirect(fail_add_after=3)  # на четвёртой кампании Директ откажет
+    fake = FakeDirect(fail_add_after=0)  # кампанию Директ не создаст
     with TestClient(app) as http:
         bid = setup(http, fake, isolated)
         r = http.post(f"/api/businesses/{bid}/launch", json={"marking_confirmed": True})
         assert r.status_code == 400 and "лимит кампаний" in r.json()["detail"]["message"]
-        assert fake.campaigns == {}, "уже созданные кампании должны быть удалены"
-        assert rows(isolated, "SELECT COUNT(*) AS n FROM ad_units")[0]["n"] == 0
+        assert fake.campaigns == {} and rows(isolated, "SELECT COUNT(*) AS n FROM ad_units")[0]["n"] == 0
+
+
+def test_launch_deletes_the_campaign_when_an_ad_cannot_be_created(isolated):
+    fake = FakeDirect(fail_ads_after=1)  # первое объявление создалось, на втором Директ отказывает
+    with TestClient(app) as http:
+        bid = setup(http, fake, isolated)
+        r = http.post(f"/api/businesses/{bid}/launch", json={"marking_confirmed": True})
+        assert r.status_code == 400 and "объявление" in r.json()["detail"]["message"]
+        assert fake.campaigns == {}, "недоделанную кампанию нельзя оставлять в кабинете"
+        assert rows(isolated, "SELECT COUNT(*) AS n FROM ad_units")[0]["n"] == 0 and rows(isolated, "SELECT COUNT(*) AS n FROM campaigns")[0]["n"] == 0
 
 
 def test_launch_replaces_example_data(isolated):
@@ -165,7 +177,7 @@ def test_launch_replaces_example_data(isolated):
         assert http.get(f"/api/businesses/{bid}/overview").json()["example"]
         http.post(f"/api/businesses/{bid}/launch", json={"marking_confirmed": True})
         ov = http.get(f"/api/businesses/{bid}/overview").json()
-        assert ov["real"] and not ov["example"] and len(ov["units"]) == 6
+        assert ov["real"] and not ov["example"] and len(ov["units"]) == 3
 
 
 # ---------- синхронизация и движок на настоящих данных ----------
@@ -217,10 +229,10 @@ def test_without_metrika_engine_only_guards_the_budget(isolated):
         fake.report_rows = [(day_add(today, -d), i, 1000, 40, 900 * MICRO) for i in range(3) for d in (1, 2, 3)]
         sync_and_run(conn, biz(), today, transport=fake.transport)
         assert conn.execute("SELECT COUNT(*) FROM changes").fetchone()[0] == 0
-        assert ("campaigns", "suspend") not in fake.calls
+        assert ("campaigns", "suspend") not in fake.calls and ("ads", "suspend") not in fake.calls
 
         # бюджет недели исчерпан: защита срабатывает даже без Метрики и всё останавливается в Директе
-        fake.report_rows = [(day_add(today, -1), i, 9000, 400, 4000 * MICRO) for i in range(6)]
+        fake.report_rows = [(day_add(today, -1), i, 9000, 400, 8000 * MICRO) for i in range(3)]
         sync_and_run(conn, biz(), today, transport=fake.transport)
         assert ("campaigns", "suspend") in fake.calls
         assert {c["State"] for c in fake.campaigns.values()} == {"SUSPENDED"}
@@ -238,8 +250,8 @@ def test_stop_all_on_real_ads_works_in_direct_and_holds_for_later_approvals(isol
         conn = connect(isolated)
         biz = lambda: conn.execute("SELECT * FROM businesses WHERE id = ?", (bid,)).fetchone()
         sync_and_run(conn, biz(), transport=fake.transport)
-        assert http.post(f"/api/businesses/{bid}/stop-all").json()["stopped"] == 6
-        assert {c["State"] for c in fake.campaigns.values()} == {"SUSPENDED"}
+        assert http.post(f"/api/businesses/{bid}/stop-all").json()["stopped"] == 3
+        assert {c["State"] for c in fake.campaigns.values()} == {"SUSPENDED"} and all(a["suspended"] for a in fake.ads.values())
 
         # владелец пополнил счёт, Яндекс «включил» кампании сам: пока стоп-кран нажат, сервис снова их останавливает
         for c in fake.campaigns.values():
@@ -247,29 +259,48 @@ def test_stop_all_on_real_ads_works_in_direct_and_holds_for_later_approvals(isol
         sync_and_run(conn, biz(), transport=fake.transport)
         assert {c["State"] for c in fake.campaigns.values()} == {"SUSPENDED"}
 
-        assert http.post(f"/api/businesses/{bid}/resume-all").json()["resumed"] == 6
-        assert {c["State"] for c in fake.campaigns.values()} == {"ON"}
+        assert http.post(f"/api/businesses/{bid}/resume-all").json()["resumed"] == 3
+        assert {c["State"] for c in fake.campaigns.values()} == {"ON"} and not any(a["suspended"] for a in fake.ads.values())
         assert biz()["status"] == "running"
         conn.close()
 
 
-def test_direct_platform_changes_budget_and_waits_for_variant_moderation(isolated):
+def test_direct_platform_pauses_single_ads_and_changes_budget_and_strategy_of_the_campaign(isolated):
     fake = FakeDirect()
     with TestClient(app) as http:
-        bid = launched(http, fake, isolated)
+        launched(http, fake, isolated)
         conn = connect(isolated)
         today = date.today().isoformat()
-        unit = conn.execute("SELECT * FROM ad_units ORDER BY id LIMIT 1").fetchone()
+        camp = conn.execute("SELECT * FROM campaigns").fetchone()
         platform = DirectPlatform(conn, "tok", transport=fake.transport)
+        assert platform.shared_budget
 
-        platform.set_budget(unit["id"], 700 * MICRO, today)
-        assert fake.campaigns[unit["external_campaign_id"]]["Limit"] == 700 * MICRO
-        assert conn.execute("SELECT budget_micro FROM ad_units WHERE id = ?", (unit["id"],)).fetchone()[0] == 700 * MICRO
+        platform.set_campaign_budget(camp["id"], 700 * MICRO, today)
+        assert fake.campaigns[camp["external_id"]]["Limit"] == 700 * MICRO
+        assert conn.execute("SELECT weekly_micro FROM campaigns").fetchone()[0] == 700 * MICRO
 
-        variant_id = platform.create_variant(unit["id"], today)
-        v = conn.execute("SELECT * FROM ad_units WHERE id = ?", (variant_id,)).fetchone()
-        assert v["variant_of"] == unit["id"] and v["state"] == "moderation" and v["title"] != unit["title"]
-        assert len(fake.campaigns) == 7
+        conn.execute("UPDATE businesses SET metrika_goal_id = '55'")
+        platform.set_strategy(camp["id"], "conversions", today)
+        direct = fake.campaigns[camp["external_id"]]
+        assert direct["Strategy"] == "WB_MAXIMUM_CONVERSION_RATE" and direct["GoalId"] == 55 and direct["Limit"] == 700 * MICRO   # лимит сохранился
+        assert conn.execute("SELECT strategy FROM campaigns").fetchone()[0] == "conversions"
+
+        fake.accept_all(state="ON", payment="ALLOWED")
+        sync_and_run(conn, conn.execute("SELECT * FROM businesses").fetchone(), today, transport=fake.transport)   # объявления стали работающими
+        a, b, c = [r["id"] for r in conn.execute("SELECT id FROM ad_units ORDER BY id")]
+        platform.set_state(a, "paused", today)
+        assert [ad["suspended"] for ad in fake.ads.values()] == [True, False, False] and direct["State"] == "ON"   # остановили одно объявление, кампания идёт
+        suspends = fake.calls.count(("ads", "suspend"))
+        platform.set_state(a, "paused", today)
+        assert fake.calls.count(("ads", "suspend")) == suspends                       # повторная остановка Директу не отправляется
+        platform.set_state(b, "paused", today)
+        platform.set_state(c, "paused", today)
+        assert direct["State"] == "SUSPENDED" and conn.execute("SELECT state FROM campaigns").fetchone()[0] == "paused"   # остановили последнее: кампания тоже
+        platform.set_state(b, "active", today)
+        assert direct["State"] == "ON" and [ad["suspended"] for ad in fake.ads.values()] == [True, False, True]
+        assert conn.execute("SELECT state FROM campaigns").fetchone()[0] == "active"
+        with pytest.raises(Exception, match="на всю кампанию"):
+            platform.set_budget(a, 100 * MICRO, today)                                  # у объявления бюджета нет
         conn.close()
 
 

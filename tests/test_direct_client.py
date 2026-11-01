@@ -221,6 +221,58 @@ def test_suspend_resume_and_moderate():
     assert calls == [("campaigns", "suspend", [1, 2]), ("campaigns", "resume", [1]), ("ads", "suspend", [9]), ("ads", "moderate", [9])]
 
 
+def test_strategy_switch_to_max_conversions_keeps_the_limit_and_names_the_goal():
+    seen = []
+
+    def handler(request):
+        body = json.loads(request.content)
+        seen.append((request.url.path.rsplit("/", 1)[1], body["method"], body["params"]))
+        return ok({"UpdateResults": [{"Id": 77}]})
+
+    async def go(client):
+        await client.set_strategy(77, "conversions", 900 * 1_000_000, "12345")
+        await client.set_strategy(77, "clicks", 900 * 1_000_000)
+
+    run_client(handler, go)
+    conversions = seen[0][2]["Campaigns"][0]
+    assert conversions["Id"] == 77
+    strategy = conversions["UnifiedCampaign"]["BiddingStrategy"]
+    assert strategy["Search"] == {"BiddingStrategyType": "WB_MAXIMUM_CONVERSION_RATE",
+                                  "WbMaximumConversionRate": {"WeeklySpendLimit": 900_000_000, "GoalId": 12345}}
+    assert strategy["Network"]["BiddingStrategyType"] == "SERVING_OFF"          # сети остаются выключены
+    assert seen[1][2]["Campaigns"][0]["UnifiedCampaign"]["BiddingStrategy"]["Search"]["BiddingStrategyType"] == "WB_MAXIMUM_CLICKS"
+
+
+@pytest.mark.parametrize("goal", [None, "", "не число"])
+def test_max_conversions_without_a_valid_goal_is_refused_before_calling_direct(goal):
+    called = []
+
+    async def go(client):
+        await client.set_strategy(1, "conversions", 300_000_000, goal)
+
+    with pytest.raises(DirectError) as e:
+        run_client(lambda r: called.append(r) or ok({}), go)
+    assert "цель" in e.value.message and called == []
+
+
+def test_ads_and_campaign_state_are_read_with_the_fields_the_service_needs():
+    seen = []
+
+    def handler(request):
+        body = json.loads(request.content)
+        seen.append((request.url.path.rsplit("/", 1)[1], body["params"]))
+        if body["method"] == "get" and seen[-1][0] == "ads":
+            return ok({"Ads": [{"Id": 5, "CampaignId": 9, "State": "SUSPENDED", "Status": "ACCEPTED"}]})
+        return ok({"Campaigns": [{"Id": 9, "State": "ON", "Status": "ACCEPTED", "StatusPayment": "ALLOWED"}]})
+
+    async def go(client):
+        return await client.list_ads([9]), await client.get_campaign(9), await client.get_campaign(10)
+
+    ads, camp, _ = run_client(handler, go)
+    assert ads[0]["State"] == "SUSPENDED" and camp["State"] == "ON"
+    assert seen[0][1]["SelectionCriteria"] == {"CampaignIds": [9]} and {"State", "Status", "StatusClarification"} <= set(seen[0][1]["FieldNames"])
+
+
 def test_region_and_minimum_budget_lookup():
     def handler(request):
         names = json.loads(request.content)["params"]["DictionaryNames"]

@@ -287,7 +287,8 @@ def test_ready_ads_pair_text_with_banner():
         bid = setup(http)
         base = f"/api/businesses/{bid}/creatives"
         data = http.get(f"{base}/ads").json()
-        assert data["count"] == 6 and len(data["ads"]) == 6 and data["has_images"] is False
+        assert data["count"] == 3 and len(data["ads"]) == 6 and data["has_images"] is False   # в кампанию войдут три, ещё три запасные
+        assert [a["reserve"] for a in data["ads"]] == [False] * 3 + [True] * 3 and data["weekly"] > 0
         assert all(a["banner_url"] == "" and not a["own"] for a in data["ads"])  # без картинок и своих текстов
         assert http.get(f"{base}/ads/0/banner.jpg").status_code == 404
 

@@ -262,6 +262,14 @@ ADDED_COLUMNS = [
     ("business_assets", "ai_score", "INTEGER NOT NULL DEFAULT 0"),
     ("business_assets", "ai_note", "TEXT NOT NULL DEFAULT ''"),
     ("changes", "status", "TEXT NOT NULL DEFAULT 'applied'"),
+    # Директ: одна кампания на весь бизнес, объявления-варианты лежат внутри неё и делят один недельный лимит
+    ("campaigns", "external_id", "INTEGER"),                          # номер кампании в Директе
+    ("campaigns", "weekly_micro", "INTEGER NOT NULL DEFAULT 0"),      # недельный лимит кампании
+    ("campaigns", "strategy", "TEXT NOT NULL DEFAULT 'clicks'"),      # clicks: «Максимум кликов», conversions: «Максимум конверсий»
+    ("campaigns", "state", "TEXT NOT NULL DEFAULT 'moderation'"),     # состояние кампании целиком по данным Директа
+    ("campaigns", "last_changed_day", "TEXT"),                        # когда сервис последний раз менял бюджет или стратегию
+    ("campaigns", "created_day", "TEXT"),
+    ("changes", "campaign_id", "INTEGER"),                            # изменение касается всей кампании, а не одного объявления
 ]
 
 

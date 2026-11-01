@@ -95,6 +95,28 @@ def test_without_cabinet_metrika_asks_to_connect_it_first():
         assert r.status_code == 400 and "подключите рекламный кабинет" in r.json()["detail"]["message"]
 
 
+def test_changing_the_goal_reaches_a_campaign_that_already_optimizes_for_it(isolated):
+    fake = FakeDirect()
+    with TestClient(app) as http:
+        bid = setup(http, fake, isolated)
+        http.post(f"/api/businesses/{bid}/launch", json={"marking_confirmed": True})
+        metrika_stub()
+        assert http.put(f"/api/businesses/{bid}/metrika", json={"counter_id": "555", "goal_id": "9001"}).status_code == 200
+        (campaign,) = fake.campaigns.values()
+        assert campaign["Strategy"] == "WB_MAXIMUM_CLICKS"                      # на кликах цель Директу не нужна
+
+        conn = connect(isolated)
+        conn.execute("UPDATE campaigns SET strategy = 'conversions'")           # сервис уже перевёл кампанию на конверсии
+        conn.commit()
+        assert http.put(f"/api/businesses/{bid}/metrika", json={"counter_id": "555", "goal_id": "9002"}).status_code == 200
+        assert campaign["Strategy"] == "WB_MAXIMUM_CONVERSION_RATE" and campaign["GoalId"] == 9002   # Яндекс оптимизирует под новую цель
+
+        updates = fake.calls.count(("campaigns", "update"))
+        assert http.put(f"/api/businesses/{bid}/metrika", json={"counter_id": "555", "goal_id": "9002"}).status_code == 200
+        assert fake.calls.count(("campaigns", "update")) == updates + 1         # цель не менялась: только привязка счётчика, стратегию не трогаем
+        conn.close()
+
+
 def test_real_leads_flow_into_engine_decisions(isolated):
     """С Метрикой сервис видит обращения: отчёт Директа запрашивается с целью, слабые объявления получают оценку."""
     fake = FakeDirect()

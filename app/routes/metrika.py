@@ -102,6 +102,8 @@ def save(business_id: int, data: MetrikaIn, user: sqlite3.Row = Depends(current_
 
     # Директ считает обращения только для кампаний, к которым привязан счётчик: привязываем к уже созданным.
     units = conn.execute("SELECT DISTINCT external_campaign_id FROM ad_units WHERE business_id = ? AND external_campaign_id IS NOT NULL", (business_id,)).fetchall()
+    # кампания уже на «Максимум конверсий»: Яндекс оптимизирует под цель, которую ему назвали, поэтому новую цель называем и ему
+    on_goal = conn.execute("SELECT * FROM campaigns WHERE business_id = ? AND external_id IS NOT NULL AND strategy = 'conversions'", (business_id,)).fetchone()
     if units:
         s = get_settings()
 
@@ -109,6 +111,8 @@ def save(business_id: int, data: MetrikaIn, user: sqlite3.Row = Depends(current_
             async with factory(token, api_version=s.direct_api_version) as client:
                 for u in units:
                     await client.set_counters(u["external_campaign_id"], [int(data.counter_id)])
+                if on_goal is not None and data.goal_id != (biz["metrika_goal_id"] or ""):
+                    await client.set_strategy(on_goal["external_id"], "conversions", on_goal["weekly_micro"], data.goal_id)
 
         try:
             asyncio.run(attach())

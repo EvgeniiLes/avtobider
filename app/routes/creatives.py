@@ -25,7 +25,7 @@ from app.creative.screen import insert_logo, insert_screenshot
 from app.creative.texts_ai import EXTRA_WORDS_OK, check_photo, extra_words, generate_texts, invented_links, missing_phrases, read_image_text
 from app.db import get_db
 from app.deps import creative_transport, current_user
-from app.direct.launch import banner_layout, choose_variants, logo_for, media_typed, photo_for, render_banner, start_split, text_candidates, usable_photos
+from app.direct.launch import MAX_VARIANTS, banner_layout, choose_variants, logo_for, media_typed, photo_for, render_banner, start_split, text_candidates, usable_photos
 from app.direct.texts import TEXT_MAX, TITLE_MAX, check, draft_variants
 from app.routes.businesses import _asset_path, _own
 
@@ -243,7 +243,7 @@ def _ad_variants(conn, biz) -> tuple[list[dict], int, int]:
     """Объявления, которые будут созданы при запуске: те же тексты и то же число, что в плане запуска."""
     candidates = text_candidates(conn, biz)
     pool, count = start_split(biz)
-    shown = count or 3  # бюджет слишком мал для запуска: всё равно показываем, как будет выглядеть
+    shown = MAX_VARIANTS if count else 3   # показываем все варианты: первые count войдут в кампанию, остальные запасные. Денег не хватает на запуск: всё равно показываем, как будет выглядеть
     variants, _ = choose_variants(biz, candidates, shown)
     known = {c["title"].lower(): c for c in candidates}
     for v in variants:
@@ -294,12 +294,12 @@ def ads(business_id: int, user: sqlite3.Row = Depends(current_user), conn: sqlit
                       "angle": v.get("angle", ""), "angle_label": angle_label(v.get("angle", "")),
                       "photo_type": photo_type, "photo_label": PHOTO_TAGS.get(photo_type) or scene_label(photo_type),
                       "photo_id": None if no_photo else (brief["asset_id"] if brief and brief["asset_id"] else getattr(photo_for(photos, i)[1], "asset_id", None) if photos else None),
-                      "no_photo": no_photo,
+                      "no_photo": no_photo, "reserve": bool(count) and i >= count,   # запасное: в кампанию войдёт, когда понадобится заменить слабое
                       "look_no": brief["look"] if brief else i % len(fal.PHOTO_LOOKS), "ref_id": brief["ref_id"] if brief else auto_ref})
     return {
         "ads": items,
         "count": count,
-        "per_unit": round(pool / count / 1_000_000) if count else 0,
+        "weekly": round(pool / 1_000_000) if count else 0,
         "site": biz["site_url"] or "",
         "has_maps": bool(biz["maps_url"]),
         "has_images": bool(photos),

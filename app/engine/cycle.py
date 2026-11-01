@@ -44,12 +44,14 @@ def unit_stats(conn: sqlite3.Connection, unit_id: int, start: str, end: str) -> 
     return dict(row)
 
 
-def log_change(conn, business_id, unit_id, day, actor, action, code, text, before, after, evidence=None, status="applied") -> int:
+def log_change(conn, business_id, unit_id, day, actor, action, code, text, before, after, evidence=None, status="applied",
+               campaign_id=None) -> int:
+    """campaign_id: изменение касается всей кампании (бюджет, стратегия), а не одного объявления (тогда unit_id пустой)."""
     cur = conn.execute(
-        "INSERT INTO changes (business_id, unit_id, day, actor, action, reason_code, reason_text, "
-        "before_json, after_json, evidence_json, status) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO changes (business_id, unit_id, campaign_id, day, actor, action, reason_code, reason_text, "
+        "before_json, after_json, evidence_json, status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
         (
-            business_id, unit_id, day, actor, action, code, text,
+            business_id, unit_id, campaign_id, day, actor, action, code, text,
             json.dumps(before, ensure_ascii=False), json.dumps(after, ensure_ascii=False),
             json.dumps(evidence or {}, ensure_ascii=False), status,
         ),
@@ -62,6 +64,11 @@ def has_open_proposal(conn, unit_id: int, action: str) -> bool:
     return conn.execute(
         "SELECT 1 FROM changes WHERE unit_id = ? AND action = ? AND status = 'proposed'", (unit_id, action)
     ).fetchone() is not None
+
+
+def has_open_campaign_proposal(conn, campaign_id: int) -> bool:
+    """Есть ли уже предложение изменить эту кампанию (бюджет или стратегию), ждущее решения."""
+    return conn.execute("SELECT 1 FROM changes WHERE campaign_id = ? AND status = 'proposed'", (campaign_id,)).fetchone() is not None
 
 
 def _lead_cost_text(spend: int, leads: int) -> str:
@@ -77,6 +84,7 @@ _PROPOSAL_WORDS = [
     ("Добавили ", "Предлагаем добавить "),
     ("Запустили ", "Предлагаем запустить "),
     ("Оставили ", "Предлагаем оставить "),
+    ("Перевели ", "Предлагаем перевести "),
 ]
 
 
@@ -87,11 +95,11 @@ def proposal_text(text: str) -> str:
     return text
 
 
-def _propose(conn, biz, unit_id, today, action, code, text, before, after, evidence=None) -> int:
+def _propose(conn, biz, unit_id, today, action, code, text, before, after, evidence=None, campaign_id=None) -> int:
     """Записывает предложение: в кабинете ничего не меняется, пока владелец не подтвердит."""
     evidence = {**(evidence or {}), "done_text": text}
     return log_change(conn, biz["id"], unit_id, today, "auto", action, code, proposal_text(text),
-                      before, after, evidence, status="proposed")
+                      before, after, evidence, status="proposed", campaign_id=campaign_id)
 
 
 def _pause(conn, platform, biz, unit, today, code, text, evidence=None, propose=False, actor="auto") -> int | None:
@@ -184,8 +192,10 @@ def run_cycle(
     def active_units():
         return conn.execute("SELECT * FROM ad_units WHERE business_id = ? AND state = 'active' ORDER BY id", (biz["id"],)).fetchall()
 
+    shared = bool(getattr(platform, "shared_budget", False))   # объявления делят бюджет одной кампании (Директ)
     units = active_units()
-    week_spend = sum(unit_stats(conn, u["id"], day_add(as_of, -6), as_of)["spend"] for u in units)
+    spent_by = conn.execute("SELECT * FROM ad_units WHERE business_id = ?", (biz["id"],)).fetchall() if shared else units   # остановленное тоже тратило
+    week_spend = sum(unit_stats(conn, u["id"], day_add(as_of, -6), as_of)["spend"] for u in spent_by)
 
     # 1. Защита бюджета идёт первой и важнее любых других правил.
     if budget_total > 0 and week_spend >= budget_total:
@@ -220,7 +230,8 @@ def run_cycle(
     evals = []
     for u in units:
         s = unit_stats(conn, u["id"], start, as_of)
-        if not enough_data(s["clicks"], s["spend"], cpa, cfg):
+        warming = cfg.warmup_days > 0 and days_between(u["created_day"], today) < cfg.warmup_days   # только что запущено: Яндекс ещё учится
+        if warming or not enough_data(s["clicks"], s["spend"], cpa, cfg):
             cls, p = "waiting", 0.0
         else:
             p = prob_ok(s["clicks"], s["leads"], s["spend"], lead_target, random.Random(f"{u['id']}:{today}"), cfg.samples)
@@ -244,9 +255,12 @@ def run_cycle(
                 "p_ok": round(e["p"], 3), "target_lead": lead_target}
 
     # 4. Слабые отключаем: освободившийся бюджет возвращается в общий запас.
+    working = len(units)   # сколько объявлений ещё работает (в общей кампании последнее не останавливаем никогда)
     for e in evals:
         u = e["unit"]
         if e["cls"] == "bad" and e["prev"] == "bad" and not cooling(u) and u["id"] not in in_test:
+            if shared and working <= 1:
+                continue
             s = e["stats"]
             change_id = _pause(
                 conn, platform, biz, u, today, "bad_unit",
@@ -256,11 +270,16 @@ def run_cycle(
             )
             if change_id is not None:
                 made.append(change_id)
+                working -= 1   # и предложенную остановку считаем: подтвердят все, последнее объявление останется
             if not propose:
                 free += u["budget_micro"]  # бюджет освободится, только когда остановка состоится
 
+    if shared:
+        # 5-6. В общей кампании бюджет и стратегия общие: решаем про кампанию целиком. Отдельных сравнений не запускаем:
+        # варианты и так показываются в одних аукционах, и слабый уходит по правилу выше.
+        made += _campaign_step(conn, platform, biz, today, as_of, cfg, lead_target, cpa, propose, block_growth)
     # 5. Хорошим добавляем бюджет, начиная с самых надёжных.
-    if not block_growth:
+    elif not block_growth:
         good = sorted((e for e in evals if e["cls"] == "good" and e["prev"] == "good"), key=lambda e: -e["p"])
         for e in good:
             u = e["unit"]
@@ -316,6 +335,75 @@ def run_cycle(
     return made
 
 
+def _window(conn, unit_ids: list[int], start: str, end: str) -> dict:
+    """Суммарная статистика объявлений за период."""
+    total = {"impressions": 0, "clicks": 0, "spend": 0, "leads": 0, "clients": 0}
+    for uid in unit_ids:
+        s = unit_stats(conn, uid, start, end)
+        for k in total:
+            total[k] += s[k]
+    return total
+
+
+def _campaign_step(conn, platform, biz, today, as_of, cfg, lead_target, cpa, propose, block_growth) -> list[int]:
+    """Решения про всю общую кампанию: перевести на «Максимум конверсий», когда обращений достаточно, и осторожно добавить бюджет.
+
+    Яндекс учится на данных кампании и сбивается от частых правок, поэтому после запуска её две недели не трогаем
+    (warmup_days), а дальше правим не чаще раза в неделю (cooldown_days) и не больше чем на raise_step."""
+    camp = conn.execute("SELECT * FROM campaigns WHERE business_id = ? AND external_id IS NOT NULL ORDER BY id LIMIT 1", (biz["id"],)).fetchone()
+    if camp is None or camp["state"] != "active":
+        return []
+    if camp["created_day"] and days_between(camp["created_day"], today) < cfg.warmup_days:
+        return []
+    if camp["last_changed_day"] and days_between(camp["last_changed_day"], today) < cfg.cooldown_days:
+        return []
+    if has_open_campaign_proposal(conn, camp["id"]):
+        return []
+    unit_ids = [r["id"] for r in conn.execute("SELECT id FROM ad_units WHERE campaign_id = ?", (camp["id"],))]
+    weekly = camp["weekly_micro"]
+
+    def decide(action, code, text, before, after, evidence, apply) -> list[int]:
+        if propose:
+            return [_propose(conn, biz, None, today, action, code, text, before, after, evidence, campaign_id=camp["id"])]
+        apply()
+        return [log_change(conn, biz["id"], None, today, "auto", action, code, text, before, after, evidence, campaign_id=camp["id"])]
+
+    # 1. Хватает обращений: Яндекс подбирает ставки по обращениям, а не по кликам.
+    week = _window(conn, unit_ids, day_add(as_of, -6), as_of)
+    if camp["strategy"] == "clicks" and biz["metrika_goal_id"] and week["leads"] >= cfg.switch_leads:
+        text = (f"Перевели кампанию на «Максимум конверсий»: за неделю набралось {plural(week['leads'], 'обращение', 'обращения', 'обращений')}, "
+                "Яндексу хватает данных, чтобы подбирать ставки под обращения, а не под клики. "
+                f"Недельный бюджет прежний: {rub(weekly)}.")
+        return decide("set_strategy", "enough_leads", text, {"strategy": "clicks"}, {"strategy": "conversions"},
+                      {"leads_week": week["leads"], "clicks_week": week["clicks"], "spend_week": week["spend"]},
+                      lambda: platform.set_strategy(camp["id"], "conversions", today))
+
+    # 2. Кампания окупается две оценки подряд: добавляем немного бюджета.
+    if block_growth:
+        return []
+    cap = int((1 - cfg.reserve) * biz["weekly_budget_micro"])
+    new = min(int(weekly * (1 + cfg.raise_step)), cap)
+    if new <= weekly:
+        return []
+
+    def judge(end: str):
+        w = _window(conn, unit_ids, day_add(end, -(cfg.window_days - 1)), end)
+        if not enough_data(w["clicks"], w["spend"], cpa, cfg):
+            return "waiting", 0.0, w
+        p = prob_ok(w["clicks"], w["leads"], w["spend"], lead_target, random.Random(f"camp:{camp['id']}:{end}"), cfg.samples)
+        return classify(p, cfg), p, w
+
+    now_cls, p, w = judge(as_of)
+    if now_cls != "good" or judge(day_add(as_of, -1))[0] != "good":
+        return []
+    pct = round((new / weekly - 1) * 100)
+    text = (f"Добавили {pct}% бюджета кампании: {_lead_cost_text(w['spend'], w['leads'])}, это дешевле вашей цели ({rub(lead_target)}). "
+            f"Бюджет на неделю: {rub(weekly)} → {rub(new)}.")
+    return decide("set_budget", "good_campaign", text, {"campaign_budget_micro": weekly}, {"campaign_budget_micro": new},
+                  {"clicks": w["clicks"], "leads": w["leads"], "spend": w["spend"], "p_ok": round(p, 3), "target_lead": lead_target},
+                  lambda: platform.set_campaign_budget(camp["id"], new, today))
+
+
 def _start_test(conn, platform, biz, unit, today, free_text: str, evidence=None, change_id: int | None = None) -> int:
     """Создаёт второй вариант объявления и запускает сравнение. Если change_id задан, дополняет им уже записанное предложение."""
     variant_id = platform.create_variant(unit["id"], today)
@@ -358,6 +446,22 @@ def rollback(conn: sqlite3.Connection, platform: Platform, biz: sqlite3.Row, cha
         conn.execute("UPDATE experiments SET status = 'cancelled', ended_day = ? WHERE id = ?", (today, after["experiment_id"]))
         text = "Вы отменили сравнение: второй вариант остановлен, объявление работает как раньше."
         new_before, new_after = after, before
+    elif ch["campaign_id"] is not None:
+        camp = conn.execute("SELECT * FROM campaigns WHERE id = ?", (ch["campaign_id"],)).fetchone()
+        if camp is None:
+            raise EngineError("Кампании уже нет, отменять нечего.", "not_found")
+        current = {"strategy": camp["strategy"], "campaign_budget_micro": camp["weekly_micro"]}
+        if any(current[k] != v for k, v in after.items()) and not force:
+            raise EngineError(
+                "С тех пор эту кампанию меняли ещё раз. Если отменить сейчас, вернётся состояние до этого изменения. Подтвердите отмену.",
+                "conflict",
+            )
+        if "campaign_budget_micro" in before:
+            platform.set_campaign_budget(camp["id"], before["campaign_budget_micro"], today)
+        if "strategy" in before:
+            platform.set_strategy(camp["id"], before["strategy"], today)
+        text = "Вы отменили изменение кампании: вернули как было."
+        new_before, new_after = {k: current[k] for k in before}, before
     else:
         unit = conn.execute("SELECT * FROM ad_units WHERE id = ?", (ch["unit_id"],)).fetchone()
         if unit is None:
@@ -376,7 +480,7 @@ def rollback(conn: sqlite3.Connection, platform: Platform, biz: sqlite3.Row, cha
         new_before, new_after = {k: current[k] for k in before}, before
 
     new_id = log_change(conn, biz["id"], ch["unit_id"], today, "user", "rollback", "user_rollback", text, new_before, new_after,
-                        {"original_change_id": change_id})
+                        {"original_change_id": change_id}, campaign_id=ch["campaign_id"])
     conn.execute("UPDATE changes SET reverted_by = ? WHERE id = ?", (new_id, change_id))
     conn.commit()
     return new_id
@@ -399,16 +503,39 @@ def approve(conn: sqlite3.Connection, platform: Platform, biz: sqlite3.Row, chan
     ch = _open_proposal(conn, biz, change_id)
     before, after = json.loads(ch["before_json"]), json.loads(ch["after_json"])
     evidence = json.loads(ch["evidence_json"])
-    unit = conn.execute("SELECT * FROM ad_units WHERE id = ?", (ch["unit_id"],)).fetchone()
 
     def stale(message: str):
         conn.execute("UPDATE changes SET status = 'rejected' WHERE id = ?", (change_id,))
         conn.commit()
         raise EngineError(message + " Предложение закрыто, сервис предложит новое, если нужно.", "stale")
 
+    cap = int((1 - cfg.reserve) * biz["weekly_budget_micro"])
+    if ch["campaign_id"] is not None:   # бюджет или стратегия всей кампании
+        camp = conn.execute("SELECT * FROM campaigns WHERE id = ?", (ch["campaign_id"],)).fetchone()
+        if camp is None or camp["state"] != "active":
+            stale("Кампания сейчас не работает.")
+        if ch["action"] == "set_strategy":
+            if camp["strategy"] != before["strategy"]:
+                stale("Стратегия кампании уже менялась.")
+            platform.set_strategy(camp["id"], after["strategy"], today)
+        elif ch["action"] == "set_budget":
+            if camp["weekly_micro"] != before["campaign_budget_micro"]:
+                stale("Бюджет кампании уже менялся.")
+            if cap > 0 and after["campaign_budget_micro"] > cap:
+                stale("Недельный бюджет уже распределён, добавить больше нельзя.")
+            platform.set_campaign_budget(camp["id"], after["campaign_budget_micro"], today)
+        else:
+            raise EngineError("Это действие нельзя подтвердить.", "not_allowed")
+        conn.execute("UPDATE changes SET status = 'applied', reason_text = ? WHERE id = ?", (evidence.get("done_text") or ch["reason_text"], change_id))
+        conn.commit()
+        return change_id
+
+    unit = conn.execute("SELECT * FROM ad_units WHERE id = ?", (ch["unit_id"],)).fetchone()
     if unit is None or unit["state"] != "active":
         stale("Объявление уже остановлено или удалено.")
-    cap = int((1 - cfg.reserve) * biz["weekly_budget_micro"])
+    if ch["action"] == "pause" and getattr(platform, "shared_budget", False) and conn.execute(
+            "SELECT COUNT(*) FROM ad_units WHERE campaign_id = ? AND state = 'active'", (unit["campaign_id"],)).fetchone()[0] <= 1:
+        stale("Это последнее работающее объявление кампании, его остановить нельзя.")
     active_total = conn.execute(
         "SELECT COALESCE(SUM(budget_micro),0) FROM ad_units WHERE business_id = ? AND state = 'active'", (biz["id"],)
     ).fetchone()[0]
@@ -452,6 +579,8 @@ def reject(conn: sqlite3.Connection, biz: sqlite3.Row, change_id: int, today: st
         conn.execute("UPDATE experiments SET status = 'cancelled', ended_day = ? WHERE id = ?", (today, evidence["experiment_id"]))
     if ch["unit_id"]:
         conn.execute("UPDATE ad_units SET last_changed_day = ? WHERE id = ?", (today, ch["unit_id"]))
+    if ch["campaign_id"] is not None:   # кампанию не трогаем ещё неделю, предложение не возвращается на следующий день
+        conn.execute("UPDATE campaigns SET last_changed_day = ? WHERE id = ?", (today, ch["campaign_id"]))
     conn.commit()
 
 

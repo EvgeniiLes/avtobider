@@ -11,6 +11,7 @@ import httpx
 from app.config import get_settings
 from app.direct.client import DirectClient, DirectError
 from app.direct.launch import sync_units
+from app.engine.config import DIRECT_CONFIG
 from app.engine.cycle import run_cycle
 from app.engine.util import EngineError
 from app.platforms.direct import DirectPlatform
@@ -88,7 +89,7 @@ def sync_and_run(conn: sqlite3.Connection, biz: sqlite3.Row, today: str | None =
         platform = DirectPlatform(conn, token, s.direct_api_version, login, transport)
         # Без Метрики обращений не видно: судить о рекламе нечем, работает только защита бюджета.
         decide = bool(biz["metrika_counter_id"] and biz["metrika_goal_id"])
-        changes = run_cycle(conn, biz, platform, today, decide=decide)
+        changes = run_cycle(conn, biz, platform, today, cfg=DIRECT_CONFIG, decide=decide)
         error = ""
     except (EngineError, DirectError) as e:
         synced, changes, error = {"units": 0, "rows": 0}, [], e.message
