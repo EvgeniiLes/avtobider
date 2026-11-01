@@ -58,7 +58,7 @@ foreach ($relative in $list) {
 }
 
 # 3. Права, перезапуск, проверка, запись в журнал выкладок.
-$stamp = Get-Date -Format "yyyy-MM-dd HH:mm"
+$stamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd HH:mm") + " UTC"   # время сервера тоже UTC: в журнале и в именах копий одно и то же время
 $log = "$stamp | $Name | $commit | files: $($list.Count)"
 $check = "chown -R autobider:autobider $remoteRoot/app && systemctl restart autobider autobider-worker && sleep 4 && systemctl is-active autobider autobider-worker && curl -s -o /dev/null -w 'site %{http_code}\n' http://127.0.0.1:8000/ && echo '$log' >> $remoteRoot/backup/releases.log"
 Invoke-Native "Перезапуск и проверка" { ssh @ssh "root@$Server" $check }
