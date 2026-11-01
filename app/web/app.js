@@ -1480,6 +1480,36 @@ async function loadReport() {
   if (report) $("report-text").textContent = `${report.day_text}\n\n———\n\n${report.text}`;
 }
 
+/* ---------- Заявки с сайта ---------- */
+
+function renderLeads(d) {
+  $("leads-card").hidden = false;
+  $("leads-snippet").value = d.snippet;
+  const n = d.leads.length;
+  $("leads-hint").textContent = n
+    ? `Последние заявки с формы вашего сайта.${d.telegram ? "" : " Telegram не подключён: заявки видны только здесь. Подключите его на странице «Подключения»."}`
+    : `Заявок пока нет. Когда посетитель отправит форму на сайте, она появится здесь${d.telegram ? " и придёт вам в Telegram" : ""}. Чтобы форма заработала, вставьте код ниже в страницу.`;
+  const when = (s) => new Date(`${s.replace(" ", "T")}Z`).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+  $("leads-table").hidden = !n;
+  $("leads-table").querySelector("tbody").replaceChildren(...d.leads.map((l) => el("tr", {},
+    ...[when(l.created_at), l.name || "—", l.contact, l.task || "—", l.delivered ? "в Telegram" : "только здесь"].map((v) => el("td", { textContent: v })))));
+}
+
+async function loadLeads() {
+  const r = await api("GET", `/api/businesses/${currentBusiness.id}/leads`);
+  if (r.ok) renderLeads(r.data); else $("leads-card").hidden = true;
+}
+
+async function newLeadsKey() {
+  const r = await api("POST", `/api/businesses/${currentBusiness.id}/leads/key`);
+  if (r.ok) { renderLeads(r.data); say("Сделан новый адрес приёма. Обновите код на сайте: прежний адрес больше не работает.", ""); }
+}
+
+async function copyLeadsSnippet() {
+  const field = $("leads-snippet");
+  try { await navigator.clipboard.writeText(field.value); say("Код скопирован.", ""); } catch { field.select(); }
+}
+
 /* ---------- Telegram ---------- */
 
 function renderTelegram(s) {
@@ -1684,6 +1714,7 @@ async function loadStats() {
   renderGoal(data);
   if (data.real || data.example) loadSeries(); else renderChart([]);
   if (data.real || data.example) loadInsights(); else $("insights-card").hidden = true;
+  loadLeads();
   if (data.real) { loadReport(); loadVisitorGoals(); loadQueries(); } else { $("report-card").hidden = true; $("goals-card").hidden = true; $("queries-card").hidden = true; }
   renderDecisions();
   $("example-notice").hidden = !data.example;
@@ -2067,6 +2098,8 @@ async function start() {
   $("ideas-next").addEventListener("click", () => setStep("banners"));
   $("banners-next").addEventListener("click", () => setStep("launch"));
   $("launch-back").addEventListener("click", () => setStep("banners"));
+  $("leads-copy").addEventListener("click", copyLeadsSnippet);
+  $("leads-newkey").addEventListener("click", newLeadsKey);
   $("tg-connect").addEventListener("click", connectTelegram);
   $("tg-check").addEventListener("click", checkTelegram);
   $("tg-test").addEventListener("click", testTelegram);

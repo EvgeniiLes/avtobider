@@ -577,6 +577,26 @@
             <pre id="report-text" class="report"></pre>
           </div>
 
+          <div class="card" id="leads-card" hidden>
+            <h2>Заявки с сайта</h2>
+            <p class="hint" id="leads-hint"></p>
+            <div class="table-wrap">
+              <table id="leads-table" hidden>
+                <thead><tr><th>Когда</th><th>Имя</th><th>Контакт</th><th>Задача</th><th>Доставлена</th></tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+            <details>
+              <summary>Как подключить форму вашего сайта</summary>
+              <p class="hint">Форма отправляет заявку на этот адрес, сервис сохраняет её здесь и сразу присылает вам в Telegram. Адрес секретный: если он попал не туда, сделайте новый, старый перестанет работать.</p>
+              <textarea id="leads-snippet" rows="9" readonly spellcheck="false"></textarea>
+              <div class="upload-row">
+                <button id="leads-copy" class="small secondary">Скопировать код</button>
+                <button id="leads-newkey" class="small secondary">Сделать новый адрес</button>
+              </div>
+            </details>
+          </div>
+
           <div class="card" id="goals-card" hidden>
             <h2>Действия посетителей</h2>
             <p class="hint" id="goals-hint"></p>

@@ -127,6 +127,20 @@ CREATE TABLE IF NOT EXISTS goal_stats (
     PRIMARY KEY (unit_id, day, goal_id)
 );
 
+-- Заявки с форм на сайтах клиентов (приём: app/routes/leads.py). delivered: ушла ли заявка владельцу в Telegram.
+CREATE TABLE IF NOT EXISTS leads (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    business_id INTEGER NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+    name        TEXT NOT NULL DEFAULT '',
+    contact     TEXT NOT NULL DEFAULT '',
+    task        TEXT NOT NULL DEFAULT '',
+    page        TEXT NOT NULL DEFAULT '',
+    ip_hash     TEXT NOT NULL DEFAULT '',
+    delivered   INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_leads_business ON leads (business_id, id DESC);
+
 -- Что уже отправлено владельцу в Telegram (отчёт недели, тревоги): чтобы не слать одно и то же каждые 30 минут.
 CREATE TABLE IF NOT EXISTS notifications (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -302,7 +316,8 @@ ADDED_COLUMNS = [
     ("business_assets", "ai_note", "TEXT NOT NULL DEFAULT ''"),
     ("changes", "status", "TEXT NOT NULL DEFAULT 'applied'"),
     # Директ: одна кампания на весь бизнес, объявления-варианты лежат внутри неё и делят один недельный лимит
-    ("users", "telegram_chat", "TEXT NOT NULL DEFAULT ''"),           # чат владельца с ботом, куда идут отчёты и тревоги
+    ("businesses", "lead_key", "TEXT NOT NULL DEFAULT ''"),           # секретная часть адреса приёма заявок с сайта
+    ("users", "telegram_chat", "TEXT NOT NULL DEFAULT ''"),          # чат владельца с ботом, куда идут отчёты и тревоги
     ("users", "telegram_code", "TEXT NOT NULL DEFAULT ''"),           # одноразовый код привязки, пока владелец не нажал «Start» в боте
     ("users", "telegram_code_at", "TEXT NOT NULL DEFAULT ''"),
     ("users", "notify_on", "INTEGER NOT NULL DEFAULT 1"),             # 0: отчёты и тревоги выключены
