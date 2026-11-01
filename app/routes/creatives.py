@@ -325,7 +325,8 @@ def ads(business_id: int, user: sqlite3.Row = Depends(current_user), conn: sqlit
         "photos": [{"id": r["id"], "url": f"/api/businesses/{business_id}/assets/{r['id']}/file", "label": PHOTO_TAGS.get(r["ai_type"] or r["tag"], "Фото")}
                    for r in usable_photos(conn, biz)],
         "styles": {"looks": [{"no": n, "label": name} for n, (name, _d) in enumerate(fal.PHOTO_LOOKS)],
-                   "refs": [{"id": n, "label": refs.note(n)} for n in refs.suggest(f"{biz['name']} {biz['kind']} {effective_description(biz)}")]},
+                   "refs": [{"id": n, "label": refs.note(n)} for n in refs.suggest(f"{biz['name']} {biz['kind']} {effective_description(biz)}",
+                                                                                  focus=f"{biz['name']} {biz['kind']}")]},
         "ref_extra": fal.COST_CENTS["ref_extra"] / 100,
     }
 
@@ -718,7 +719,7 @@ _PROMO_NOTE = re.compile(r"цен|акци|скидк|%|срочн", re.IGNORECA
 
 def _niche_refs(biz, limit: int = 8) -> list[int]:
     """Приёмы из ниши бизнеса. Пока в описании не разрешены скидки и акции, приёмы про цены и акции не берём."""
-    found = refs.suggest(f"{biz['name']} {biz['kind']} {effective_description(biz)}", limit=12)
+    found = refs.suggest(f"{biz['name']} {biz['kind']} {effective_description(biz)}", limit=12, focus=f"{biz['name']} {biz['kind']}")
     if not biz["allow_promo"]:
         found = [r for r in found if not _PROMO_NOTE.search(refs.note(r))]
     return found[:limit]

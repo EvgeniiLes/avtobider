@@ -117,22 +117,26 @@ NICHE_WORDS = {
     "pets": r"груминг|питом|собак|кошк|зоо|ветеринар|корм", "nails": r"маникюр|ногт|педикюр", "hair": r"парикмахер|барбер|стрижк|укладк|волос",
     "cosmetics": r"космет|косметолог|уход за кожей|красот", "dental": r"стоматолог|зуб|ортодонт|имплант", "auto": r"автомой|мойк|детейлинг|шиномонтаж|автосервис|тонировк",
     "repair": r"ремонт|строител|отделк|монтаж|сантехник|электрик", "realty": r"недвижим|квартир|ипотек|жк\b", "law": r"юрист|адвокат|юридическ|нотариус",
-    "furniture": r"мебел|интерьер|диван|кухн", "edu": r"курс|школ|репетитор|обучен|английск", "it": r"сайт|разработк|маркетинг|реклама для|смм|seo",
+    "furniture": r"мебел|интерьер|диван|кухн", "edu": r"курс|школ|репетитор|обучен|английск", "it": r"сайт|разработк|маркетинг|реклама для|смм|seo|нейросет|искусственн\w* интеллект|\bии\b|автоматизац|чат-?бот|n8n",
     "cleaning": r"клининг|уборк|химчистк", "medical": r"клиник|врач|медицин|аптек|анализ", "psy": r"психолог|психотерап|коуч",
     "fashion": r"одежд|магазин одежд|бутик|обув", "apps": r"приложен|сервис|платформ|игр",
 }
 GENERIC_REFS = (88, 56, 91)   # если нишу определить не удалось: универсальные приёмы
 
 
-def suggest(text: str, limit: int = 5) -> list[int]:
-    """Номера референсов, подходящих по нише бизнеса (по словам в названии, виде деятельности и описании)."""
+def suggest(text: str, limit: int = 5, focus: str = "") -> list[int]:
+    """Номера референсов, подходящих по нише бизнеса (по словам в названии, виде деятельности и описании).
+
+    Побеждает ниша с наибольшим числом совпадений; совпадения в focus (название и вид деятельности) весят втрое больше, чем в длинном
+    описании: упоминание «обучения команды» не делает агентство по внедрению ИИ школой. При равенстве берётся ниша раньше по списку."""
     import re
-    low = (text or "").lower()
-    for niche, pattern in NICHE_WORDS.items():
-        if re.search(pattern, low):
-            found = [n for n, (nn, _note) in REFS.items() if nn == niche]
-            return found[:limit]
-    return list(GENERIC_REFS)
+    low, head = (text or "").lower(), (focus or "").lower()
+    scores = {niche: 3 * len(re.findall(pattern, head)) + len(re.findall(pattern, low)) for niche, pattern in NICHE_WORDS.items()}
+    best = max(scores.values(), default=0)
+    if best == 0:
+        return list(GENERIC_REFS)
+    niche = next(n for n, score in scores.items() if score == best)
+    return [n for n, (nn, _note) in REFS.items() if nn == niche][:limit]
 
 
 def catalog_text() -> str:
