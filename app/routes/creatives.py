@@ -22,7 +22,8 @@ from app.assets import PHOTO_TAGS
 from app.creative.compose import add_logo, find_price, prepare_for_direct, style_for
 from app.creative.art import art_direction, review_banner, scene_label
 from app.creative.screen import insert_logo, insert_screenshot
-from app.creative.texts_ai import EXTRA_WORDS_OK, check_photo, extra_words, generate_texts, invented_links, missing_phrases, read_image_text
+from app.creative.texts_ai import (EXTRA_WORDS_OK, check_facts, check_photo, extra_words, facts_of, foreign_prices, generate_texts, invented_links,
+                                   missing_phrases, read_image_text)
 from app.db import get_db
 from app.deps import creative_transport, current_user
 from app.direct.launch import MAX_VARIANTS, banner_layout, choose_variants, logo_for, media_typed, photo_for, render_banner, start_split, text_candidates, usable_photos
@@ -138,6 +139,18 @@ def _refresh_working(conn, business_id: int, transport) -> None:
                 conn.execute("UPDATE creatives SET status = 'failed', error = ? WHERE id = ?",
                              (f"Нейросеть дописала на картинке лишний текст: {', '.join(extra[:6])}. Нажмите «Другой баннер».", r["id"]))
                 continue
+            foreign = foreign_prices(expected, read or [])
+            if foreign:   # сумма, которой нет в объявлении: либо дописала нейросеть, либо взяли не ту цену
+                conn.execute("UPDATE creatives SET status = 'failed', error = ? WHERE id = ?",
+                             (f"На картинке указана цена, которой нет в объявлении: {', '.join(foreign)}. Нажмите «Другой баннер».", r["id"]))
+                continue
+            if read:   # всё написанное на баннере сверяем с тем, что владелец рассказал о бизнесе: цены, сроки, условия не должны ему противоречить
+                owner = conn.execute("SELECT * FROM businesses WHERE id = ?", (business_id,)).fetchone()
+                wrong = asyncio.run(check_facts(facts_of(owner), r["title"], r["body"], read, key, s.fal_text_model, transport))
+                if wrong:
+                    conn.execute("UPDATE creatives SET status = 'failed', error = ? WHERE id = ?",
+                                 (f"На баннере сведения, которых нет в описании бизнеса или которые ему противоречат: {'; '.join(wrong)}. Нажмите «Другой баннер».", r["id"]))
+                    continue
         try:
             data = asyncio.run(fal.download(value, transport))
             if r["kind"] == "ai_banner":

@@ -220,6 +220,53 @@ def invented_links(read: list[str]) -> list[str]:
     return [line for line in read if URL_LIKE.search(line)]
 
 
+def foreign_prices(expected: list[str], read: list[str]) -> list[str]:
+    """Суммы в рублях на баннере, которых нет в нужных надписях (заголовок и цена). Такую цену нейросеть дописала сама."""
+    from app.creative.compose import PRICE   # здесь, чтобы не тянуть работу с картинками при импорте
+    amount = lambda m: int(re.sub(r"\D", "", m.group(1)))
+    allowed = {amount(m) for e in expected for m in PRICE.finditer(e or "")}
+    found: list[str] = []
+    for m in PRICE.finditer(" ".join(read)):
+        label = re.sub(r"\s+", " ", m.group(0)).strip()
+        if amount(m) not in allowed and label not in found:
+            found.append(label)
+    return found
+
+
+FACTS_SYSTEM = (
+    "Ты проверяешь рекламный баннер на фактические ошибки. Тебе дают факты о бизнесе (их написал владелец), текст объявления "
+    "и весь текст, прочитанный на баннере. Найди только прямые ошибки: цена, срок, гарантия, количество, адрес или условие на баннере, "
+    "которых нет в фактах, которые им противоречат или относятся к другому предложению (например, цена аудита на объявлении про пилот), "
+    "а также цена у предложения, которое по фактам бесплатное. Допустимы сокращения и округление, если смысл не искажён. "
+    "Надписи на кнопках («Записаться», «Узнать подробнее») и название бизнеса не факты. Стиль, орфографию и дизайн не оценивай. "
+    "Верни только JSON {\"problems\": [\"коротко по-русски, что не так\"]}, а если ошибок нет, {\"problems\": []}."
+)
+
+
+async def check_facts(facts: str, title: str, text: str, read: list[str], fal_key: str, model: str,
+                      transport: httpx.AsyncBaseTransport | None = None) -> list[str] | None:
+    """Сверяет всё, что написано на баннере, с фактами бизнеса. Пустой список: ошибок нет. None: проверить не удалось
+    (тогда баннер не отбраковываем: сомнение работает в пользу владельца, а не модели)."""
+    if not read:
+        return []
+    body = {"model": model, "max_tokens": 500, "messages": [
+        {"role": "system", "content": FACTS_SYSTEM},
+        {"role": "user", "content": f"Факты о бизнесе: {facts[:1800] or 'не указаны'}\nОбъявление: {title}. {text}\nТекст на баннере: {' | '.join(read)}"}]}
+    try:
+        async with httpx.AsyncClient(timeout=60, transport=transport) as http:
+            r = await http.post(FAL_CHAT_URL, json=body, headers={"Authorization": f"Key {fal_key}", "Content-Type": "application/json"})
+        if r.status_code != 200:
+            return None
+        raw = r.json()["choices"][0]["message"]["content"] or ""
+        start, end = raw.find("{"), raw.rfind("}")
+        data = json.loads(raw[start:end + 1]) if start != -1 and end > start else None
+    except (httpx.HTTPError, ValueError, KeyError, IndexError):
+        return None
+    if not isinstance(data, dict) or not isinstance(data.get("problems"), list):
+        return None
+    return [str(p)[:160] for p in data["problems"] if p][:3]
+
+
 def missing_phrases(expected: list[str], read: list[str]) -> list[str]:
     """Какие нужные надписи не найдены на картинке (регистр, кавычки и пробелы не важны)."""
     haystack = _norm(" ".join(read))

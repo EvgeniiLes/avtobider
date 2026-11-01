@@ -37,6 +37,7 @@ class Fakes:
 
     def __init__(self, claude_text=None, fal_done=False, fal_status=200):
         self.claude_text, self.fal_done, self.fal_status = claude_text, fal_done, fal_status
+        self.facts_text = None   # ответ проверяющему фактов на баннере; None: он отвечает тем же, что и все остальные запросы к модели
         self.jobs = 0
         self.image = None  # что отдаёт «генератор»; по умолчанию однотонная картинка
         self.requests = []
@@ -52,6 +53,9 @@ class Fakes:
                 return httpx.Response(500, json={})
             return httpx.Response(200, json={"content": [{"type": "text", "text": self.claude_text}]})
         if host == "fal.run" and "chat/completions" in path:  # Claude через fal.ai
+            first = (json.loads(request.content).get("messages") or [{}])[0].get("content")
+            if self.facts_text is not None and isinstance(first, str) and "фактические ошибки" in first:
+                return httpx.Response(200, json={"choices": [{"message": {"content": self.facts_text}}]})
             if self.claude_text is None:
                 return httpx.Response(500, json={})
             return httpx.Response(200, json={"choices": [{"message": {"content": self.claude_text}}]})
@@ -490,6 +494,64 @@ def test_ai_banner_with_extra_small_text_is_rejected_but_a_stray_word_is_not(mon
         assert bad["ai"]["status"] == "failed" and "лишний текст" in bad["ai"]["error"]
         assert "педикюр" in bad["ai"]["error"] and "маникюр" not in bad["ai"]["error"]   # слова из заголовка лишними не считаются
         assert http.get(f"{base}/ads/4/banner.jpg").status_code == 200                    # а прежний принятый баннер остаётся на объявлении
+
+
+def test_foreign_prices_are_the_amounts_the_ad_does_not_name():
+    from app.creative.texts_ai import foreign_prices
+    expected = ["Аудит от 9 000 ₽", "Записаться", "от 9 000 ₽"]
+    assert foreign_prices(expected, ["Аудит", "от 9 000", "₽", "Записаться"]) == []                      # та же цена, строки разорваны распознаванием
+    assert foreign_prices(expected, ["Пилот", "от 39 000 ₽", "Записаться"]) == ["от 39 000 ₽"]           # чужая цена
+    assert foreign_prices(["Маникюр", "Записаться"], ["Маникюр", "1500 руб.", "Записаться"]) == ["1500 руб."]   # цены в объявлении нет, а на баннере появилась
+    assert foreign_prices(["Маникюр"], ["Работаем 30 дней, 5 мастеров", "Записаться"]) == []              # числа без рубля это не цена
+
+
+def test_fact_check_reads_the_verdict_and_never_rejects_on_doubt():
+    import asyncio
+    from app.creative.texts_ai import check_facts
+
+    def ask(content, status=200):
+        transport = httpx.MockTransport(lambda r: httpx.Response(status, json={"choices": [{"message": {"content": content}}]}))
+        return asyncio.run(check_facts("Пилот от 39 000 ₽", "Пилот", "Под ключ", ["Пилот", "от 9 000 ₽"], "k", "m", transport))
+
+    assert ask('{"problems": ["цена пилота от 9 000 ₽, в фактах от 39 000 ₽"]}') == ["цена пилота от 9 000 ₽, в фактах от 39 000 ₽"]
+    assert ask('Вот ответ: {"problems": []} Ошибок нет.') == []
+    assert ask("не знаю") is None and ask('{"score": 4}') is None and ask('{"problems": []}', status=500) is None   # нет внятного ответа: не бракуем
+    assert asyncio.run(check_facts("факты", "T", "X", [], "k", "m")) == []                               # на баннере нет текста: сверять нечего
+
+
+def test_banner_with_a_price_that_is_not_in_the_ad_is_rejected(monkeypatch):
+    monkeypatch.setenv("FAL_KEY", "fal-test")
+    fakes = Fakes(fal_done=True)
+    with TestClient(app) as http:
+        bid = setup(http)
+        base = f"/api/businesses/{bid}/creatives"
+        ad = _ai_ad(http, bid)
+        fakes.claude_text = json.dumps([ad["title"], "ЗАПИСАТЬСЯ", "от 9 000 ₽"], ensure_ascii=False)   # у объявления цены нет, а на баннере она появилась
+        http.post(f"{base}/ads/4/ai-banner")
+        http.get(base)
+        bad = _ai_ad(http, bid)
+        assert bad["ai"]["status"] == "failed" and "цена, которой нет" in bad["ai"]["error"] and "9 000" in bad["ai"]["error"]
+
+
+def test_banner_that_contradicts_the_business_facts_is_rejected_and_a_clean_one_passes(monkeypatch):
+    monkeypatch.setenv("FAL_KEY", "fal-test")
+    fakes = Fakes(fal_done=True)
+    with TestClient(app) as http:
+        bid = setup(http)
+        base = f"/api/businesses/{bid}/creatives"
+        ad = _ai_ad(http, bid)
+        fakes.claude_text = json.dumps([ad["title"], "ЗАПИСАТЬСЯ"], ensure_ascii=False)
+        order = lambda: (http.post(f"{base}/ads/4/ai-banner"), http.get(base), _ai_ad(http, bid))[2]
+
+        fakes.facts_text = '{"problems": ["срок указан 4 недели, а в описании 4–6 недель"]}'
+        bad = order()
+        assert bad["ai"]["status"] == "failed" and "противоречат" in bad["ai"]["error"] and "4–6 недель" in bad["ai"]["error"]
+
+        fakes.facts_text = '{"problems": []}'
+        assert order()["ai"]["status"] == "ready"
+
+        fakes.facts_text = None                                              # проверяющий не ответил внятно: баннер не бракуем
+        assert order()["ai"]["status"] == "ready"
 
 
 def test_photo_check_tags_photos_and_rates_the_logo(monkeypatch):

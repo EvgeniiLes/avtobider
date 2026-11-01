@@ -7,7 +7,7 @@ import httpx
 
 QUEUE = "https://queue.fal.run"
 # Примерная стоимость в центах доллара: нужна, чтобы не выйти за лимит расходов на генерацию.
-COST_CENTS = {"text": 1, "image": 8, "video": 70, "ai_banner": 7, "check": 1, "logo_cut": 1, "strategist": 3, "ref_extra": 2}   # ref_extra: вторая картинка (референс) на входе баннера  # ai_banner: GPT Image 2 (4:3, среднее качество) 3.7 цента, арт-директор, проверка текста и самопроверка по 1 центу
+COST_CENTS = {"text": 1, "image": 8, "video": 70, "ai_banner": 7, "check": 1, "logo_cut": 1, "strategist": 3, "ref_extra": 2}   # ref_extra: вторая картинка (референс) на входе баннера  # ai_banner: GPT Image 2 (4:3, среднее качество) 3.7 цента, арт-директор, проверка текста и самопроверка по 1 центу; сверка с фактами (текстовая, меньше цента) в цену не добавлена
 
 
 class FalError(Exception):
