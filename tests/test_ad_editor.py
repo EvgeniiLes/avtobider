@@ -181,7 +181,6 @@ def _draw(http, base, fakes, ad):
 def test_redrawing_never_drops_the_reference_when_neighbours_use_all_of_them(monkeypatch):
     monkeypatch.setenv("FAL_KEY", "fal-test")
     fakes = Fakes(fal_done=True)
-    fakes.ocr_caption = ("Лотос", "Барбершоп")   # подпись на баннерах этого бизнеса
     with TestClient(app) as http:
         bid = setup(http, kind="Барбершоп", description="Мужские стрижки и оформление бороды. Работаем ежедневно с 10 до 22.")
         base = f"/api/businesses/{bid}/creatives"
@@ -203,7 +202,6 @@ def test_redrawing_never_drops_the_reference_when_neighbours_use_all_of_them(mon
 def test_redrawing_prefers_a_free_reference_over_one_a_neighbour_uses(monkeypatch):
     monkeypatch.setenv("FAL_KEY", "fal-test")
     fakes = Fakes(fal_done=True)
-    fakes.ocr_caption = ("Лотос", "Барбершоп")
     with TestClient(app) as http:
         bid = setup(http, kind="Барбершоп", description="Мужские стрижки и оформление бороды. Работаем ежедневно с 10 до 22.")
         base = f"/api/businesses/{bid}/creatives"

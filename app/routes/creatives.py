@@ -19,7 +19,7 @@ from app.config import get_settings
 from app.creative import fal, refs
 from app.creative.angles import effective_description, label as angle_label, profile
 from app.assets import PHOTO_TAGS
-from app.creative.compose import add_logo, find_price, prepare_for_direct, style_for
+from app.creative.compose import add_caption, add_logo, find_price, prepare_for_direct, style_for
 from app.creative.art import art_direction, review_banner, scene_label
 from app.creative.screen import insert_logo, insert_screenshot
 from app.creative.texts_ai import (EXTRA_WORDS_OK, check_facts, check_photo, extra_words, facts_of, foreign_prices, generate_texts, invented_links,
@@ -137,7 +137,7 @@ def _refresh_working(conn, business_id: int, transport) -> None:
                              (f"Нейросеть дописала на картинке адрес сайта: {', '.join(links)}. Нажмите «Другой баннер».", r["id"]))
                 continue
             owner = conn.execute("SELECT * FROM businesses WHERE id = ?", (business_id,)).fetchone()
-            extra = extra_words(expected + fal.caption_parts(owner), read or [])   # подпись с названием и видом деятельности допустима всегда
+            extra = extra_words(expected, read or [])
             if len(extra) > EXTRA_WORDS_OK:
                 conn.execute("UPDATE creatives SET status = 'failed', error = ? WHERE id = ?",
                              (f"Нейросеть дописала на картинке лишний текст: {', '.join(extra[:6])}. Нажмите «Другой баннер».", r["id"]))
@@ -171,6 +171,8 @@ def _refresh_working(conn, business_id: int, transport) -> None:
                 if mark:
                     data = insert_logo(data, mark) or add_logo(data, mark)
                     meta["baked"] = True
+            if r["kind"] == "ai_banner" and meta.get("caption"):   # «название · вид деятельности» дорисовывает код: так подпись всегда читается, без искажённых букв
+                data = add_caption(data, meta["caption"])
             if r["kind"] == "ai_banner" and meta.get("brief"):  # самопроверка итоговой картинки: слабую не принимаем, чтобы не платить за неё рекламой
                 verdict = asyncio.run(review_banner(_bytes_url(data), meta["brief"], key, get_settings().fal_text_model, transport))
                 if verdict is not None and verdict["score"] <= 2:
@@ -398,12 +400,6 @@ def _brief_for(conn, business_id: int, variant: dict):
                         (business_id, variant["title"], variant["text"])).fetchone()
 
 
-def _with_caption(expected: list[str], biz, prompt: str) -> list[str]:
-    """Подпись с названием и видом деятельности обязательна на баннере, только если она есть в промпте (старые и свои промпты её не содержат)."""
-    caption = fal.caption_for(biz)
-    return expected + fal.caption_parts(biz) if caption and caption in prompt else expected
-
-
 def _order_banner(conn, biz, variants: list[dict], index: int, key: str, transport, others: list[str], custom_prompt: str = "") -> str:
     """Заказывает один ИИ-баннер. Есть фото владельца: модель делает баннер из этого фото (оформление у каждого объявления своё).
     Фото нет: арт-директор придумывает сцену, художник рисует с нуля. custom_prompt: промпт, который владелец поправил сам. Возвращает описание."""
@@ -442,7 +438,7 @@ def _order_banner(conn, biz, variants: list[dict], index: int, key: str, transpo
             _charge(conn, business_id, "ref_extra")
         job = asyncio.run(fal.start_edit(prompt, images, key, s.fal_banner_model, transport))
         what = f"фото «{PHOTO_TAGS.get(kind, kind)}», " + (f"по мотивам референса {brief['ref_id']}" if ref_bytes else f"оформление: {look}")
-        meta = {"expect": _with_caption(expected, biz, prompt), "logo": False, "screen": False, "mode": "photo", "concept": kind, "look": look,
+        meta = {"expect": expected, "caption": fal.caption_for(biz), "logo": False, "screen": False, "mode": "photo", "concept": kind, "look": look,
                 "look_no": look_no % len(fal.PHOTO_LOOKS), "photo_id": getattr(data, "asset_id", None), "varied": varied,
                 "ref": brief["ref_id"] if ref_bytes else None,
                 "audience": brief["audience"] if brief else "", "hypothesis": brief["hypothesis"] if brief else "", "scene": what,
@@ -491,7 +487,7 @@ def _order_banner(conn, biz, variants: list[dict], index: int, key: str, transpo
                                                 logo_ratio=_logo_ratio(logo), scene=art["scene"], direction=direction)
     job = (asyncio.run(fal.start_edit(prompt, [_bytes_url(ref_bytes, 900)], key, s.fal_banner_model, transport)) if ref_bytes
            else asyncio.run(fal.start_image(prompt, key, s.fal_banner_model, transport)))
-    meta = {"expect": _with_caption(expected, biz, prompt), "logo": use_logo, "screen": screen, "concept": art["concept"], "audience": art["audience"], "scene": art["scene"],
+    meta = {"expect": expected, "caption": fal.caption_for(biz), "logo": use_logo, "screen": screen, "concept": art["concept"], "audience": art["audience"], "scene": art["scene"],
             "mode": "scratch", "ref": ref_id, "ref_img": bool(ref_bytes), "varied": varied,
             "logo_reason": art["logo_reason"], "prompt_text": prompt,
             "brief": ("ВАЖНО: на экране телефона вставлен НАСТОЯЩИЙ скриншот приложения владельца. Это не выдумка нейросети и не недостаток: "

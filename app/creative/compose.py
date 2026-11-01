@@ -257,6 +257,36 @@ def add_logo(banner: bytes, logo: bytes | None) -> bytes:
     return out.getvalue()
 
 
+def add_caption(banner: bytes, text: str) -> bytes:
+    """Подпись внизу готового баннера (название бизнеса и вид деятельности) на затемнённой плавной полосе.
+
+    Рисуем кодом, а не просим нейросеть: нейросеть делает такую строку мелкой и порой искажает буквы, а код держит размер (около 3,4% высоты
+    баннера, чтобы читалось и в уменьшенном виде) и пишет текст ровно как задано."""
+    text = (text or "").strip()
+    if not text:
+        return banner
+    canvas = Image.open(BytesIO(banner)).convert("RGBA")
+    W, H = canvas.size
+    draw = ImageDraw.Draw(canvas)
+    pad = round(W * 0.035)
+    size = round(H * 0.034)
+    font = _font(size)
+    while size > round(H * 0.022) and draw.textlength(text, font=font) > W - 2 * pad:   # длинная подпись становится мельче, но не мельче 2,2% высоты
+        size -= 1
+        font = _font(size)
+    while len(text) > 8 and draw.textlength(text, font=font) > W - 2 * pad:   # и если всё равно не влезла, обрезаем с многоточием
+        text = text[:-2].rstrip() + "…"
+    fade = round(size * 4.2)
+    mask = Image.linear_gradient("L").resize((W, fade)).point(lambda v: int(v * 0.86))   # сверху прозрачно, к нижнему краю тёмно
+    strip = Image.new("RGBA", (W, fade), (8, 8, 16, 255))
+    strip.putalpha(mask)
+    canvas.alpha_composite(strip, (0, H - fade))
+    draw.text((pad, H - size - round(size * 0.7)), text, font=font, fill=(244, 244, 248, 255))
+    out = BytesIO()
+    canvas.convert("RGB").save(out, "JPEG", quality=90, optimize=True)
+    return out.getvalue()
+
+
 def _price_lines(badge: str) -> list[str]:
     return ["от", badge[3:]] if badge.startswith("от ") else [badge]
 

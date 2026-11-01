@@ -110,8 +110,9 @@ _URLISH = re.compile(r"https?://|www\.|\.(?:ru|com|net|org|io|рф)\b", re.IGNOR
 
 
 def caption_parts(biz) -> list[str]:
-    """Мелкая подпись внизу баннера: название бизнеса и вид деятельности. Без неё по заголовку вроде «Пилот на 30 дней» не понять,
-    кто и что рекламирует. Адрес сайта в подпись не берём (проверка баннера такие надписи бракует), слишком длинное тоже."""
+    """Подпись внизу баннера: название бизнеса и вид деятельности. Без неё по заголовку вроде «Пилот на 30 дней» не понять,
+    кто и что рекламирует. Подпись дорисовывает на готовом баннере код (compose.add_caption), а не нейросеть: так она всегда читается
+    и без искажённых букв. Адрес сайта в подпись не берём (проверка баннера такие надписи бракует), слишком длинное тоже."""
     parts: list[str] = []
     for value, limit in ((biz["name"], 28), (biz["kind"], 52)):
         value = re.sub(r"\s+", " ", value or "").strip()
@@ -124,25 +125,17 @@ def caption_for(biz) -> str:
     return " · ".join(caption_parts(biz))
 
 
-def _avoid(caption: str) -> str:
-    """AVOID без запрета на название бизнеса, если оно будет в подписи."""
-    return AVOID.replace("any other text or invented words, the business name, ", "any other text or invented words (except the caption), ") if caption else AVOID
-
-
-def _text_block(title: str, price: str, cta: str, by_direction: bool = False, caption: str = "") -> str:
+def _text_block(title: str, price: str, cta: str, by_direction: bool = False) -> str:
     """Что написано на баннере: точные строки в кавычках и как их набирать. Короткие русские фразы модель держит стабильнее длинных.
-    by_direction: размер, регистр и место заголовка задаёт направление (приём референса вроде гигантского слова), общий шрифт не навязываем.
-    caption: мелкая подпись внизу (название и вид деятельности), чтобы было ясно, что рекламируется."""
+    by_direction: размер, регистр и место заголовка задаёт направление (приём референса вроде гигантского слова), общий шрифт не навязываем."""
     shown = f"headline «{title}»"
-    if price:
+    if price and re.sub(r"\D", "", price) not in re.sub(r"\D", "", title):   # цена уже названа в заголовке: отдельную плашку не рисуем
         shown += f", price badge «{price.replace(chr(160), ' ')}»"
     style = ("The headline's size, case, weight and placement follow the Direction exactly; the letters stay flat, bold and perfectly legible, "
              "with strong contrast against their background. " if by_direction else
              "The headline is heavy bold sans-serif with tight letter spacing, very large, left aligned, at most 4 lines, the first thing the eye sees, "
              "with strong contrast against its background. ")
-    tail = (f"Along the bottom edge add one caption line in a clean sans-serif, clearly legible even when the banner is shown small (letter height about 3% "
-            f"of the banner height), spelled exactly «{caption}»: it tells who advertises what, so it is never larger than the button text, has strong contrast "
-            "and never covers the subject. " if caption else "")
+    tail = "Keep the bottom 8% of the banner calm: no text and no button there, a caption strip is added at the bottom edge later. "
     return ("Text in Russian, spelled EXACTLY as written between the quotes: not translated, not abbreviated, no letter added or lost, and no other large text "
             f"anywhere. {style}Text to show: {shown}, and a solid rounded button «{cta}». " + tail)
 
@@ -152,18 +145,17 @@ def banner_prompt(biz, title: str, price: str, cta: str, logo_corner: bool = Fal
     """Запрос на баннер целиком: русский текст пишет сама модель, поэтому он короткий и в точных кавычках.
     scene: сцена от арт-директора (кто в кадре и что делает); direction задаёт только оформление: цвета, шрифт, компоновку.
     direction (свой текст) заменяет оформление из списка: так подача по референсу работает и без фото владельца."""
-    caption = caption_for(biz)
-    return (f"Purpose: one polished advertising banner for Yandex Direct, landscape 4:3. Business: {biz['kind']}"
-            + ("" if caption else f"; the brand name «{biz['name']}» is NOT written on the banner") + ". " + _visual_rules(biz)
+    return (f"Purpose: one polished advertising banner for Yandex Direct, landscape 4:3. Business: {biz['kind']}; the brand name "
+            f"«{biz['name']}» is NOT written on the banner. " + _visual_rules(biz)
             + f"Scene, follow it closely: {scene or 'one clear subject that shows what the business really offers'}. "
             "One clear focal subject, natural realistic photography with natural skin texture, correct anatomy and hands, no clutter. "
             "People are busy with real work and their faces are calm and natural: no theatrical surprise or shock (wide-open eyes and mouth), "
             "no show-off delight, no stock-photo poses. "
             "Choose the composition freely like an art director (the text may sit on the left, right, top or bottom), but the text always lies on "
             "a calm area with strong contrast and never covers faces or the main subject. "
-            + _text_block(title, price, cta, caption=caption)
+            + _text_block(title, price, cta)
             + "Visual direction: " + (direction or DIRECTIONS[index % len(DIRECTIONS)]) + ". A harmonious palette of 2-3 colors; it looks like an ad from a top agency. "
-            + ONE_BANNER + _avoid(caption)
+            + ONE_BANNER + AVOID
             + " Also forbidden: an invented app or website interface (a phone in the scene shows a plain dark screen or is turned away)."
             + (LOGO_RULE.format(ratio=logo_ratio or 2.5, width=36 if (logo_ratio or 2.5) >= 3 else 28) if logo_corner else "")
             + (SCREEN_RULE if screen else ""))
@@ -212,29 +204,27 @@ PHOTO_LOOKS = (
 def photo_banner_prompt(biz, title: str, price: str, cta: str, index: int = 0, mood: str = "") -> str:
     """Запрос «сделай баннер из этого фото»: фото владельца остаётся настоящим, меняется только оформление и текст."""
     name, look = PHOTO_LOOKS[index % len(PHOTO_LOOKS)]
-    caption = caption_for(biz)
     return ("Purpose: one advertising banner for Yandex Direct, landscape 4:3, for a Russian audience "
-            f"(the business is: {biz['kind']}{'' if caption else '; context only, never write it on the banner'}). "
+            f"(the business is: {biz['kind']}; context only, never write it on the banner). "
             "Subject: the attached photo is the one and only reference of the subject. Preserve exactly the same people, animals, objects and place, "
             "their faces, coat or clothing and proportions, so the real photo stays natural and unaltered; change only the layout, the crop, "
             "the extended background and the colors around it. "
             f"Look and composition: Visual direction: {look}. " + (f"Audience and mood: {mood}. " if mood else "")
             + "The main subject keeps about half of the frame; the text sits in reserved negative space and never covers faces or the main subject. "
-            + _text_block(title, price, cta, caption=caption) + ONE_BANNER + _avoid(caption))
+            + _text_block(title, price, cta) + ONE_BANNER + AVOID)
 
 
 def reference_banner_prompt(biz, title: str, price: str, cta: str, direction: str) -> str:
     """Баннер из фото владельца по мотивам референса: вторая картинка служит только вдохновением, её не копируем."""
-    caption = caption_for(biz)
     return ("Purpose: one advertising banner for Yandex Direct, landscape 4:3, for a Russian audience "
-            f"(the business is: {biz['kind']}{'' if caption else '; context only, never write it on the banner'}). "
+            f"(the business is: {biz['kind']}; context only, never write it on the banner). "
             "Subject: the FIRST attached image is the business's real photo and the one and only reference of the subject: preserve exactly the same people, "
             "animals, objects and place, their faces, coat or clothing and proportions, keep it natural and unaltered; you may crop it, extend its background "
             "and place it freely in the layout. "
             "Style: the SECOND attached image is ONLY a style inspiration (its composition idea, color mood, typography weight and feel): do NOT copy it, "
             "do NOT reuse its text, small print, lists, badges, logo, products, animals or characters; make a new original layout inspired by it. "
             f"Look and composition: Direction: {direction}. The text never covers faces or the main subject. "
-            + _text_block(title, price, cta, by_direction=True, caption=caption) + ONE_BANNER + _avoid(caption))
+            + _text_block(title, price, cta, by_direction=True) + ONE_BANNER + AVOID)
 
 
 def edit_model(model: str) -> str:

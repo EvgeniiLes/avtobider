@@ -39,7 +39,6 @@ class Fakes:
         self.claude_text, self.fal_done, self.fal_status = claude_text, fal_done, fal_status
         self.facts_text = None   # ответ проверяющему фактов на баннере; None: он отвечает тем же, что и все остальные запросы к модели
         self.fail_chat = 0       # столько ближайших запросов к модели закончатся ошибкой (сбой на стороне сервиса)
-        self.ocr_caption = ("Лотос", "Маникюрный салон")   # подпись внизу баннера (название и вид деятельности), которую «прочитает» распознавание; () — подписи на баннере нет
         self.jobs = 0
         self.image = None  # что отдаёт «генератор»; по умолчанию однотонная картинка
         self.requests = []
@@ -63,15 +62,7 @@ class Fakes:
                 return httpx.Response(200, json={"choices": [{"message": {"content": self.facts_text}}]})
             if self.claude_text is None:
                 return httpx.Response(500, json={})
-            text = self.claude_text
-            if isinstance(first, str) and first.startswith("Прочитай весь текст"):   # чтение текста с баннера: к строкам добавляем подпись
-                try:
-                    lines = json.loads(text)
-                except ValueError:
-                    lines = None
-                if isinstance(lines, list) and all(isinstance(x, str) for x in lines):
-                    text = json.dumps(lines + [c for c in self.ocr_caption if c not in lines], ensure_ascii=False)
-            return httpx.Response(200, json={"choices": [{"message": {"content": text}}]})
+            return httpx.Response(200, json={"choices": [{"message": {"content": self.claude_text}}]})
         if host == "queue.fal.run":
             if self.fal_status != 200:
                 return httpx.Response(self.fal_status, json={})
@@ -522,10 +513,12 @@ def test_the_caption_says_who_advertises_what_and_skips_what_cannot_be_checked()
 
     for prompt in (fal.banner_prompt(shop, "Маникюр", "", "Записаться"), fal.photo_banner_prompt(shop, "Маникюр", "", "Записаться"),
                    fal.reference_banner_prompt(shop, "Маникюр", "", "Записаться", "takes inspiration")):
-        assert "«Лотос · Маникюрный салон»" in prompt and "caption line" in prompt and "3% of the banner height" in prompt and "NOT written" not in prompt
-        assert "except the caption" in prompt and "the business name," not in prompt                          # запрет на название снят только для подписи
-    nameless = fal.banner_prompt({**shop, "name": "burocart.ru", "kind": "x" * 60}, "Маникюр", "", "Записаться")
-    assert "caption line" not in nameless and "NOT written" in nameless and "the business name," in nameless   # подписать нечем: прежние правила
+        assert "Лотос · Маникюрный салон" not in prompt and "bottom 8%" in prompt                           # подпись нейросеть не рисует: низ баннера просто оставляем свободным
+        assert "the business name," in prompt                                                              # и название бизнеса ей по-прежнему писать нельзя
+
+    # цена уже названа в заголовке: отдельную плашку не рисуем, а когда в заголовке цены нет, плашка есть
+    assert "price badge" not in fal.banner_prompt(shop, "Аудит от 9 000 ₽", "от 9 000 ₽", "Записаться")
+    assert "price badge «от 9 000 ₽»" in fal.banner_prompt(shop, "Аудит процессов", "от 9 000 ₽", "Записаться")
 
 
 def test_people_on_banners_are_natural_and_the_service_itself_rejects_stock_clichés():
@@ -536,30 +529,33 @@ def test_people_on_banners_are_natural_and_the_service_itself_rejects_stock_clic
     assert "театральное удивление или шок" in art.REVIEW_SYSTEM and "стоковая метафора" in art.REVIEW_SYSTEM            # а проверка готового баннера такое бракует
 
 
-def test_the_caption_is_required_when_the_prompt_asked_for_it_and_not_for_a_custom_prompt(monkeypatch):
+def test_the_service_draws_the_caption_on_every_finished_banner_even_with_a_custom_prompt(monkeypatch):
     monkeypatch.setenv("FAL_KEY", "fal-test")
     fakes = Fakes(fal_done=True)
+    out = BytesIO()
+    Image.new("RGB", (1200, 900), (120, 80, 200)).save(out, "PNG")
+    fakes.image = out.getvalue()                                                  # «нарисованный» баннер 4:3, однотонный
     with TestClient(app) as http:
         bid = setup(http)
         base = f"/api/businesses/{bid}/creatives"
         ad = _ai_ad(http, bid)
         fakes.claude_text = json.dumps([ad["title"], "ЗАПИСАТЬСЯ"], ensure_ascii=False)
-        fakes.ocr_caption = ()                                                   # нейросеть про подпись забыла
-        http.post(f"{base}/ads/4/ai-banner")
-        http.get(base)
-        bad = _ai_ad(http, bid)
-        assert bad["ai"]["status"] == "failed" and "ошибки в тексте: Лотос" in bad["ai"]["error"]   # без подписи с названием не понять, кто рекламирует
 
-        fakes.ocr_caption = ("Лотос", "Маникюрный салон")
+        def bottom_and_top():
+            im = Image.open(BytesIO(http.get(f"{base}/ads/4/banner.jpg").content)).convert("L")
+            w, h = im.size
+            return im.crop((0, int(h * 0.92), w, h)).getextrema(), im.crop((0, 0, w, int(h * 0.6))).getextrema()
+
         http.post(f"{base}/ads/4/ai-banner")
         http.get(base)
         assert _ai_ad(http, bid)["ai"]["status"] == "ready"
+        bottom, top = bottom_and_top()
+        assert bottom[1] > 200 and bottom[0] < 70 and top[1] < 140               # внизу светлые буквы на тёмной полосе, выше картинка не тронута
 
-        fakes.ocr_caption = ()                                                   # свой промпт без подписи: её не ждём
         own = "Нарисуй спокойный баннер: крупный план рук мастера и короткий заголовок слева."
-        assert http.post(f"{base}/ads/4/ai-banner", json={"prompt": own}).status_code == 200
+        assert http.post(f"{base}/ads/4/ai-banner", json={"prompt": own}).status_code == 200   # свой промпт: подпись всё равно ставит сервис
         http.get(base)
-        assert _ai_ad(http, bid)["ai"]["status"] == "ready"
+        assert _ai_ad(http, bid)["ai"]["status"] == "ready" and bottom_and_top()[0][1] > 200
 
 
 def test_foreign_prices_are_the_amounts_the_ad_does_not_name():
