@@ -1457,7 +1457,7 @@ async function loadInsights() {
   $("insights-angles").querySelector("tbody").replaceChildren(...(result.data.angle_groups || []).map(row));
 }
 
-async function loadGoals() {
+async function loadVisitorGoals() {
   const card = $("goals-card");
   const result = await api("GET", `/api/businesses/${currentBusiness.id}/goals`);
   const goals = result.ok ? result.data.goals : [];
@@ -1684,7 +1684,7 @@ async function loadStats() {
   renderGoal(data);
   if (data.real || data.example) loadSeries(); else renderChart([]);
   if (data.real || data.example) loadInsights(); else $("insights-card").hidden = true;
-  if (data.real) { loadReport(); loadGoals(); loadQueries(); } else { $("report-card").hidden = true; $("goals-card").hidden = true; $("queries-card").hidden = true; }
+  if (data.real) { loadReport(); loadVisitorGoals(); loadQueries(); } else { $("report-card").hidden = true; $("goals-card").hidden = true; $("queries-card").hidden = true; }
   renderDecisions();
   $("example-notice").hidden = !data.example;
   $("stats-needs").textContent = data.real || data.example ? data.needs : "";
