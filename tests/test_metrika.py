@@ -237,6 +237,17 @@ def test_goal_list_is_not_wiped_when_metrika_does_not_answer(isolated):
         conn.close()
 
 
+def test_site_code_carries_the_counter_number_and_the_three_goals(isolated):
+    with TestClient(app) as http:
+        bid = setup(http, FakeDirect(), isolated)
+        data = http.get(f"/api/businesses/{bid}/metrika/snippet", params={"counter_id": "1769574"}).json()
+        code = data["code"]
+        assert code.count("1769574") == 5 and "%(id)s" not in code and 'ym(1769574, "init"' in code
+        assert 'reachGoal", "lead"' in code and 'reachGoal", "call"' in code and 'reachGoal", "telegram"' in code
+        assert [g["identifier"] for g in data["goals"]] == ["lead", "call", "telegram"] and len(data["steps"]) == 3
+        assert http.get(f"/api/businesses/{bid}/metrika/snippet", params={"counter_id": "1; alert(1)"}).status_code == 400   # в код попадает только число
+
+
 def test_goals_page_is_empty_without_metrika(isolated):
     with TestClient(app) as http:
         bid = setup(http, FakeDirect(), isolated)

@@ -311,6 +311,13 @@
             <button id="m-save" class="small">Сохранить</button>
             <button id="m-clear" class="small secondary" hidden>Отключить</button>
           </div>
+          <details id="m-snippet" hidden>
+            <summary>Код для сайта: счётчик и цели «заявка», «звонок», «Telegram»</summary>
+            <ol id="m-snippet-steps" class="hint"></ol>
+            <textarea id="m-snippet-code" rows="10" readonly spellcheck="false"></textarea>
+            <ul id="m-snippet-goals" class="hint"></ul>
+            <button id="m-snippet-copy" class="small secondary">Скопировать код</button>
+          </details>
           <p id="metrika-status" class="status" role="status"></p>
         </div>
       </div>
@@ -379,6 +386,11 @@
                 <p id="aud-summary"></p>
                 <div id="aud-facts" class="chips"></div>
                 <p id="aud-note" class="hint"></p>
+                <label for="aud-gender">Пол клиента</label>
+                <select id="aud-gender"></select>
+                <label>Возраст клиента</label>
+                <div id="aud-ages"></div>
+                <p class="hint">Пол и возраст влияют на корректировки ставок ниже. Если оставить «любой» и не отметить возраст, ставки не меняются.</p>
                 <label for="aud-keywords">Ключевые фразы (по одной в строке, до 20)</label>
                 <textarea id="aud-keywords" rows="8" spellcheck="false"></textarea>
                 <p class="hint">Это запросы, по которым покажут объявления. Без знаков препинания, до 7 слов во фразе. Что не подойдёт Директу, сервис уберёт и скажет, что именно.</p>
@@ -391,6 +403,13 @@
                 <div id="aud-brands"></div>
                 <div class="upload-row"><button id="aud-save" class="small">Сохранить правки</button></div>
                 <p id="aud-launched" class="hint" hidden></p>
+                <div class="launch-head">Корректировки ставок по полу и возрасту</div>
+                <p class="hint" id="aud-bids-hint"></p>
+                <div id="aud-bids-list" class="chips"></div>
+                <div class="upload-row">
+                  <button id="aud-bids-apply" class="small" hidden>Применить в Директе</button>
+                  <button id="aud-bids-clear" class="small secondary" hidden>Убрать из Директа</button>
+                </div>
               </div>
               <div class="upload-row">
                 <button id="aud-build" class="small">Составить профиль</button>

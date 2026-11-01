@@ -477,6 +477,40 @@ class DirectClient:
             item["leads"] += sum(_to_int(v) for k, v in r.items() if k.startswith("Conversions"))
         return list(totals.values())
 
+    async def demographic_adjustments(self, campaign_id: int) -> list[dict]:
+        """Корректировки ставок по полу и возрасту, которые сейчас стоят на кампании."""
+        result = await self.call("bidmodifiers", "get", {
+            "SelectionCriteria": {"CampaignIds": [campaign_id], "Types": ["DEMOGRAPHICS_ADJUSTMENT"], "Levels": ["CAMPAIGN"]},
+            "FieldNames": ["Id", "CampaignId", "Level", "Type"],
+            "DemographicsAdjustmentFieldNames": ["Gender", "Age", "BidModifier", "Enabled"],
+        })
+        found = []
+        for item in result.get("BidModifiers", []):
+            d = item.get("DemographicsAdjustment") or {}
+            found.append({"id": item["Id"], "gender": d.get("Gender"), "age": d.get("Age"), "percent": d.get("BidModifier")})
+        return found
+
+    async def delete_adjustments(self, ids: list[int]) -> None:
+        if not ids:
+            return
+        result = await self.call("bidmodifiers", "delete", {"SelectionCriteria": {"Ids": ids}})
+        for index in range(len(ids)):
+            self._result_item(result, "DeleteResults", index)
+
+    async def add_demographic_adjustments(self, campaign_id: int, slices: list[dict]) -> list[int]:
+        """Корректировки по полу и возрасту одним набором (Директ создаёт набор целиком или не создаёт ничего).
+        slices: {gender: GENDER_*|None, age: AGE_*|None, percent: 0..1300}; срезы не должны пересекаться."""
+        items = []
+        for s in slices:
+            item = {"BidModifier": int(s["percent"])}
+            if s.get("gender"):
+                item["Gender"] = s["gender"]
+            if s.get("age"):
+                item["Age"] = s["age"]
+            items.append(item)
+        result = await self.call("bidmodifiers", "add", {"BidModifiers": [{"CampaignId": campaign_id, "DemographicsAdjustments": items}]})
+        return self._result_item(result, "AddResults").get("Ids", [])
+
     async def set_negative_keywords(self, campaign_id: int, words: list[str]) -> None:
         """Минус-слова кампании целиком (Директ заменяет весь список, поэтому присылаем его полностью)."""
         result = await self.call("campaigns", "update", {"Campaigns": [{"Id": campaign_id, "NegativeKeywords": {"Items": words}}]})

@@ -570,6 +570,10 @@ function renderAudience(data) {
     `Платёжеспособность: ${L.income[p.income]}`, `Уверенность ИИ: ${L.confidence[p.confidence]}`];
   $("aud-facts").replaceChildren(...facts.map((t) => el("span", { className: "badge", textContent: t })));
   $("aud-note").textContent = [p.need && `С чем приходит человек: ${p.need}.`, p.note].filter(Boolean).join(" ");
+  $("aud-gender").replaceChildren(...Object.entries(L.gender).map(([v, t]) => el("option", { value: v, textContent: t })));
+  $("aud-gender").value = p.gender;
+  switches("aud-ages", Object.fromEntries(L.ages.map((a) => [a, a])), Object.fromEntries(p.ages.map((a) => [a, true])));
+  renderBids(data.bids);
   $("aud-keywords").value = data.keywords.join("\n");
   $("aud-negatives").value = (p.negatives || []).join("\n");
   $("aud-negatives-hint").textContent = `В Директ уйдёт минус-слов: ${data.negatives.length}. Общий список вашей сферы добавляется сам, слова, которые режут вашу услугу, сервис не пропустит.`;
@@ -578,6 +582,32 @@ function renderAudience(data) {
   const launched = launchedText(p.launched);
   $("aud-launched").hidden = !launched;
   $("aud-launched").textContent = launched;
+}
+
+function renderBids(b) {
+  const hint = [];
+  if (!b.needed) hint.push("Профиль не привязан ни к полу, ни к возрасту, поэтому ставки менять не нужно.");
+  else {
+    hint.push(`Целевым группам ставка выше на ${b.up}%, остальным ниже на ${b.down}%. Никого не отключаем: профиль ИИ может ошибаться, а настоящие данные покажут клики. В кампании заменятся прежние корректировки по полу и возрасту.`);
+    if (!b.launched) hint.push("Поставить их можно после запуска рекламы.");
+    if (b.applied) hint.push(`Применено ${b.applied.day}.${b.stale ? " Профиль изменился после этого: примените заново." : ""}`);
+  }
+  $("aud-bids-hint").textContent = hint.join(" ");
+  const shown = b.applied && !b.stale ? b.applied.slices : b.plan;
+  $("aud-bids-list").replaceChildren(...shown.map((s) => el("span", { className: "badge", textContent: `${s.label}: ${s.percent}%` })));
+  $("aud-bids-apply").hidden = !(b.needed && b.launched);
+  $("aud-bids-apply").textContent = b.applied ? "Применить заново" : "Применить в Директе";
+  $("aud-bids-clear").hidden = !b.applied;
+}
+
+async function changeBids(method) {
+  const buttons = [$("aud-bids-apply"), $("aud-bids-clear")];
+  buttons.forEach((b) => { b.disabled = true; });
+  const r = await api(method, `/api/businesses/${currentBusiness.id}/audience/bids`);
+  buttons.forEach((b) => { b.disabled = false; });
+  if (!r.ok) { setStatus("aud-status", errorText(r), "err"); return; }
+  renderAudience(r.data);
+  setStatus("aud-status", method === "POST" ? "Корректировки ставок поставлены в Директе." : "Корректировки ставок убраны.", "ok");
 }
 
 async function loadAudience() {
@@ -606,7 +636,8 @@ async function saveAudience() {
   const lines = (id) => $(id).value.split("\n").map((s) => s.trim()).filter(Boolean);
   const flags = (boxId) => Object.fromEntries([...$(boxId).querySelectorAll("input")].map((i) => [i.dataset.key, i.checked]));
   const r = await api("PUT", `/api/businesses/${currentBusiness.id}/audience`, {
-    keywords: lines("aud-keywords"), negatives: lines("aud-negatives"), categories: flags("aud-categories"), brands: flags("aud-brands") });
+    keywords: lines("aud-keywords"), negatives: lines("aud-negatives"), categories: flags("aud-categories"), brands: flags("aud-brands"),
+    gender: $("aud-gender").value, ages: Object.entries(flags("aud-ages")).filter(([, on]) => on).map(([a]) => a) });
   if (!r.ok) { setStatus("aud-status", errorText(r), "err"); return; }
   const ignored = [...r.data.ignored.keywords, ...r.data.ignored.negatives];
   renderAudience(r.data);
@@ -1084,6 +1115,30 @@ async function loadMetrika() {
   const connected = Boolean(selected.counter && selected.goal);
   setStatus("metrika-status", connected ? "Подключено: сервис видит обращения по выбранной цели." : "Метрика не подключена. Выберите счётчик и цель, потом нажмите «Сохранить».", connected ? "ok" : "");
   await loadGoals(selected.goal);
+  await loadSnippet();
+}
+
+async function loadSnippet() {
+  const box = $("m-snippet");
+  const counterId = $("m-counter").value;
+  box.hidden = !counterId;
+  if (!counterId) return;
+  const r = await api("GET", `/api/businesses/${currentBusiness.id}/metrika/snippet?counter_id=${encodeURIComponent(counterId)}`);
+  if (!r.ok) { box.hidden = true; return; }
+  $("m-snippet-code").value = r.data.code;
+  $("m-snippet-steps").replaceChildren(...r.data.steps.map((t) => el("li", { textContent: t })));
+  $("m-snippet-goals").replaceChildren(...r.data.goals.map((g) => el("li", { textContent: `${g.identifier}: ${g.title}` })));
+}
+
+async function copySnippet() {
+  const field = $("m-snippet-code");
+  try {
+    await navigator.clipboard.writeText(field.value);
+    setStatus("metrika-status", "Код скопирован.", "ok");
+  } catch {
+    field.select();
+    setStatus("metrika-status", "Код выделен: нажмите Ctrl+C.", "");
+  }
 }
 
 const choosePlaceholder = () => el("option", { value: "", textContent: "— выберите —" });
@@ -1934,6 +1989,8 @@ async function start() {
   $("launch-back").addEventListener("click", () => setStep("banners"));
   $("q-analyze").addEventListener("click", analyzeQueries);
   $("q-apply").addEventListener("click", applyQueries);
+  $("aud-bids-apply").addEventListener("click", () => changeBids("POST"));
+  $("aud-bids-clear").addEventListener("click", () => changeBids("DELETE"));
   $("aud-build").addEventListener("click", buildAudience);
   $("aud-save").addEventListener("click", saveAudience);
   $("ads-launch").addEventListener("click", () => { showPage("home"); openLaunch(); });
@@ -1947,7 +2004,8 @@ async function start() {
   $("cr-own-body-n").replaceWith(counterEl($("cr-own-body"), 81));
   $("connect-direct").addEventListener("click", connectDirect);
   $("connect-cancel").addEventListener("click", stopConnect);
-  $("m-counter").addEventListener("change", () => loadGoals(""));
+  $("m-counter").addEventListener("change", () => { loadGoals(""); loadSnippet(); });
+  $("m-snippet-copy").addEventListener("click", copySnippet);
   $("m-save").addEventListener("click", saveMetrika);
   $("m-clear").addEventListener("click", clearMetrika);
   $("marking-ok").addEventListener("change", () => { $("launch-go").disabled = !$("marking-ok").checked; });

@@ -80,6 +80,50 @@ def goals(business_id: int, counter_id: str, user: sqlite3.Row = Depends(current
     return {"goals": [{"id": str(g["id"]), "name": g.get("name", str(g["id"]))} for g in data.get("goals", [])]}
 
 
+TAG = """<!-- Яндекс Метрика -->
+<script type="text/javascript">
+(function(m,e,t,r,i,k,a){m[i]=m[i]||function(){(m[i].a=m[i].a||[]).push(arguments)};
+m[i].l=1*new Date();
+for (var j = 0; j < document.scripts.length; j++) {if (document.scripts[j].src === r) { return; }}
+k=e.createElement(t),a=e.getElementsByTagName(t)[0],k.async=1,k.src=r,a.parentNode.insertBefore(k,a)})
+(window, document, "script", "https://mc.yandex.ru/metrika/tag.js", "ym");
+ym(%(id)s, "init", {clickmap:true, trackLinks:true, accurateTrackBounce:true, webvisor:true});
+</script>
+<noscript><div><img src="https://mc.yandex.ru/watch/%(id)s" style="position:absolute; left:-9999px;" alt="" /></div></noscript>
+<!-- /Яндекс Метрика -->
+<script>
+// Цели для сервиса: звонок, Telegram, отправка формы (идентификаторы целей в Метрике: call, telegram, lead)
+document.addEventListener("click", function (e) {
+  var a = e.target.closest && e.target.closest("a[href]");
+  if (!a) return;
+  var href = a.getAttribute("href") || "";
+  if (href.indexOf("tel:") === 0) ym(%(id)s, "reachGoal", "call");
+  else if (/t\\.me\\/|telegram/i.test(href)) ym(%(id)s, "reachGoal", "telegram");
+});
+document.addEventListener("submit", function () { ym(%(id)s, "reachGoal", "lead"); });
+</script>"""
+
+SNIPPET_GOALS = [
+    {"identifier": "lead", "title": "Заявка: отправка любой формы на сайте"},
+    {"identifier": "call", "title": "Звонок: нажатие на номер телефона"},
+    {"identifier": "telegram", "title": "Telegram: переход по ссылке на мессенджер"},
+]
+
+
+@router.get("/snippet")
+def snippet(business_id: int, counter_id: str, user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connection = Depends(get_db)):
+    """Готовый код для сайта: счётчик Метрики и отправка целей «заявка», «звонок», «Telegram». Токен Метрики не нужен: код зависит только от номера счётчика."""
+    _own(conn, user, business_id)
+    if not counter_id.isdigit():
+        raise HTTPException(400, detail={"message": "Выберите счётчик из списка."})
+    return {
+        "counter": counter_id, "code": TAG % {"id": counter_id}, "goals": SNIPPET_GOALS,
+        "steps": ["Вставьте код целиком перед закрывающим тегом </head> на всех страницах сайта (если счётчик уже стоит, оставьте только второй блок со скриптом целей).",
+                  "В Метрике откройте «Настройки», «Цели» и создайте цели типа «JavaScript-событие» с идентификаторами из списка ниже.",
+                  "Здесь выберите этот счётчик и цель «Заявка» (идентификатор lead) как обращение и нажмите «Сохранить»."],
+    }
+
+
 class MetrikaIn(BaseModel):
     counter_id: str
     goal_id: str

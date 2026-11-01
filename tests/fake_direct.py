@@ -23,6 +23,7 @@ class FakeDirect:
         self.images: list[str] = []
         self.advertiser = {"tin_type": None, "tin": None, "name": None, "phone": ""}  # данные рекламодателя в «кабинете»
         self.update_error = ""
+        self.bid_modifiers: dict[int, dict] = {}   # корректировки по полу и возрасту: id → кампания, пол, возраст, процент
         self.query_rows: list[tuple] = []          # отчёт по поисковым запросам нашей кампании
         self.query_foreign_rows: list[tuple] = []  # и чужой кампании того же кабинета
         self.query_requests: list[dict] = []
@@ -121,6 +122,32 @@ class FakeDirect:
                 for i in ids():
                     self.campaigns.pop(i, None)
                 return ok({"DeleteResults": [{"Id": i} for i in ids()]})
+        if service == "bidmodifiers":
+            if method == "get":
+                wanted = params["SelectionCriteria"]["CampaignIds"]
+                return ok({"BidModifiers": [
+                    {"CampaignId": m["campaign"], "AdGroupId": None, "Id": i, "Level": "CAMPAIGN", "Type": "DEMOGRAPHICS_ADJUSTMENT",
+                     "DemographicsAdjustment": {"Gender": m["gender"], "Age": m["age"], "BidModifier": m["percent"], "Enabled": "YES"}}
+                    for i, m in self.bid_modifiers.items() if m["campaign"] in wanted]})
+            if method == "delete":
+                for i in ids():
+                    self.bid_modifiers.pop(i, None)
+                return ok({"DeleteResults": [{"Id": i} for i in ids()]})
+            if method == "add":
+                item = params["BidModifiers"][0]
+                items = item["DemographicsAdjustments"]
+                mine = [m for m in self.bid_modifiers.values() if m["campaign"] == item["CampaignId"]]
+                pairs = [(m["gender"], m["age"]) for m in mine] + [(i.get("Gender"), i.get("Age")) for i in items]
+                clash = any((a[0] is None or b[0] is None or a[0] == b[0]) and (a[1] is None or b[1] is None or a[1] == b[1])
+                            for n, a in enumerate(pairs) for b in pairs[n + 1:])   # Директ не принимает пересекающиеся срезы
+                if len(pairs) > 12 or clash or any(not 0 <= i["BidModifier"] <= 1300 for i in items):
+                    return ok({"AddResults": [{"Errors": [{"Code": 5005, "Message": "Срезы пересекаются или коэффициент вне допустимого"}]}]})
+                created = []
+                for i in items:
+                    bid = self._next()
+                    self.bid_modifiers[bid] = {"campaign": item["CampaignId"], "gender": i.get("Gender"), "age": i.get("Age"), "percent": i["BidModifier"]}
+                    created.append(bid)
+                return ok({"AddResults": [{"Ids": created}]})
         if service == "keywords":
             results = []
             for item in params["Keywords"]:

@@ -273,3 +273,70 @@ def test_ad_texts_are_written_for_the_described_client(isolated):
         conn.close()
         assert "Кому рекламируем: Женщины 25-45" in prompt and "Возраст: 25-34, 35-44" in prompt and "Пол: женщины" in prompt
         assert "боятся плохой обработки инструментов" in prompt
+
+
+# ---------- корректировки ставок по полу и возрасту ----------
+
+def test_bid_slices_follow_the_profile_and_never_overlap():
+    from app.direct import bids
+    both = bids.slices({"gender": "female", "ages": ["25-34", "35-44"]})
+    by = {(s["gender"], s["age"]): s["percent"] for s in both}
+    assert len(both) == 12 and len(by) == 12
+    assert by[("GENDER_FEMALE", "AGE_25_34")] == 132 and by[("GENDER_FEMALE", "AGE_55")] == 86
+    assert by[("GENDER_MALE", "AGE_35_44")] == 86 and by[("GENDER_MALE", "AGE_0_17")] == 56     # самый «нецелевой» срез всё равно не ноль
+    only_age = bids.slices({"gender": "any", "ages": ["25-34"]})
+    assert len(only_age) == 6 and all(s["gender"] is None for s in only_age) and {s["percent"] for s in only_age} == {115, 75}
+    only_gender = bids.slices({"gender": "female", "ages": []})
+    assert [(s["gender"], s["percent"]) for s in only_gender] == [("GENDER_MALE", 75), ("GENDER_FEMALE", 115)]
+    assert bids.slices({"gender": "any", "ages": []}) == [] and bids.slices(None) == []
+
+
+def launched_with_profile(http, fake, db_path, monkeypatch):
+    monkeypatch.setenv("FAL_KEY", "fal-test")
+    ai()
+    bid = setup(http, fake, db_path)
+    assert http.post(f"/api/businesses/{bid}/launch", json={"marking_confirmed": True}).status_code == 200
+    return bid
+
+
+def test_bids_are_put_replaced_and_removed_in_the_cabinet(isolated, monkeypatch):
+    fake = FakeDirect()
+    with TestClient(app) as http:
+        bid = launched_with_profile(http, fake, isolated, monkeypatch)
+        info = http.get(f"/api/businesses/{bid}/audience").json()["bids"]
+        assert info["needed"] and info["launched"] and info["applied"] is None and info["up"] == 15 and info["down"] == 25
+        assert len(info["plan"]) == 12 and fake.bid_modifiers == {}
+
+        data = http.post(f"/api/businesses/{bid}/audience/bids").json()
+        assert len(fake.bid_modifiers) == 12 and data["bids"]["applied"]["slices"] == data["bids"]["plan"] and data["bids"]["stale"] is False
+        assert {m["campaign"] for m in fake.bid_modifiers.values()} == {next(iter(fake.campaigns))}
+        assert {"label": "женщины 25–34", "percent": 132} in data["bids"]["applied"]["slices"]
+
+        # владелец поправил возраст: применённое устарело, повторное применение заменяет набор целиком (пересечений нет)
+        edited = http.put(f"/api/businesses/{bid}/audience", json={"ages": ["45-54"], "gender": "any"}).json()
+        assert edited["bids"]["stale"] is True and len(edited["bids"]["plan"]) == 6
+        assert len(http.post(f"/api/businesses/{bid}/audience/bids").json()["bids"]["plan"]) == 6
+        assert len(fake.bid_modifiers) == 6 and {m["gender"] for m in fake.bid_modifiers.values()} == {None}
+
+        # новый профиль не стирает то, что уже стоит в кабинете
+        assert http.post(f"/api/businesses/{bid}/audience").json()["bids"]["applied"] is not None
+        removed = http.delete(f"/api/businesses/{bid}/audience/bids").json()
+        assert fake.bid_modifiers == {} and removed["bids"]["applied"] is None
+
+
+def test_bids_need_a_launch_a_profile_that_names_someone_and_a_cabinet_that_agrees(isolated, monkeypatch):
+    fake = FakeDirect()
+    with TestClient(app) as http:
+        monkeypatch.setenv("FAL_KEY", "fal-test")
+        ai()
+        bid = setup(http, fake, isolated)
+        http.post(f"/api/businesses/{bid}/audience")
+        before = http.get(f"/api/businesses/{bid}/audience").json()["bids"]
+        assert before["launched"] is False and before["needed"] is True
+        r = http.post(f"/api/businesses/{bid}/audience/bids")
+        assert r.status_code == 400 and "после запуска" in r.json()["detail"]["message"]
+        http.put(f"/api/businesses/{bid}/audience", json={"gender": "any", "ages": []})
+        r = http.post(f"/api/businesses/{bid}/audience/bids")
+        assert r.status_code == 400 and "ни пол, ни возраст" in r.json()["detail"]["message"]
+        assert http.get(f"/api/businesses/{bid}/audience").json()["bids"]["needed"] is False
+        assert fake.bid_modifiers == {}
