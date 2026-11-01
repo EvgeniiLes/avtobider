@@ -1,8 +1,9 @@
 """Движок на настоящем Директе: одна кампания, объявления внутри делят бюджет.
 
-Яндекс учится на данных кампании, поэтому правила мягкие: две недели после запуска ничего не решаем, потом правим кампанию
-не чаще раза в неделю и не больше чем на 10%. Кампания работает на «Максимум кликов», пока обращений мало, и переходит на
-«Максимум конверсий», когда за неделю набирается 10 обращений."""
+Яндекс учится на данных кампании, поэтому правила мягкие: неделю после запуска саму кампанию не трогаем, потом правим не чаще
+раза в неделю и не больше чем на 10%. Кампания работает на «Максимум кликов», пока обращений мало, и переходит на
+«Максимум конверсий», когда за неделю набирается 10 обращений. Слабое объявление в первые две недели останавливаем только
+при сильных данных: на малом бюджете в первые дни у него 5-6 кликов в день, и ошибиться легко."""
 from datetime import date
 
 import pytest
@@ -55,15 +56,56 @@ def campaign(fake):
     return next(iter(fake.campaigns.values()))
 
 
-def test_nothing_is_decided_during_the_first_two_weeks(isolated):
+def test_the_campaign_itself_is_left_alone_for_the_first_week(isolated):
     fake = FakeDirect()
     with TestClient(app) as http:
         bid, conn = prepare(http, fake, isolated)
-        fake.report_rows = report(day_add(TODAY, 5), 6, ads=(0, 1, 2), clicks=20, cost=600, leads=0)   # плохо: расход есть, обращений нет
-        for d in (5, 6, 7):
+        fake.report_rows = report(day_add(TODAY, 4), 4, ads=(0, 1), clicks=20, cost=200, leads=2)   # обращений уже больше десяти, но прошло 5 дней
+        run(conn, bid, fake, day_add(TODAY, 5))
+        assert changes(conn) == [] and campaign(fake)["Strategy"] == "WB_MAXIMUM_CLICKS"
+        fake.report_rows = report(day_add(TODAY, 7), 7, ads=(0, 1), clicks=20, cost=200, leads=2)
+        run(conn, bid, fake, day_add(TODAY, 8))                              # неделя прошла: Яндексу хватило времени, переходим на конверсии
+        assert campaign(fake)["Strategy"] == "WB_MAXIMUM_CONVERSION_RATE" and [c["action"] for c in changes(conn)] == ["set_strategy"]
+        conn.close()
+
+
+def early_rows(ad1_leads_on_first_day: int, cost: int, ads=(1, 2)):
+    """Первые пять дней: объявление 0 хорошее (2 обращения в день), объявления из ads тратят cost в день, кликают по 12 раз."""
+    good = report(day_add(TODAY, 5), 5, ads=(0,))
+    weak = [(day_add(TODAY, d), a, 1000, 12, cost * MICRO, ad1_leads_on_first_day if d == 1 else 0) for a in ads for d in range(1, 6)]
+    return good + weak
+
+
+def test_early_on_a_clearly_weak_ad_is_stopped_after_one_week_without_waiting_for_two(isolated):
+    fake = FakeDirect()
+    with TestClient(app) as http:
+        bid, conn = prepare(http, fake, isolated)
+        conn.execute("UPDATE campaigns SET strategy = 'conversions'")
+        conn.commit()
+        fake.report_rows = early_rows(0, 300)                                # 60 кликов, 1 500 ₽ и ни одного обращения: цена обращения всего 240 ₽
+        run(conn, bid, fake, day_add(TODAY, 7))                              # раньше недели кликов и подтверждения нет
+        assert changes(conn) == []
+        run(conn, bid, fake, day_add(TODAY, 8))
+        assert [a["suspended"] for a in fake.ads.values()] == [False, True, True] and campaign(fake)["State"] == "ON"
+        assert [c["action"] for c in changes(conn)] == ["pause", "pause"]
+        conn.close()
+
+
+def test_early_on_moderate_evidence_an_ad_is_left_running_until_the_second_week_ends(isolated):
+    fake = FakeDirect()
+    with TestClient(app) as http:
+        bid, conn = prepare(http, fake, isolated)
+        conn.execute("UPDATE campaigns SET strategy = 'conversions'")
+        conn.commit()
+        fake.report_rows = early_rows(1, 180)                                # 60 кликов, 900 ₽, одно обращение: вероятность окупаемости около 10%
+        for d in (7, 8, 9):
             run(conn, bid, fake, day_add(TODAY, d))
-        assert changes(conn) == [] and ("ads", "suspend") not in fake.calls
-        assert not any(a["suspended"] for a in fake.ads.values()) and campaign(fake)["Strategy"] == "WB_MAXIMUM_CLICKS"
+        assert changes(conn) == [] and not any(a["suspended"] for a in fake.ads.values())   # для остановки в первые две недели этого мало
+        assert {r["cls"] for r in conn.execute("SELECT cls FROM evaluations WHERE unit_id IN (2, 3)")} == {"borderline"}
+
+        run(conn, bid, fake, day_add(TODAY, 15))                             # обычное правило: слабое объявление, первая оценка
+        run(conn, bid, fake, day_add(TODAY, 16))                             # вторая оценка подряд: останавливаем
+        assert [a["suspended"] for a in fake.ads.values()] == [False, True, True]
         conn.close()
 
 
@@ -223,7 +265,7 @@ def test_overview_shows_how_close_the_campaign_is_to_conversions(isolated):
         run(conn, bid, fake, TODAY)
         info = http.get(f"/api/businesses/{bid}/overview").json()["campaign"]
         assert info["strategy"] == "clicks" and info["strategy_label"] == "Максимум кликов" and info["switch_at"] == 10
-        assert info["leads_week"] == 6 and info["conversions"] is True and info["warmup_left"] == 14
+        assert info["leads_week"] == 6 and info["conversions"] is True and info["warmup_left"] == 7
         conn.close()
 
 

@@ -230,14 +230,16 @@ def run_cycle(
     evals = []
     for u in units:
         s = unit_stats(conn, u["id"], start, as_of)
-        warming = cfg.warmup_days > 0 and days_between(u["created_day"], today) < cfg.warmup_days   # только что запущено: Яндекс ещё учится
-        if warming or not enough_data(s["clicks"], s["spend"], cpa, cfg):
+        if not enough_data(s["clicks"], s["spend"], cpa, cfg):
             cls, p = "waiting", 0.0
         else:
             p = prob_ok(s["clicks"], s["leads"], s["spend"], lead_target, random.Random(f"{u['id']}:{today}"), cfg.samples)
             cls = classify(p, cfg)
-            if s["leads"] == 0 and s["spend"] >= 2 * lead_target:
-                cls = "bad"  # потратили вдвое больше цены обращения, а обращений нет
+            early = cfg.early_days > 0 and days_between(u["created_day"], today) < cfg.early_days   # первые дни: кликов мало, судим строже
+            if s["leads"] == 0 and s["spend"] >= (cfg.early_zero_factor if early else 2) * lead_target:
+                cls = "bad"  # потратили в несколько раз больше цены обращения, а обращений нет
+            elif early and cls == "bad" and p > cfg.early_p_bad:
+                cls = "borderline"  # по обычному правилу слабое, но данных ещё мало для такого вывода
         prev = conn.execute(
             "SELECT cls FROM evaluations WHERE unit_id = ? AND day < ? ORDER BY day DESC, id DESC LIMIT 1", (u["id"], today)
         ).fetchone()
