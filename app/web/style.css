@@ -104,6 +104,10 @@ input:focus, textarea:focus, select:focus { border-color: var(--text); }
 textarea { resize: vertical; }
 select { appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%23111214' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 16px center; padding-right: 38px; }
 input[type=file] { max-width: 100%; color: var(--muted); }
+/* поля подряд без подписи и пустой абзац-распорка перед кнопкой не должны слипаться */
+form > input + input, form > input + select, form > select + input, form > textarea + input { margin-top: 10px; }
+form > input + .hint, form > select + .hint, form > textarea + .hint { margin-top: 8px; }
+p:empty:not([class]) { margin: 0; height: 14px; }
 input[type=color] { width: 56px; height: 40px; padding: 2px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); }
 .row { display: flex; gap: 24px; flex-wrap: wrap; }
 .color { display: flex; align-items: center; gap: 10px; }
@@ -464,7 +468,9 @@ button.chip.sel { background: var(--lav); color: var(--lav-ink); border-color: v
 .ptile.lav .cbars { margin-top: auto; }
 a.link { font-weight: 600; }.cap i.w65 { width: 65%; }
 .auth-card input[type=email], .auth-card input[type=password] { border-color: #d3d6de; }
-.auth-card button.big { width: 100%; }input[type=file]::file-selector-button { font: inherit; font-weight: 600; font-size: 14px; margin-right: 12px; padding: 7px 16px; border: 1px solid var(--line); border-radius: 999px; background: #fff; color: var(--text); cursor: pointer; }
+.auth-card button.big { width: 100%; margin-top: 22px; }   /* кнопка не должна прилипать к полю пароля: отступ задаём здесь, а не пустым абзацем в разметке */
+#auth-form .status { margin-top: 12px; }
+input[type=file]::file-selector-button { font: inherit; font-weight: 600; font-size: 14px; margin-right: 12px; padding: 7px 16px; border: 1px solid var(--line); border-radius: 999px; background: #fff; color: var(--text); cursor: pointer; }
 input[type=file]::file-selector-button:hover { background: var(--soft); }
 #chart-card .chart .axis { display: none; }.nav .short { display: none; }
 @media (max-width: 900px) {
