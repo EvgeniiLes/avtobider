@@ -461,6 +461,36 @@ def test_ai_banner_with_typos_is_rejected(monkeypatch):
         assert http.get(f"{base}/ads/4/banner.jpg").status_code == 404
 
 
+def test_extra_words_ignores_short_words_repeats_and_noise_in_expected_texts():
+    from app.creative.texts_ai import EXTRA_WORDS_OK, extra_words
+    expected = ["Стрижка и укладка за час", "ЗАПИСАТЬСЯ", "от 1500 ₽"]
+    assert extra_words(expected, ["СТРИЖКА и УКЛАДКА", "за час", "Записаться", "от 1500 ₽"]) == []   # регистр, знаки и «и/от» не важны
+    assert extra_words(expected, ["Запи-сать-ся", "1 500 ₽"]) == []                                  # распознавание разорвало слова: части на месте
+    assert extra_words(expected, ["Борода", "борода", "ул. Мира 5"]) == ["борода", "мира"]           # повторы и слова короче трёх букв не считаем
+    assert len(extra_words(expected, ["Мужской зал", "Борода 800", "Лотос"])) > EXTRA_WORDS_OK         # список услуг с названием: это уже лишнее
+
+
+def test_ai_banner_with_extra_small_text_is_rejected_but_a_stray_word_is_not(monkeypatch):
+    monkeypatch.setenv("FAL_KEY", "fal-test")
+    fakes = Fakes(fal_done=True)
+    with TestClient(app) as http:
+        bid = setup(http)
+        base = f"/api/businesses/{bid}/creatives"
+        ad = _ai_ad(http, bid)
+        fakes.claude_text = json.dumps([ad["title"], "ЗАПИСАТЬСЯ", "Лотос"], ensure_ascii=False)   # одно постороннее слово: терпим
+        http.post(f"{base}/ads/4/ai-banner")
+        http.get(base)
+        assert _ai_ad(http, bid)["ai"]["status"] == "ready"
+
+        fakes.claude_text = json.dumps([ad["title"], "ЗАПИСАТЬСЯ", "Маникюр 1500", "Педикюр 1800", "Наращивание ресниц"], ensure_ascii=False)
+        http.post(f"{base}/ads/4/ai-banner")
+        http.get(base)
+        bad = _ai_ad(http, bid)
+        assert bad["ai"]["status"] == "failed" and "лишний текст" in bad["ai"]["error"]
+        assert "педикюр" in bad["ai"]["error"] and "маникюр" not in bad["ai"]["error"]   # слова из заголовка лишними не считаются
+        assert http.get(f"{base}/ads/4/banner.jpg").status_code == 200                    # а прежний принятый баннер остаётся на объявлении
+
+
 def test_photo_check_tags_photos_and_rates_the_logo(monkeypatch):
     monkeypatch.setenv("FAL_KEY", "fal-test")
     Fakes(claude_text=json.dumps({"type": "hands", "score": 4, "issues": ["чужая вывеска"], "summary": "Руки с маникюром крупным планом."}, ensure_ascii=False))

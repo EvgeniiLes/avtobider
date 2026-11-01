@@ -226,6 +226,21 @@ def missing_phrases(expected: list[str], read: list[str]) -> list[str]:
     return [e for e in expected if _norm(e) and _norm(e) not in haystack]
 
 
+EXTRA_WORDS_OK = 2   # столько посторонних слов терпим: шумит распознавание, у цены бывает «руб.»; список услуг даёт больше
+
+
+def extra_words(expected: list[str], read: list[str]) -> list[str]:
+    """Слова на картинке, которых нет в нужных надписях (короткие слова и повторы не считаем). Нейросеть любит дописать мелким шрифтом
+    список услуг или лозунг: в объявлении этого не было, а проверить такие факты нечем."""
+    known = _norm(" ".join(expected))
+    extra: list[str] = []
+    for line in read:
+        for word in re.findall(r"[0-9a-zа-яё]+", (line or "").lower()):
+            if len(word) >= 3 and _norm(word) not in known and word not in extra:
+                extra.append(word)
+    return extra
+
+
 async def generate_texts(biz, count: int, api_key: str, model: str, hint: str = "",
                          transport: httpx.AsyncBaseTransport | None = None,
                          fal_key: str = "", fal_model: str = "") -> list[dict]:

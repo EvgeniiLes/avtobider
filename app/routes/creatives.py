@@ -22,7 +22,7 @@ from app.assets import PHOTO_TAGS
 from app.creative.compose import add_logo, find_price, prepare_for_direct, style_for
 from app.creative.art import art_direction, review_banner, scene_label
 from app.creative.screen import insert_logo, insert_screenshot
-from app.creative.texts_ai import check_photo, generate_texts, invented_links, missing_phrases, read_image_text
+from app.creative.texts_ai import EXTRA_WORDS_OK, check_photo, extra_words, generate_texts, invented_links, missing_phrases, read_image_text
 from app.db import get_db
 from app.deps import creative_transport, current_user
 from app.direct.launch import banner_layout, choose_variants, logo_for, media_typed, photo_for, render_banner, start_split, text_candidates, usable_photos
@@ -132,6 +132,11 @@ def _refresh_working(conn, business_id: int, transport) -> None:
             if links:
                 conn.execute("UPDATE creatives SET status = 'failed', error = ? WHERE id = ?",
                              (f"Нейросеть дописала на картинке адрес сайта: {', '.join(links)}. Нажмите «Другой баннер».", r["id"]))
+                continue
+            extra = extra_words(expected, read or [])
+            if len(extra) > EXTRA_WORDS_OK:
+                conn.execute("UPDATE creatives SET status = 'failed', error = ? WHERE id = ?",
+                             (f"Нейросеть дописала на картинке лишний текст: {', '.join(extra[:6])}. Нажмите «Другой баннер».", r["id"]))
                 continue
         try:
             data = asyncio.run(fal.download(value, transport))
