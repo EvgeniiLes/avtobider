@@ -1,4 +1,4 @@
-﻿import sqlite3
+import sqlite3
 from datetime import date
 
 import pytest
@@ -22,6 +22,7 @@ BUDGET = 20_000
 def isolated(tmp_path, monkeypatch):
     monkeypatch.setenv("DB_PATH", str(tmp_path / "test.db"))
     monkeypatch.setenv("SECRET_KEY", "test-secret-key")
+    monkeypatch.delenv("FAL_KEY", raising=False)   # запуск сам составляет профиль аудитории, если есть ключ; в тестах ходить к настоящему ИИ нельзя
     auth._fails.clear()
     yield tmp_path / "test.db"
     app.dependency_overrides.clear()
@@ -61,7 +62,9 @@ def test_preview_shows_what_will_be_created(isolated):
         assert plan["weekly"] <= BUDGET * 0.9 * 0.7 + 6 and plan["total"] == plan["weekly"]   # одна кампания, один недельный лимит
         assert all(len(v["title"]) <= 56 and len(v["text"]) <= 81 for v in plan["variants"])
         assert len({v["title"] for v in plan["variants"]}) == 3
-        assert plan["warnings"] == []
+        assert [w for w in plan["warnings"] if "Профиль аудитории" not in w] == []
+        assert any("Профиль аудитории не составлен" in w for w in plan["warnings"]) and plan["keywords"] == [] and plan["audience"] is None
+        assert plan["autotargeting"]["categories"] == ["Целевые", "Узкие"] and "Запросы с брендами конкурентов" not in plan["autotargeting"]["brands"]
         assert fake.campaigns == {}  # просмотр ничего не создаёт
 
 
@@ -84,7 +87,7 @@ def test_online_business_is_shown_across_russia_and_needs_no_city(isolated):
         bid = setup(http, fake, isolated, city="", nationwide=True, description="Онлайн-консультации по всей стране. Запись на сайте.")
         assert http.get(f"/api/businesses/{bid}").json()["nationwide"] is True
         plan = http.get(f"/api/businesses/{bid}/launch/preview").json()
-        assert plan["city"] == "вся Россия" and plan["warnings"] == []
+        assert plan["city"] == "вся Россия" and [w for w in plan["warnings"] if "Профиль аудитории" not in w] == []
         steps = {s["key"]: s for s in http.get(f"/api/businesses/{bid}/overview").json()["checklist"]}
         assert steps["described"]["done"] is True                                  # города нет, а бизнес описан
         assert http.post(f"/api/businesses/{bid}/launch", json={"marking_confirmed": True}).status_code == 200

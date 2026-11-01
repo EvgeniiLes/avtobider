@@ -23,6 +23,9 @@ class FakeDirect:
         self.images: list[str] = []
         self.advertiser = {"tin_type": None, "tin": None, "name": None, "phone": ""}  # данные рекламодателя в «кабинете»
         self.update_error = ""
+        self.keywords: list[dict] = []          # добавленные фразы и автотаргетинг групп
+        self.reject_keywords: set[str] = set()  # фразы, которые Директ «не принимает»
+        self.reject_autotargeting = False
         self.metrika_goals: list[dict] = []   # цели счётчика Метрики: {"id": ..., "name": ...}
         self.single_goal_only = False   # отчёт с несколькими целями отвечает ошибкой: проверка запасного пути на одну цель
         self._id = 1000
@@ -113,6 +116,18 @@ class FakeDirect:
                 for i in ids():
                     self.campaigns.pop(i, None)
                 return ok({"DeleteResults": [{"Id": i} for i in ids()]})
+        if service == "keywords":
+            results = []
+            for item in params["Keywords"]:
+                if item["Keyword"] in self.reject_keywords:
+                    results.append({"Errors": [{"Code": 5000, "Message": "Недопустимые символы во фразе"}]})
+                    continue
+                if item["Keyword"] == "---autotargeting" and self.reject_autotargeting:
+                    results.append({"Errors": [{"Code": 5001, "Message": "Автотаргетинг недоступен для этой группы"}]})
+                    continue
+                self.keywords.append({"group": item["AdGroupId"], "keyword": item["Keyword"], "settings": item.get("AutotargetingSettings")})
+                results.append({"Id": self._next()})
+            return ok({"AddResults": results})
         if service == "adimages":
             item = params["AdImages"][0]
             self.images.append(item["Name"])

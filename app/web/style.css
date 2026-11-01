@@ -417,6 +417,11 @@ button.chip.sel { background: var(--lav); color: var(--lav-ink); border-color: v
 .ed-actions { display: flex; gap: 10px; align-items: center; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line-2); flex-wrap: wrap; }
 .ed-actions .hint { margin: 0 0 0 auto; font-size: 12px; }
 .launch-list { display: flex; flex-direction: column; gap: 8px; margin: 10px 0; }
+.card-inner { margin: 0 0 18px; padding: 16px 18px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-2); }
+.card-inner h3 { margin-top: 0; }
+.card-inner textarea { background: var(--surface); }
+.card-inner .chips { margin: 6px 0; }
+.card-inner .badge { background: var(--surface); border: 1px solid var(--line); color: var(--text); }
 .launch-row { display: flex; align-items: center; gap: 14px; padding: 10px; border: 1px solid var(--line); border-radius: 20px; }
 .launch-row .pic { width: 64px; height: 48px; border-radius: 10px; object-fit: cover; background: var(--soft); flex: none; }
 .launch-row .t { font-weight: 600; font-size: 14px; }

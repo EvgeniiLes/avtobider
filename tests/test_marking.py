@@ -19,6 +19,7 @@ PERSON_INN = "500100732259"  # 12 цифр
 def isolated(tmp_path, monkeypatch):
     monkeypatch.setenv("DB_PATH", str(tmp_path / "test.db"))
     monkeypatch.setenv("SECRET_KEY", "test-secret-key")
+    monkeypatch.delenv("FAL_KEY", raising=False)   # запуск сам составляет профиль аудитории, если есть ключ; в тестах ходить к настоящему ИИ нельзя
     auth._fails.clear()
     yield tmp_path / "test.db"
     app.dependency_overrides.clear()

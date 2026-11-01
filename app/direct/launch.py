@@ -1,7 +1,7 @@
 """Запуск рекламы бизнеса в Яндекс Директе: план, создание кампаний, отправка на проверку, синхронизация.
 
-Устройство: одна кампания с одним недельным лимитом, внутри одна группа (автотаргетинг включается сам, ключевые фразы
-не нужны) и 2-3 объявления-варианта. Варианты показываются в одних и тех же аукционах, так что сравнение честное, а ставки
+Устройство: одна кампания с одним недельным лимитом, внутри одна группа с явными запросами (ключевые фразы из профиля
+аудитории и автотаргетинг с выбранными категориями, см. app/direct/audience.py) и 2-3 объявления-варианта. Варианты показываются в одних и тех же аукционах, так что сравнение честное, а ставки
 подбирает сам Яндекс: сначала по кликам, а когда набирается 10 обращений в неделю, по обращениям (см. app/engine/cycle.py).
 Раньше на каждый вариант была своя кампания; на малом бюджете у такой кампании не набиралось данных ни для сравнения,
 ни для обучения стратегии Яндекса (ему нужно не меньше 10 конверсий в неделю на кампанию).
@@ -15,7 +15,7 @@ from app.creative.compose import style_for
 from app.creative.angles import is_nationwide
 from app.direct.client import RUSSIA_REGION_ID, DirectClient, DirectError
 from app.direct.goals import goal_ids_for_report
-from app.direct.negatives import negatives_for
+from app.direct.audience import autotargeting_for, effective_negatives
 from app.direct.texts import check, draft_variants
 from app.engine.util import EngineError, MICRO, day_add, plural, rub
 
@@ -48,6 +48,9 @@ class Plan:
     counter_ids: list[int] | None = None
     own_count: int = 0
     negatives: list[str] | None = None
+    keywords: list[str] | None = None       # ключевые фразы группы; пусто: только автотаргетинг
+    autotargeting: dict | None = None       # категории и бренды автотаргетинга
+    audience: dict | None = None            # профиль аудитории, по которому всё это собрано
 
 
 def _maps_id(biz) -> int | None:
@@ -120,7 +123,8 @@ def render_banner(biz, variant: dict, photo: bytes, logo: bytes | None, index: i
                        brand=biz["name"], badge=price, cta=profile(biz)["cta"], style=style_for(index), body=variant["text"])
 
 
-def plan_launch(biz, region_id: int | None, min_weekly_micro: int = MIN_WEEKLY, custom: list[dict] | None = None) -> Plan:
+def plan_launch(biz, region_id: int | None, min_weekly_micro: int = MIN_WEEKLY, custom: list[dict] | None = None,
+                audience: dict | None = None) -> Plan:
     """Считает, что будет создано. Если создавать нечего или нельзя, объясняет простыми словами."""
     if not (biz["site_url"] or _maps_id(biz)):
         raise EngineError("Укажите сайт или ссылку на ваш бизнес в Яндекс Картах: без них объявлению некуда вести.", "no_target_link")
@@ -151,10 +155,16 @@ def plan_launch(biz, region_id: int | None, min_weekly_micro: int = MIN_WEEKLY, 
     if advice["level"] == "low":   # хватает на запуск и сравнение, но не на подбор ставок под обращения: владелец должен знать об этом до запуска
         warnings.append(advice["summary"])
     counters = [int(biz["metrika_counter_id"])] if biz["metrika_counter_id"] else None
+    keywords = list((audience or {}).get("keywords") or [])
+    if audience is None:
+        warnings.append("Профиль аудитории не составлен, ключевых фраз нет: показ пойдёт только по автотаргетингу Яндекса. "
+                        "Составьте профиль на шаге «Запуск», чтобы запросы подбирались под вашего клиента.")
+    elif len(keywords) < 5:
+        warnings.append("В профиле мало ключевых фраз: большую часть запросов подберёт автотаргетинг Яндекса. Добавьте свои фразы в профиле аудитории.")
     return Plan(
         count=count, campaign_micro=start_pool, variants=variants, region_id=RUSSIA_REGION_ID if nationwide else region_id,
         city="вся Россия" if nationwide else biz["city"], href=biz["site_url"], business_id=_maps_id(biz), warnings=warnings, counter_ids=counters,
-        own_count=own, negatives=negatives_for(biz["kind"]),
+        own_count=own, negatives=effective_negatives(biz, audience), keywords=keywords, autotargeting=autotargeting_for(audience), audience=audience,
     )
 
 
@@ -165,6 +175,7 @@ async def create_campaign(client: DirectClient, plan: Plan, name: str, start_dat
         campaign_id = await client.create_text_campaign(
             name, plan.campaign_micro, start_date, counter_ids=plan.counter_ids, negative_keywords=plan.negatives)
         group_id = await client.create_ad_group(campaign_id, "Основная", [plan.region_id])
+        keywords = await client.add_keywords(group_id, plan.keywords or [], plan.autotargeting)
         ad_ids = [await client.create_text_ad(group_id, v["title"], v["text"], href=plan.href, business_id=plan.business_id)
                   for v in plan.variants]
     except DirectError:
@@ -174,7 +185,7 @@ async def create_campaign(client: DirectClient, plan: Plan, name: str, start_dat
             except DirectError:
                 pass
         raise
-    return {"campaign_id": campaign_id, "group_id": group_id, "ad_ids": ad_ids}
+    return {"campaign_id": campaign_id, "group_id": group_id, "ad_ids": ad_ids, "keywords": keywords}
 
 
 def save_unit(conn: sqlite3.Connection, biz, account_id: int, campaign_row_id: int, variant: dict, ids: dict,
@@ -371,7 +382,19 @@ async def launch(client: DirectClient, conn: sqlite3.Connection, biz, account_id
         conn.execute("UPDATE ad_units SET status_note = ? WHERE id = ?", ("Картинки добавлены не ко всем объявлениям", unit_ids[0]))
     conn.execute("UPDATE businesses SET account_id = ?, status = 'running' WHERE id = ?", (account_id, biz["id"]))
     conn.commit()
+    _remember_keywords(conn, biz, ids["keywords"])
     return unit_ids
+
+
+def _remember_keywords(conn: sqlite3.Connection, biz, keywords: dict) -> None:
+    """Что из запросов реально принял Директ: сколько фраз, какие он отклонил и включился ли автотаргетинг. Это видно владельцу в профиле аудитории."""
+    from app.direct import audience  # здесь, чтобы не было круга
+    profile = audience.load(biz)
+    if profile is None:
+        return
+    profile["launched"] = {"added": keywords["added"], "rejected": keywords["rejected"],
+                           "autotargeting": keywords["autotargeting"], "autotargeting_error": keywords["autotargeting_error"]}
+    audience.save(conn, biz["id"], profile)
 
 
 # ---------- синхронизация с кабинетом ----------

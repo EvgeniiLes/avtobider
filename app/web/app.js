@@ -524,6 +524,93 @@ function setStep(step) {
     $(`step-btn-${s}`).classList.toggle("active", s === step);
   }
   window.scrollTo({ top: 0 });
+  if (step === "launch") loadAudience();
+}
+
+/* ---------- Профиль аудитории ---------- */
+
+let audience = null;        // последний ответ /audience
+let audienceRebuild = false; // повторное нажатие «Составить заново» подтверждает, что правки владельца заменятся
+
+const CATEGORY_HINTS = {
+  exact: "запросы, на которые объявление отвечает точно",
+  narrow: "более узкие и конкретные запросы",
+  alternative: "запросы про похожую услугу или аналог",
+  accessory: "запросы про сопутствующие услуги и товары",
+  broader: "широкие запросы по теме: самые дорогие и самые случайные",
+};
+
+function switches(boxId, labels, state, hints = {}) {
+  $(boxId).replaceChildren(...Object.entries(labels).map(([key, title]) => {
+    const input = el("input", { type: "checkbox", checked: Boolean(state[key]) });
+    input.dataset.key = key;
+    return el("label", { className: "check" }, input, ` ${title}${hints[key] ? `: ${hints[key]}` : ""}`);
+  }));
+}
+
+function launchedText(info) {
+  if (!info) return "";
+  const parts = [`В Директ ушло ${info.added} ${plural(info.added, "фраза", "фразы", "фраз")}.`];
+  if (info.rejected.length) parts.push(`Директ не принял: ${info.rejected.map((r) => `«${r.phrase}» (${r.reason})`).join("; ")}.`);
+  parts.push(info.autotargeting ? "Автотаргетинг включён." : `Автотаргетинг не включился: ${info.autotargeting_error || "Директ не принял настройки"}.`);
+  return parts.join(" ");
+}
+
+function renderAudience(data) {
+  audience = data;
+  audienceRebuild = false;
+  const p = data.profile;
+  $("aud-view").hidden = !p;
+  $("aud-build").textContent = p ? "Составить заново" : "Составить профиль";
+  $("aud-build").hidden = !p && !data.ai_ready;
+  if (!p) return;
+  const L = data.labels;
+  $("aud-summary").textContent = p.summary;
+  const facts = [`Пол: ${L.gender[p.gender]}`, `Возраст: ${p.ages.length ? p.ages.join(", ") : "любой"}`,
+    `Платёжеспособность: ${L.income[p.income]}`, `Уверенность ИИ: ${L.confidence[p.confidence]}`];
+  $("aud-facts").replaceChildren(...facts.map((t) => el("span", { className: "badge", textContent: t })));
+  $("aud-note").textContent = [p.need && `С чем приходит человек: ${p.need}.`, p.note].filter(Boolean).join(" ");
+  $("aud-keywords").value = data.keywords.join("\n");
+  $("aud-negatives").value = (p.negatives || []).join("\n");
+  $("aud-negatives-hint").textContent = `В Директ уйдёт минус-слов: ${data.negatives.length}. Общий список вашей сферы добавляется сам, слова, которые режут вашу услугу, сервис не пропустит.`;
+  switches("aud-categories", L.categories, data.autotargeting.categories, CATEGORY_HINTS);
+  switches("aud-brands", L.brands, data.autotargeting.brands);
+  const launched = launchedText(p.launched);
+  $("aud-launched").hidden = !launched;
+  $("aud-launched").textContent = launched;
+}
+
+async function loadAudience() {
+  if (!currentBusiness) return;
+  const r = await api("GET", `/api/businesses/${currentBusiness.id}/audience`);
+  if (r.ok) renderAudience(r.data);
+}
+
+async function buildAudience() {
+  if (audience && audience.profile && audience.profile.edited && !audienceRebuild) {
+    audienceRebuild = true;
+    setStatus("aud-status", "Ваши правки заменятся новым профилем. Нажмите ещё раз, если согласны.", "");
+    return;
+  }
+  const button = $("aud-build");
+  button.disabled = true;
+  setStatus("aud-status", "ИИ разбирает вашего клиента…", "");
+  const r = await api("POST", `/api/businesses/${currentBusiness.id}/audience`);
+  button.disabled = false;
+  if (!r.ok) { setStatus("aud-status", errorText(r), "err"); return; }
+  renderAudience(r.data);
+  setStatus("aud-status", "Профиль составлен. Проверьте фразы: если что-то поправите, нажмите «Сохранить правки».", "ok");
+}
+
+async function saveAudience() {
+  const lines = (id) => $(id).value.split("\n").map((s) => s.trim()).filter(Boolean);
+  const flags = (boxId) => Object.fromEntries([...$(boxId).querySelectorAll("input")].map((i) => [i.dataset.key, i.checked]));
+  const r = await api("PUT", `/api/businesses/${currentBusiness.id}/audience`, {
+    keywords: lines("aud-keywords"), negatives: lines("aud-negatives"), categories: flags("aud-categories"), brands: flags("aud-brands") });
+  if (!r.ok) { setStatus("aud-status", errorText(r), "err"); return; }
+  const ignored = [...r.data.ignored.keywords, ...r.data.ignored.negatives];
+  renderAudience(r.data);
+  setStatus("aud-status", ignored.length ? `Сохранено. Не принято (знаки, длина или слишком короткое слово): ${ignored.join(", ")}.` : "Сохранено.", ignored.length ? "" : "ok");
 }
 
 // Цена одного баннера: референс картинкой (баннер из фото) стоит чуть дороже, словами (без фото) бесплатно.
@@ -1483,6 +1570,13 @@ async function openLaunch() {
   $("launch-variants").replaceChildren(...p.variants.map((v) =>
     el("li", {}, el("div", { className: "t", textContent: v.title }), el("div", { className: "hint", textContent: v.text }))));
   $("launch-warnings").replaceChildren(...p.warnings.map((w) => el("li", { textContent: w })));
+  const queries = [
+    p.audience ? `Кому показываем: ${p.audience.summary}` : "Профиль аудитории не составлен.",
+    p.keywords.length ? `Ключевые фразы (${p.keywords.length}): ${p.keywords.join("; ")}.` : "Ключевых фраз нет, запросы подберёт автотаргетинг.",
+    `Автотаргетинг: ${p.autotargeting.categories.join(", ")}. Бренды: ${p.autotargeting.brands.join(", ")}.`,
+    `Минус-слова (${p.negatives.length}): ${p.negatives.join(", ")}.`,
+  ];
+  $("launch-queries").replaceChildren(...queries.map((t) => el("p", { className: "hint", textContent: t })));
   $("marking-help").textContent = p.marking.help;
   let confirmed = p.marking.confirmed;
   if (!confirmed) {  // Директ сам скажет, внесены ли данные: тогда подтверждать вручную не нужно
@@ -1774,6 +1868,8 @@ async function start() {
   $("ideas-next").addEventListener("click", () => setStep("banners"));
   $("banners-next").addEventListener("click", () => setStep("launch"));
   $("launch-back").addEventListener("click", () => setStep("banners"));
+  $("aud-build").addEventListener("click", buildAudience);
+  $("aud-save").addEventListener("click", saveAudience);
   $("ads-launch").addEventListener("click", () => { showPage("home"); openLaunch(); });
   $("ads-ai-all").addEventListener("click", makeAllBanners);
   $("cr-gen-texts").addEventListener("click", () => generateTexts());

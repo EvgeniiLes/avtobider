@@ -280,6 +280,7 @@ ADDED_COLUMNS = [
     ("business_assets", "ai_note", "TEXT NOT NULL DEFAULT ''"),
     ("changes", "status", "TEXT NOT NULL DEFAULT 'applied'"),
     # Директ: одна кампания на весь бизнес, объявления-варианты лежат внутри неё и делят один недельный лимит
+    ("businesses", "audience", "TEXT NOT NULL DEFAULT ''"),           # профиль целевой аудитории (JSON), см. app/direct/audience.py
     ("businesses", "nationwide", "INTEGER NOT NULL DEFAULT 0"),      # 1: показывать рекламу по всей России, города нет (онлайн-услуга)
     ("campaigns", "external_id", "INTEGER"),                          # номер кампании в Директе
     ("campaigns", "weekly_micro", "INTEGER NOT NULL DEFAULT 0"),      # недельный лимит кампании

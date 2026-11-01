@@ -5,6 +5,7 @@ import re
 import httpx
 
 from app.creative.angles import ANGLES, business_block, effective_description, prompt_block, where_text
+from app.direct.audience import for_prompt as audience_prompt, load as load_audience
 from app.direct.texts import TEXT_MAX, TITLE_MAX, check, fit, unsupported_claims
 
 API_URL = "https://api.anthropic.com/v1/messages"
@@ -52,6 +53,9 @@ def build_prompt(biz, count: int, hint: str = "") -> str:
         parts.append(f"Желаемый тон: {tones.get(biz['tone'], biz['tone'])}")
     if hint.strip():
         parts.append(f"Пожелание владельца: {hint.strip()[:300]}")
+    who = audience_prompt(load_audience(biz))   # профиль аудитории, если он составлен: тексты пишутся под конкретного клиента
+    if who:
+        parts.append(who)
     parts.append(business_block(biz))
     parts.append(prompt_block(facts_of(biz)))
     parts.append(f"Нужно вариантов: {count}.")

@@ -9,12 +9,14 @@ from pydantic import BaseModel
 from app.config import get_settings
 from app.db import get_db
 from app.creative.angles import is_nationwide
-from app.deps import client_factory, current_user
+from app.deps import client_factory, creative_transport, current_user
+from app.direct import audience as aud
 from app.direct.client import DirectError
 from app.direct.launch import STATE_LABELS, launch, plan_launch, text_candidates
 from app.direct.runner import account_token, sync_and_run
 from app.engine.util import EngineError, MICRO
 from app.platforms.simulator import reset_demo
+from app.routes.audience import make_profile
 from app.routes.businesses import _own
 
 router = APIRouter(prefix="/api/businesses/{business_id}", tags=["launch"])
@@ -52,7 +54,7 @@ def _plan_for(conn, user, biz, account_id, factory):
     region, minimum = asyncio.run(go())
     kwargs = {"min_weekly_micro": minimum} if minimum else {}
     custom = text_candidates(conn, biz)
-    return account, token, login, plan_launch(biz, region, custom=custom, **kwargs)
+    return account, token, login, plan_launch(biz, region, custom=custom, audience=aud.load(biz), **kwargs)
 
 
 def _plan_json(plan, account, marking_confirmed: bool = False) -> dict:
@@ -67,6 +69,10 @@ def _plan_json(plan, account, marking_confirmed: bool = False) -> dict:
         "variants": plan.variants,
         "own_count": plan.own_count,
         "negatives": plan.negatives or [],
+        "keywords": plan.keywords or [],
+        "autotargeting": {"categories": [aud.CATEGORIES[k] for k, on in plan.autotargeting["categories"].items() if on],
+                          "brands": [aud.BRANDS[k] for k, on in plan.autotargeting["brands"].items() if on]},
+        "audience": {"summary": plan.audience["summary"], "confidence": aud.CONFIDENCE[plan.audience.get("confidence", "low")]} if plan.audience else None,
         "warnings": plan.warnings,
     }
 
@@ -96,12 +102,14 @@ class LaunchIn(BaseModel):
 
 @router.post("/launch")
 def start_launch(business_id: int, data: LaunchIn, user: sqlite3.Row = Depends(current_user),
-                 conn: sqlite3.Connection = Depends(get_db), factory=Depends(client_factory)):
+                 conn: sqlite3.Connection = Depends(get_db), factory=Depends(client_factory), transport=Depends(creative_transport)):
     biz = _own(conn, user, business_id)
     if conn.execute("SELECT 1 FROM campaigns WHERE business_id = ? AND source = 'direct'", (business_id,)).fetchone():
         raise HTTPException(400, detail={"message": "Реклама для этого бизнеса уже создана. Её состояние видно на вкладке «Статистика».", "code": "already"})
     if not (data.marking_confirmed or biz["marking_confirmed"]):
         raise HTTPException(400, detail={"message": "Сначала заполните «Данные рекламодателя» в Яндекс Директе: без них рекламу нельзя маркировать. " + MARKING_HELP, "code": "marking"})
+    if aud.load(biz) is None and make_profile(conn, biz, transport):   # профиль ещё не составлен: делаем его сами, чтобы запуск шёл с фразами и минус-словами
+        biz = _own(conn, user, business_id)
     try:
         account, token, login, plan = _plan_for(conn, user, biz, data.account_id, factory)
         s = get_settings()

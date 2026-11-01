@@ -177,6 +177,7 @@
           <h3>Что будет создано в Яндекс Директе</h3>
           <p id="launch-summary" class="hint"></p>
           <ul id="launch-variants" class="variants"></ul>
+          <div id="launch-queries"></div>
           <ul id="launch-warnings" class="notices"></ul>
           <p class="hint">Деньги спишутся только после того, как Яндекс одобрит объявления и вы пополните счёт. Больше недельного бюджета сервис не потратит.</p>
           <div class="notice" id="marking-box">
@@ -371,6 +372,31 @@
             <h2>Запуск</h2>
             <p class="hint" id="ads-summary"></p>
             <p id="launch-warn" class="notice" hidden></p>
+            <div class="card-inner" id="aud-box">
+              <h3>Кому показываем и по каким запросам</h3>
+              <p class="hint">ИИ определяет, кто ваш клиент, и по этому профилю собирает ключевые фразы, минус-слова и настройки автотаргетинга Яндекса. Профиль можно поправить. Если его не составить, сервис сделает это сам при запуске.</p>
+              <div id="aud-view" hidden>
+                <p id="aud-summary"></p>
+                <div id="aud-facts" class="chips"></div>
+                <p id="aud-note" class="hint"></p>
+                <label for="aud-keywords">Ключевые фразы (по одной в строке, до 20)</label>
+                <textarea id="aud-keywords" rows="8" spellcheck="false"></textarea>
+                <p class="hint">Это запросы, по которым покажут объявления. Без знаков препинания, до 7 слов во фразе. Что не подойдёт Директу, сервис уберёт и скажет, что именно.</p>
+                <label for="aud-negatives">Свои минус-слова (по одному в строке)</label>
+                <textarea id="aud-negatives" rows="4" spellcheck="false"></textarea>
+                <p class="hint" id="aud-negatives-hint"></p>
+                <div class="launch-head">Автотаргетинг Яндекса</div>
+                <p class="hint">Яндекс сам подбирает дополнительные запросы по объявлениям и сайту. Отметьте, какие из них разрешить. На небольшом бюджете надёжнее оставить целевые и узкие.</p>
+                <div id="aud-categories"></div>
+                <div id="aud-brands"></div>
+                <div class="upload-row"><button id="aud-save" class="small">Сохранить правки</button></div>
+                <p id="aud-launched" class="hint" hidden></p>
+              </div>
+              <div class="upload-row">
+                <button id="aud-build" class="small">Составить профиль</button>
+                <span id="aud-status" class="status" role="status"></span>
+              </div>
+            </div>
             <div id="launch-list" class="launch-list"></div>
             <div class="stepbar">
               <button id="launch-back" class="secondary">К баннерам</button>

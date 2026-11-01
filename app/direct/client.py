@@ -14,7 +14,8 @@ HOST = "https://api.direct.yandex.com"
 MAX_PARALLEL = 5
 RETRIES = 2
 PAGE_SIZE = 1000
-RUSSIA_REGION_ID = 225   # «Россия» в справочнике регионов Директа (Москва 213): для онлайн-услуг без города
+AUTOTARGETING_KEYWORD = "---autotargeting"   # так в API задаётся автотаргетинг группы
+RUSSIA_REGION_ID = 225  # «Россия» в справочнике регионов Директа (Москва 213): для онлайн-услуг без города
 
 # Понятные подсказки к частым кодам ошибок Директа; исходный текст ошибки сохраняется.
 ERROR_HINTS = {
@@ -264,11 +265,43 @@ class DirectClient:
         return self._result_item(result, "AddResults")["Id"]
 
     async def create_ad_group(self, campaign_id: int, name: str, region_ids: list[int]) -> int:
-        """Группа объявлений. Автотаргетинг на поиске включается сам: ключевые фразы не нужны."""
+        """Группа объявлений. Запросы для неё задаём отдельно (add_keywords): фразами и явным автотаргетингом."""
         result = await self.call("adgroups", "add", {"AdGroups": [{
             "Name": name, "CampaignId": campaign_id, "RegionIds": region_ids,
         }]})
         return self._result_item(result, "AddResults")["Id"]
+
+    async def add_keywords(self, group_id: int, phrases: list[str], autotargeting: dict | None = None) -> dict:
+        """Ключевые фразы группы и автотаргетинг одним вызовом. Автотаргетинг в API это особая фраза `---autotargeting`
+        с настройками категорий. Фразу, которую Директ не принял, пропускаем и возвращаем в rejected. Если не принято
+        вообще ничего (ни фраз, ни автотаргетинга), группа осталась бы без запросов, и это ошибка."""
+        items = [{"AdGroupId": group_id, "Keyword": p} for p in phrases]
+        if autotargeting is not None:
+            yes = lambda value: "YES" if value else "NO"
+            categories, brands = autotargeting["categories"], autotargeting["brands"]
+            items.append({"AdGroupId": group_id, "Keyword": AUTOTARGETING_KEYWORD, "AutotargetingSettings": {
+                "Categories": {"Exact": yes(categories["exact"]), "Narrow": yes(categories["narrow"]), "Alternative": yes(categories["alternative"]),
+                               "Accessory": yes(categories["accessory"]), "Broader": yes(categories["broader"])},
+                "BrandOptions": {"WithoutBrands": yes(brands["without"]), "WithAdvertiserBrand": yes(brands["own"]),
+                                 "WithCompetitorsBrand": yes(brands["competitors"])},
+            }})
+        if not items:
+            return {"added": 0, "rejected": [], "autotargeting": False, "autotargeting_error": ""}
+        result = await self.call("keywords", "add", {"Keywords": items})
+        results = result.get("AddResults", [])
+        added, rejected, auto, auto_error = 0, [], False, ""
+        for index, item in enumerate(items):
+            errors = (results[index] if index < len(results) else {}).get("Errors") or []
+            message = (errors[0].get("Message") or "Яндекс Директ не принял данные.") if errors else ""
+            if item["Keyword"] == AUTOTARGETING_KEYWORD:
+                auto, auto_error = not errors, message
+            elif errors:
+                rejected.append({"phrase": item["Keyword"], "reason": message})
+            else:
+                added += 1
+        if not added and not auto:
+            raise DirectError(auto_error or (rejected[0]["reason"] if rejected else "Яндекс Директ не принял ключевые фразы."))
+        return {"added": added, "rejected": rejected, "autotargeting": auto, "autotargeting_error": auto_error}
 
     async def create_text_ad(
         self, group_id: int, title: str, text: str, *, title2: str = "", href: str = "", business_id: int | None = None,
