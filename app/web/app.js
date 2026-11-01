@@ -990,23 +990,30 @@ async function loadMetrika() {
   }
   $("metrika-form").hidden = false;
   const counter = $("m-counter");
-  counter.replaceChildren(...counters.map((c) => el("option", { value: c.id, textContent: c.site ? `${c.name} (${c.site})` : c.name })));
-  if (selected.counter) counter.value = selected.counter;
+  // пока ничего не сохранено, первый счётчик из списка не должен выглядеть выбранным: иначе кажется, что Метрика уже подключена
+  counter.replaceChildren(choosePlaceholder(), ...counters.map((c) => el("option", { value: c.id, textContent: c.site ? `${c.name} (${c.site})` : c.name })));
+  counter.value = selected.counter || "";
   $("m-clear").hidden = !selected.counter;
+  const connected = Boolean(selected.counter && selected.goal);
+  setStatus("metrika-status", connected ? "Подключено: сервис видит обращения по выбранной цели." : "Метрика не подключена. Выберите счётчик и цель, потом нажмите «Сохранить».", connected ? "ok" : "");
   await loadGoals(selected.goal);
 }
 
+const choosePlaceholder = () => el("option", { value: "", textContent: "— выберите —" });
+
 async function loadGoals(selectedGoal) {
   const goal = $("m-goal");
+  if (!$("m-counter").value) { goal.replaceChildren(choosePlaceholder()); return; }
   const result = await api("GET", `/api/businesses/${currentBusiness.id}/metrika/counters/${$("m-counter").value}/goals`);
   if (!result.ok) { setStatus("metrika-status", errorText(result), "err"); return; }
   const goals = result.data.goals;
-  goal.replaceChildren(...goals.map((g) => el("option", { value: g.id, textContent: g.name })));
-  if (selectedGoal) goal.value = selectedGoal;
+  goal.replaceChildren(choosePlaceholder(), ...goals.map((g) => el("option", { value: g.id, textContent: g.name })));
+  goal.value = selectedGoal || "";
   if (!goals.length) setStatus("metrika-status", "В этом счётчике нет целей. Создайте цель «Обращение» в Метрике.", "");
 }
 
 async function saveMetrika() {
+  if (!$("m-counter").value || !$("m-goal").value) { setStatus("metrika-status", "Выберите счётчик и цель из списка.", "err"); return; }
   const result = await api("PUT", `/api/businesses/${currentBusiness.id}/metrika`, { counter_id: $("m-counter").value, goal_id: $("m-goal").value });
   if (!result.ok) { setStatus("metrika-status", errorText(result), "err"); return; }
   setStatus("metrika-status", "Готово. Теперь сервис видит обращения с сайта.", "ok");
