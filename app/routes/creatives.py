@@ -124,6 +124,8 @@ def _refresh_working(conn, business_id: int, transport) -> None:
             expected = json.loads(r["prompt"] or "{}").get("expect", [])
             s = get_settings()
             read = asyncio.run(read_image_text(value, key, s.fal_text_model, transport))
+            if read is None:   # распознавание порой не отвечает с первого раза (на пробе у каждого четвёртого баннера): без повтора баннер прошёл бы непроверенным
+                read = asyncio.run(read_image_text(value, key, s.fal_text_model, transport))
             wrong = missing_phrases(expected, read) if read is not None else []
             if wrong:
                 conn.execute("UPDATE creatives SET status = 'failed', error = ? WHERE id = ?",

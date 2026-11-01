@@ -38,6 +38,7 @@ class Fakes:
     def __init__(self, claude_text=None, fal_done=False, fal_status=200):
         self.claude_text, self.fal_done, self.fal_status = claude_text, fal_done, fal_status
         self.facts_text = None   # ответ проверяющему фактов на баннере; None: он отвечает тем же, что и все остальные запросы к модели
+        self.fail_chat = 0       # столько ближайших запросов к модели закончатся ошибкой (сбой на стороне сервиса)
         self.jobs = 0
         self.image = None  # что отдаёт «генератор»; по умолчанию однотонная картинка
         self.requests = []
@@ -53,6 +54,9 @@ class Fakes:
                 return httpx.Response(500, json={})
             return httpx.Response(200, json={"content": [{"type": "text", "text": self.claude_text}]})
         if host == "fal.run" and "chat/completions" in path:  # Claude через fal.ai
+            if self.fail_chat > 0:
+                self.fail_chat -= 1
+                return httpx.Response(500, json={})
             first = (json.loads(request.content).get("messages") or [{}])[0].get("content")
             if self.facts_text is not None and isinstance(first, str) and "фактические ошибки" in first:
                 return httpx.Response(200, json={"choices": [{"message": {"content": self.facts_text}}]})
@@ -531,6 +535,22 @@ def test_banner_with_a_price_that_is_not_in_the_ad_is_rejected(monkeypatch):
         http.get(base)
         bad = _ai_ad(http, bid)
         assert bad["ai"]["status"] == "failed" and "цена, которой нет" in bad["ai"]["error"] and "9 000" in bad["ai"]["error"]
+
+
+def test_a_failed_text_reading_is_retried_so_the_banner_is_not_accepted_unchecked(monkeypatch):
+    monkeypatch.setenv("FAL_KEY", "fal-test")
+    fakes = Fakes(fal_done=False)
+    with TestClient(app) as http:
+        bid = setup(http)
+        base = f"/api/businesses/{bid}/creatives"
+        ad = _ai_ad(http, bid)
+        http.post(f"{base}/ads/4/ai-banner")                                  # заказ: арт-директору и художнику сбой не мешает
+        fakes.fal_done = True
+        fakes.claude_text = json.dumps([ad["title"], "ЗАПИСАТЬСЯ", "от 9 000 ₽"], ensure_ascii=False)   # на баннере чужая цена
+        fakes.fail_chat = 1                                                    # первое чтение текста упало
+        http.get(base)
+        bad = _ai_ad(http, bid)
+        assert bad["ai"]["status"] == "failed" and "цена, которой нет" in bad["ai"]["error"]   # повтор прочитал текст, и проверка сработала
 
 
 def test_banner_that_contradicts_the_business_facts_is_rejected_and_a_clean_one_passes(monkeypatch):
