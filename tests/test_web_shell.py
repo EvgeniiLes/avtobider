@@ -45,5 +45,5 @@ def test_previous_versions_stay_available():
 
 def test_guest_home_has_one_example_and_the_form():
     html = (WEB / "index.html").read_text(encoding="utf-8")
-    for needle in ("Пример: салон груминга", 'id="auth-form"', 'id="tab-register"', 'id="tab-login"', 'id="yandex-box"'):
+    for needle in ("Пример: небольшой сервис", 'id="auth-form"', 'id="tab-register"', 'id="tab-login"', 'id="yandex-box"'):
         assert needle in html, needle
