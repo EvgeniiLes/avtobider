@@ -12,7 +12,7 @@ from app.creative.angles import is_nationwide
 from app.deps import client_factory, creative_transport, current_user
 from app.direct import audience as aud
 from app.direct.client import DirectError
-from app.direct.launch import STATE_LABELS, launch, plan_launch, text_candidates
+from app.direct.launch import STATE_LABELS, launch, plan_launch, tagged_href, text_candidates
 from app.direct.runner import account_token, sync_and_run
 from app.engine.util import EngineError, MICRO
 from app.platforms.simulator import reset_demo
@@ -66,6 +66,7 @@ def _plan_json(plan, account, marking_confirmed: bool = False) -> dict:
         "total": round(plan.campaign_micro / MICRO),
         "city": plan.city,
         "link": plan.href or "Профиль организации в Яндекс Картах",
+        "tagged": bool(plan.href) and tagged_href(plan.href) != plan.href,   # ссылка получит utm-метки (откуда пришёл человек)
         "variants": plan.variants,
         "own_count": plan.own_count,
         "negatives": plan.negatives or [],

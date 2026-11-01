@@ -1116,6 +1116,25 @@ async function loadMetrika() {
   setStatus("metrika-status", connected ? "Подключено: сервис видит обращения по выбранной цели." : "Метрика не подключена. Выберите счётчик и цель, потом нажмите «Сохранить».", connected ? "ok" : "");
   await loadGoals(selected.goal);
   await loadSnippet();
+  await loadHealth(false);
+}
+
+const HEALTH_CLASS = { ok: " good", warn: "", bad: " bad", unknown: " proposals" };
+
+async function loadHealth(refresh) {
+  const box = $("m-health-box");
+  if (!$("m-clear") || $("m-clear").hidden) { box.hidden = true; return; }   // счётчик ещё не сохранён: проверять нечего
+  const button = $("m-health-check");
+  button.disabled = true;
+  if (refresh) setStatus("metrika-status", "Спрашиваем Метрику…", "");
+  const r = await api("GET", `/api/businesses/${currentBusiness.id}/metrika/health${refresh ? "?refresh=true" : ""}`);
+  button.disabled = false;
+  if (refresh) setStatus("metrika-status", "", "");
+  if (!r.ok) { if (refresh) setStatus("metrika-status", errorText(r), "err"); return; }
+  const h = r.data.health;
+  box.hidden = false;
+  $("m-health").className = "notice" + (h ? HEALTH_CLASS[h.level] || "" : " proposals");
+  $("m-health").textContent = h ? `${h.title}. ${h.message}` : "Счётчик ещё не проверяли. Нажмите «Проверить счётчик»: сервис спросит Метрику, стоит ли код на сайте и приходят ли визиты.";
 }
 
 async function loadSnippet() {
@@ -1158,14 +1177,16 @@ async function saveMetrika() {
   if (!$("m-counter").value || !$("m-goal").value) { setStatus("metrika-status", "Выберите счётчик и цель из списка.", "err"); return; }
   const result = await api("PUT", `/api/businesses/${currentBusiness.id}/metrika`, { counter_id: $("m-counter").value, goal_id: $("m-goal").value });
   if (!result.ok) { setStatus("metrika-status", errorText(result), "err"); return; }
-  setStatus("metrika-status", "Готово. Теперь сервис видит обращения с сайта.", "ok");
   $("m-clear").hidden = false;
+  await loadHealth(true);   // сразу проверяем, что счётчик на сайте работает: сохранить можно и тот, код которого ещё не поставили
+  setStatus("metrika-status", "Готово: счётчик сохранён. Работает ли он на сайте, написано ниже.", "ok");
 }
 
 async function clearMetrika() {
   await api("DELETE", `/api/businesses/${currentBusiness.id}/metrika`);
   setStatus("metrika-status", "Метрика отключена. Сервис перестанет оценивать рекламу, пока вы её не подключите снова.", "ok");
   $("m-clear").hidden = true;
+  $("m-health-box").hidden = true;
 }
 
 /* ---------- Файлы бизнеса ---------- */
@@ -1685,7 +1706,7 @@ async function openLaunch() {
   if (!result.ok) { say(errorText(result), "err"); $("launch-card").hidden = true; return; }
   const p = result.data;
   $("launch-summary").textContent =
-    `Кабинет: ${p.account}. Где показывать: ${p.city}. Одна кампания: ${adsPhrase(p.count)} с общим бюджетом ${p.weekly} ₽ в неделю. Ведёт на: ${p.link}.`;
+    `Кабинет: ${p.account}. Где показывать: ${p.city}. Одна кампания: ${adsPhrase(p.count)} с общим бюджетом ${p.weekly} ₽ в неделю. Ведёт на: ${p.link}${p.tagged ? " (к ссылке добавятся метки utm: в Метрике будет видно, с какого объявления пришёл человек)" : ""}.`;
   $("launch-variants").replaceChildren(...p.variants.map((v) =>
     el("li", {}, el("div", { className: "t", textContent: v.title }), el("div", { className: "hint", textContent: v.text }))));
   $("launch-warnings").replaceChildren(...p.warnings.map((w) => el("li", { textContent: w })));
@@ -2006,6 +2027,7 @@ async function start() {
   $("connect-cancel").addEventListener("click", stopConnect);
   $("m-counter").addEventListener("change", () => { loadGoals(""); loadSnippet(); });
   $("m-snippet-copy").addEventListener("click", copySnippet);
+  $("m-health-check").addEventListener("click", () => loadHealth(true));
   $("m-save").addEventListener("click", saveMetrika);
   $("m-clear").addEventListener("click", clearMetrika);
   $("marking-ok").addEventListener("change", () => { $("launch-go").disabled = !$("marking-ok").checked; });

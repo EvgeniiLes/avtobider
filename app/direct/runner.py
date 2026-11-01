@@ -10,6 +10,7 @@ import httpx
 
 from app.config import get_settings
 from app.direct.client import DirectClient, DirectError
+from app.direct.counter_health import check_counter
 from app.direct.goals import fetch_goals, save_goals
 from app.direct.launch import sync_units
 from app.direct.queries import sync_queries
@@ -96,8 +97,15 @@ def sync_and_run(conn: sqlite3.Connection, biz: sqlite3.Row, today: str | None =
         synced = asyncio.run(go())
         biz = conn.execute("SELECT * FROM businesses WHERE id = ?", (biz["id"],)).fetchone()
         platform = DirectPlatform(conn, token, s.direct_api_version, login, transport)
-        # Без Метрики обращений не видно: судить о рекламе нечем, работает только защита бюджета.
+        # Без Метрики обращений не видно: судить о рекламе нечем, работает только защита бюджета. То же, если счётчик явно не считает:
+        # нули вместо обращений не значат, что объявления плохие.
         decide = bool(biz["metrika_counter_id"] and biz["metrika_goal_id"])
+        if decide:
+            async def check():
+                async with httpx.AsyncClient(timeout=20, transport=transport) as http:
+                    return await check_counter(conn, biz, token, today, http)
+
+            decide = asyncio.run(check())["level"] != "bad"
         changes = run_cycle(conn, biz, platform, today, cfg=DIRECT_CONFIG, decide=decide)
         error = ""
     except (EngineError, DirectError) as e:

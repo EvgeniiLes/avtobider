@@ -1,6 +1,7 @@
 """Подключение Яндекс Метрики: выбор счётчика и цели «обращение»."""
 import asyncio
 import sqlite3
+from datetime import date
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
@@ -10,6 +11,7 @@ from app.config import get_settings
 from app.db import get_db
 from app.deps import client_factory, current_user, yandex_http
 from app.direct.client import DirectError
+from app.direct.counter_health import check_counter, load_health
 from app.direct.goals import save_goals
 from app.direct.runner import account_token
 from app.engine.util import EngineError
@@ -78,6 +80,24 @@ def goals(business_id: int, counter_id: str, user: sqlite3.Row = Depends(current
 
     data = asyncio.run(go())
     return {"goals": [{"id": str(g["id"]), "name": g.get("name", str(g["id"]))} for g in data.get("goals", [])]}
+
+
+@router.get("/health")
+def health(business_id: int, refresh: bool = False, user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connection = Depends(get_db),
+           http: httpx.AsyncClient = Depends(yandex_http)):
+    """Работает ли счётчик: последний результат проверки, а с refresh=true проверка заново (у Метрики и по кликам рекламы)."""
+    biz = _own(conn, user, business_id)
+    if not biz["metrika_counter_id"]:
+        return {"health": None}
+    if not refresh:
+        return {"health": load_health(biz)}
+    token = _token(conn, user, biz)
+
+    async def go():
+        async with http:
+            return await check_counter(conn, biz, token, date.today().isoformat(), http)
+
+    return {"health": asyncio.run(go())}
 
 
 TAG = """<!-- Яндекс Метрика -->
@@ -166,7 +186,7 @@ def save(business_id: int, data: MetrikaIn, user: sqlite3.Row = Depends(current_
         except DirectError as e:
             raise HTTPException(400, detail={"message": f"Не получилось привязать счётчик к кампаниям: {e.message}"})
 
-    conn.execute("UPDATE businesses SET metrika_counter_id = ?, metrika_goal_id = ? WHERE id = ?", (data.counter_id, data.goal_id, business_id))
+    conn.execute("UPDATE businesses SET metrika_counter_id = ?, metrika_goal_id = ?, counter_health = '' WHERE id = ?", (data.counter_id, data.goal_id, business_id))
     conn.commit()
     return {"ok": True}
 
@@ -174,6 +194,6 @@ def save(business_id: int, data: MetrikaIn, user: sqlite3.Row = Depends(current_
 @router.delete("")
 def clear(business_id: int, user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connection = Depends(get_db)):
     _own(conn, user, business_id)
-    conn.execute("UPDATE businesses SET metrika_counter_id = '', metrika_goal_id = '' WHERE id = ?", (business_id,))
+    conn.execute("UPDATE businesses SET metrika_counter_id = '', metrika_goal_id = '', counter_health = '' WHERE id = ?", (business_id,))
     conn.commit()
     return {"ok": True}

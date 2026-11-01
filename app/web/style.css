@@ -123,6 +123,8 @@ input[type=color] { width: 56px; height: 40px; padding: 2px; border: 1px solid v
 .notice-row { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
 .notice-row span { flex: 1 1 260px; }
 .notice.proposals { background: var(--info-soft); color: var(--info); }
+.notice.good { background: var(--ok-soft); color: var(--ok); }
+.notice.bad { background: var(--err-soft); color: var(--err); }
 .notices { list-style: none; margin: 0 0 14px; padding: 0; }
 .notices li { background: var(--warn-soft); color: var(--warn); border-radius: var(--radius-sm); padding: 10px 16px; margin-bottom: 6px; font-size: 14px; }
 .pill { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; background: var(--info-soft); color: var(--info); margin-left: 6px; }

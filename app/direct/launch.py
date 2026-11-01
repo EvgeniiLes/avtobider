@@ -10,6 +10,7 @@ import json
 import sqlite3
 from dataclasses import dataclass
 from datetime import date, timedelta
+from urllib.parse import urlsplit, urlunsplit
 
 from app.creative.compose import style_for
 from app.creative.angles import is_nationwide
@@ -51,6 +52,19 @@ class Plan:
     keywords: list[str] | None = None       # ключевые фразы группы; пусто: только автотаргетинг
     autotargeting: dict | None = None       # категории и бренды автотаргетинга
     audience: dict | None = None            # профиль аудитории, по которому всё это собрано
+
+
+UTM = "utm_source=yandex&utm_medium=cpc&utm_campaign={campaign_id}&utm_content={ad_id}&utm_term={keyword}"   # {…} подставляет Директ при каждом клике
+
+
+def tagged_href(url: str) -> str:
+    """Ссылка объявления с метками: в Метрике и в формах сайта видно, с какого объявления и по какой фразе пришёл человек.
+    Если у адреса уже есть свои utm-метки или нет схемы, ссылку не трогаем."""
+    parts = urlsplit(url or "")
+    if not parts.scheme or not parts.netloc or "utm_source=" in parts.query:
+        return url
+    query = f"{parts.query}&{UTM}" if parts.query else UTM
+    return urlunsplit((parts.scheme, parts.netloc, parts.path or "/", query, parts.fragment))
 
 
 def _maps_id(biz) -> int | None:
@@ -176,7 +190,7 @@ async def create_campaign(client: DirectClient, plan: Plan, name: str, start_dat
             name, plan.campaign_micro, start_date, counter_ids=plan.counter_ids, negative_keywords=plan.negatives)
         group_id = await client.create_ad_group(campaign_id, "Основная", [plan.region_id])
         keywords = await client.add_keywords(group_id, plan.keywords or [], plan.autotargeting)
-        ad_ids = [await client.create_text_ad(group_id, v["title"], v["text"], href=plan.href, business_id=plan.business_id)
+        ad_ids = [await client.create_text_ad(group_id, v["title"], v["text"], href=tagged_href(plan.href), business_id=plan.business_id)
                   for v in plan.variants]
     except DirectError:
         if campaign_id:

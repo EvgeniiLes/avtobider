@@ -384,3 +384,28 @@ def test_sync_error_is_saved_and_shown(isolated):
         assert any("истёк" in n for n in ov["notices"])
         r = http.post(f"/api/businesses/{bid}/sync")
         assert r.status_code == 400 and "истёк" in r.json()["detail"]["message"]
+
+
+# ---------- метки в ссылках ----------
+
+def test_ad_links_get_utm_macros_that_direct_fills_in(isolated):
+    from app.direct.launch import UTM
+    fake = FakeDirect()
+    with TestClient(app) as http:
+        bid = setup(http, fake, isolated)
+        assert http.get(f"/api/businesses/{bid}/launch/preview").json()["tagged"] is True
+        assert http.post(f"/api/businesses/{bid}/launch", json={"marking_confirmed": True}).status_code == 200
+        assert {a["ad"]["Href"] for a in fake.ads.values()} == {f"https://salon.ru/?{UTM}"}
+        assert "{ad_id}" in UTM and "{campaign_id}" in UTM and "{keyword}" in UTM
+
+
+@pytest.mark.parametrize("url,expected", [
+    ("https://x.ru/p?a=1#top", "https://x.ru/p?a=1&{utm}#top"),                       # свои параметры и якорь сохраняются
+    ("https://x.ru", "https://x.ru/?{utm}"),
+    ("https://x.ru/?utm_source=vk&utm_campaign=a", "https://x.ru/?utm_source=vk&utm_campaign=a"),   # свои метки владельца не трогаем
+    ("salon.ru", "salon.ru"),                                                          # без схемы адрес не разобрать
+    ("", ""),
+])
+def test_tagged_href(url, expected):
+    from app.direct.launch import UTM, tagged_href
+    assert tagged_href(url) == expected.replace("{utm}", UTM)

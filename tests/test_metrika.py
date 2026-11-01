@@ -28,7 +28,7 @@ def isolated(tmp_path, monkeypatch):
     app.dependency_overrides.clear()
 
 
-def metrika_stub(counters=None, goals=None, status=200):
+def metrika_stub(counters=None, goals=None, status=200, visits=800, code_status="CS_OK"):
     counters = counters if counters is not None else [{"id": 555, "name": "Салон", "site": "salon.ru"}]
     goals = goals if goals is not None else [{"id": 9001, "name": "Обращение"}, {"id": 9002, "name": "Просмотр"}]
     seen = []
@@ -37,9 +37,14 @@ def metrika_stub(counters=None, goals=None, status=200):
         seen.append((str(request.url), request.headers["Authorization"]))
         if status != 200:
             return httpx.Response(status, json={})
-        if request.url.path.endswith("/counters"):
+        path = request.url.path
+        if path.startswith("/stat/v1/data"):
+            return httpx.Response(200, json={"totals": [visits], "data": []})
+        if path.endswith("/counters"):
             return httpx.Response(200, json={"counters": counters})
-        return httpx.Response(200, json={"goals": goals})
+        if path.endswith("/goals"):
+            return httpx.Response(200, json={"goals": goals})
+        return httpx.Response(200, json={"counter": {"id": 555, "code_status": code_status}})
 
     app.dependency_overrides[yandex_http] = lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler))
     return seen
@@ -253,3 +258,68 @@ def test_goals_page_is_empty_without_metrika(isolated):
         bid = setup(http, FakeDirect(), isolated)
         data = http.get(f"/api/businesses/{bid}/goals").json()
         assert data["connected"] is False and data["goals"] == []
+
+# ---------- работает ли счётчик ----------
+
+@pytest.mark.parametrize("code,visits,clicks,level", [
+    (None, None, 50, "unknown"),                  # Метрика не ответила: проверить нечем
+    ("CS_OK", 0, 7, "bad"),                       # клики есть, визитов ни одного
+    ("CS_OK", 0, 3, "ok"),                        # кликов ещё слишком мало, чтобы судить
+    ("CS_NOT_FOUND", 0, 0, "bad"),                # кода на сайте нет
+    ("CS_NOT_FOUND", 120, 100, "warn"),           # визиты идут, а проверка кода его не видит
+    ("CS_ERR_OTHER_HTML_CODE", 50, 40, "warn"),   # стоит код другого счётчика
+    ("CS_OK", 5, 100, "warn"),                    # видна лишь малая часть визитов
+    ("CS_OK", 80, 100, "ok"),
+    (None, 80, 100, "ok"),
+    ("CS_ERR_CONNECT", 200, 100, "ok"),           # проверка кода не прошла, но визиты идут
+])
+def test_counter_verdict(code, visits, clicks, level):
+    from app.direct.counter_health import verdict
+    assert verdict(code, visits, clicks)["level"] == level
+
+
+def test_visits_are_read_from_the_forms_metrika_uses():
+    from app.direct.counter_health import first_number
+    assert first_number({"totals": [812.0]}) == 812 and first_number({"totals": [[7.0]]}) == 7
+    assert first_number({"totals": [], "data": [{"metrics": [3]}]}) == 3
+    assert first_number({}) is None and first_number({"totals": ["x"]}) is None
+
+
+def test_health_check_reports_a_site_without_the_code_and_remembers_it(isolated):
+    with TestClient(app) as http:
+        bid = setup(http, FakeDirect(), isolated)
+        assert http.get(f"/api/businesses/{bid}/metrika/health").json() == {"health": None}   # счётчика нет, проверять нечего
+        metrika_stub(visits=0, code_status="CS_NOT_FOUND")
+        assert http.put(f"/api/businesses/{bid}/metrika", json={"counter_id": "555", "goal_id": "9001"}).status_code == 200
+        assert http.get(f"/api/businesses/{bid}/metrika/health").json() == {"health": None}   # ещё не проверяли
+        health = http.get(f"/api/businesses/{bid}/metrika/health", params={"refresh": "true"}).json()["health"]
+        assert health["level"] == "bad" and health["code_status"] == "CS_NOT_FOUND" and health["visits"] == 0 and "не нашла код" in health["title"]
+        assert http.get(f"/api/businesses/{bid}/metrika/health").json()["health"]["level"] == "bad"     # результат сохранён
+        metrika_stub(visits=300, code_status="CS_OK")
+        assert http.get(f"/api/businesses/{bid}/metrika/health", params={"refresh": "true"}).json()["health"]["level"] == "ok"
+        assert http.delete(f"/api/businesses/{bid}/metrika").status_code == 200
+        assert http.get(f"/api/businesses/{bid}/metrika/health").json() == {"health": None}
+
+
+def test_a_counter_that_counts_nothing_stops_decisions_by_leads_until_it_works(isolated):
+    fake = FakeDirect()
+    with TestClient(app) as http:
+        bid = connected(http, fake, isolated)
+        conn = connect(isolated)
+        today = date.today().isoformat()
+        fake.report_rows = [(day_add(today, -d), 0, 1000, 40, 1000 * MICRO, 0) for d in (1, 2, 3, 4)] + \
+                           [(day_add(today, -d), 1, 1000, 40, 300 * MICRO, 0) for d in (1, 2, 3, 4)]
+        biz = lambda: conn.execute("SELECT * FROM businesses WHERE id = ?", (bid,)).fetchone()
+
+        fake.metrika_visits = 0      # клики есть, визитов нет: код с сайта пропал
+        assert sync_and_run(conn, biz(), today, transport=fake.transport)["error"] == ""
+        assert conn.execute("SELECT COUNT(*) FROM evaluations").fetchone()[0] == 0 and conn.execute("SELECT COUNT(*) FROM changes").fetchone()[0] == 0
+        ov = http.get(f"/api/businesses/{bid}/overview").json()
+        assert ov["counter"]["level"] == "bad" and any("не получает визитов" in n for n in ov["notices"])
+        assert fake.metrika_stat_requests[-1]["metrics"] == "ym:s:visits" and fake.metrika_stat_requests[-1]["date1"] == "7daysAgo"
+
+        fake.metrika_visits = 500    # код вернули: оценка по обращениям снова работает
+        sync_and_run(conn, biz(), today, transport=fake.transport)
+        assert conn.execute("SELECT COUNT(*) FROM evaluations").fetchone()[0] > 0
+        assert http.get(f"/api/businesses/{bid}/overview").json()["counter"]["level"] == "ok"
+        conn.close()

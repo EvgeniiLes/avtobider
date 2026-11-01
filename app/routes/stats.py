@@ -21,6 +21,7 @@ from app.engine.cycle import (
 )
 from app.config import get_settings
 from app.direct.client import DirectError
+from app.direct.counter_health import load_health
 from app.direct.launch import STATE_LABELS
 from app.direct.runner import account_token
 from app.platforms.direct import DirectPlatform
@@ -186,6 +187,10 @@ def overview(business_id: int, user: sqlite3.Row = Depends(current_user), conn: 
             result["notices"].append(
                 "Яндекс Метрика ещё не подключена, поэтому сервис пока не видит обращений. Он следит за бюджетом, "
                 "но не останавливает и не усиливает объявления, пока не поймёт, какие из них приводят клиентов.")
+        health = load_health(biz)
+        result["counter"] = health
+        if health and health["level"] in ("bad", "warn"):
+            result["notices"].append(f"{health['title']}. {health['message']}")
         if biz["last_sync_error"]:
             result["notices"].append(f"Последнее обновление данных не удалось: {biz['last_sync_error']}")
     week_spend = sum(unit_stats(conn, u["id"], day_add(today, -6), today)["spend"] for u in units)

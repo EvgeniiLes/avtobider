@@ -292,7 +292,8 @@ ADDED_COLUMNS = [
     ("business_assets", "ai_note", "TEXT NOT NULL DEFAULT ''"),
     ("changes", "status", "TEXT NOT NULL DEFAULT 'applied'"),
     # Директ: одна кампания на весь бизнес, объявления-варианты лежат внутри неё и делят один недельный лимит
-    ("businesses", "queries_day", "TEXT NOT NULL DEFAULT ''"),        # день, когда последний раз загружали поисковые запросы
+    ("businesses", "counter_health", "TEXT NOT NULL DEFAULT ''"),     # результат последней проверки счётчика Метрики (JSON), см. app/direct/counter_health.py
+    ("businesses", "queries_day", "TEXT NOT NULL DEFAULT ''"),       # день, когда последний раз загружали поисковые запросы
     ("businesses", "audience", "TEXT NOT NULL DEFAULT ''"),          # профиль целевой аудитории (JSON), см. app/direct/audience.py
     ("businesses", "nationwide", "INTEGER NOT NULL DEFAULT 0"),      # 1: показывать рекламу по всей России, города нет (онлайн-услуга)
     ("campaigns", "external_id", "INTEGER"),                          # номер кампании в Директе

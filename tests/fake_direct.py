@@ -31,6 +31,9 @@ class FakeDirect:
         self.reject_keywords: set[str] = set()  # фразы, которые Директ «не принимает»
         self.reject_autotargeting = False
         self.metrika_goals: list[dict] = []   # цели счётчика Метрики: {"id": ..., "name": ...}
+        self.counter_code_status = "CS_OK"    # что Метрика отвечает про установку кода счётчика на сайте
+        self.metrika_visits = 1000            # визитов за 7 дней по данным Метрики
+        self.metrika_stat_requests: list[dict] = []
         self.single_goal_only = False   # отчёт с несколькими целями отвечает ошибкой: проверка запасного пути на одну цель
         self._id = 1000
         self.transport = httpx.MockTransport(self._handle)
@@ -56,8 +59,14 @@ class FakeDirect:
             c.update(Status="ACCEPTED", State=state, StatusPayment=payment)
 
     def _handle(self, request: httpx.Request) -> httpx.Response:
-        if request.url.host == "api-metrika.yandex.net":   # список целей счётчика, который сервис читает при каждой синхронизации
-            return httpx.Response(200, json={"goals": self.metrika_goals})
+        if request.url.host == "api-metrika.yandex.net":   # Метрика: цели счётчика, статус установки кода и визиты (читаются при каждой синхронизации)
+            path = request.url.path
+            if path.startswith("/stat/v1/data"):
+                self.metrika_stat_requests.append(dict(request.url.params))
+                return httpx.Response(200, json={"totals": [self.metrika_visits], "data": [], "total_rows": 1})
+            if path.endswith("/goals"):
+                return httpx.Response(200, json={"goals": self.metrika_goals})
+            return httpx.Response(200, json={"counter": {"id": 1, "code_status": self.counter_code_status}})
         service = request.url.path.rsplit("/", 1)[1]
         body = json.loads(request.content)
         if service == "reports":
