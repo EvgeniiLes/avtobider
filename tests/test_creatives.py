@@ -39,6 +39,7 @@ class Fakes:
         self.claude_text, self.fal_done, self.fal_status = claude_text, fal_done, fal_status
         self.facts_text = None   # ответ проверяющему фактов на баннере; None: он отвечает тем же, что и все остальные запросы к модели
         self.fail_chat = 0       # столько ближайших запросов к модели закончатся ошибкой (сбой на стороне сервиса)
+        self.ocr_caption = ("Лотос", "Маникюрный салон")   # подпись внизу баннера (название и вид деятельности), которую «прочитает» распознавание; () — подписи на баннере нет
         self.jobs = 0
         self.image = None  # что отдаёт «генератор»; по умолчанию однотонная картинка
         self.requests = []
@@ -62,7 +63,15 @@ class Fakes:
                 return httpx.Response(200, json={"choices": [{"message": {"content": self.facts_text}}]})
             if self.claude_text is None:
                 return httpx.Response(500, json={})
-            return httpx.Response(200, json={"choices": [{"message": {"content": self.claude_text}}]})
+            text = self.claude_text
+            if isinstance(first, str) and first.startswith("Прочитай весь текст"):   # чтение текста с баннера: к строкам добавляем подпись
+                try:
+                    lines = json.loads(text)
+                except ValueError:
+                    lines = None
+                if isinstance(lines, list) and all(isinstance(x, str) for x in lines):
+                    text = json.dumps(lines + [c for c in self.ocr_caption if c not in lines], ensure_ascii=False)
+            return httpx.Response(200, json={"choices": [{"message": {"content": text}}]})
         if host == "queue.fal.run":
             if self.fal_status != 200:
                 return httpx.Response(self.fal_status, json={})
@@ -498,6 +507,48 @@ def test_ai_banner_with_extra_small_text_is_rejected_but_a_stray_word_is_not(mon
         assert bad["ai"]["status"] == "failed" and "лишний текст" in bad["ai"]["error"]
         assert "педикюр" in bad["ai"]["error"] and "маникюр" not in bad["ai"]["error"]   # слова из заголовка лишними не считаются
         assert http.get(f"{base}/ads/4/banner.jpg").status_code == 200                    # а прежний принятый баннер остаётся на объявлении
+
+
+def test_the_caption_says_who_advertises_what_and_skips_what_cannot_be_checked():
+    from app.creative import fal
+    shop = {"name": "Лотос", "kind": "Маникюрный салон", "description": "Маникюр и педикюр.", "allow_promo": 0, "color_main": "", "color_extra": "", "visual_hint": ""}
+    assert fal.caption_parts(shop) == ["Лотос", "Маникюрный салон"] and fal.caption_for(shop) == "Лотос · Маникюрный салон"
+    assert fal.caption_parts({**shop, "name": "burocart.ru"}) == ["Маникюрный салон"]                    # адрес сайта в подпись нельзя: проверка такие надписи бракует
+    assert fal.caption_parts({**shop, "kind": "Карточные игры с ИИ ведущим: мафия, бункер, шпион и другие игры"}) == ["Лотос"]   # длинное не берём
+    assert fal.caption_parts({**shop, "name": "burocart.ru", "kind": "x" * 60}) == []
+
+    for prompt in (fal.banner_prompt(shop, "Маникюр", "", "Записаться"), fal.photo_banner_prompt(shop, "Маникюр", "", "Записаться"),
+                   fal.reference_banner_prompt(shop, "Маникюр", "", "Записаться", "takes inspiration")):
+        assert "«Лотос · Маникюрный салон»" in prompt and "small caption" in prompt and "NOT written" not in prompt
+        assert "except the caption" in prompt and "the business name," not in prompt                          # запрет на название снят только для подписи
+    nameless = fal.banner_prompt({**shop, "name": "burocart.ru", "kind": "x" * 60}, "Маникюр", "", "Записаться")
+    assert "small caption" not in nameless and "NOT written" in nameless and "the business name," in nameless   # подписать нечем: прежние правила
+
+
+def test_the_caption_is_required_when_the_prompt_asked_for_it_and_not_for_a_custom_prompt(monkeypatch):
+    monkeypatch.setenv("FAL_KEY", "fal-test")
+    fakes = Fakes(fal_done=True)
+    with TestClient(app) as http:
+        bid = setup(http)
+        base = f"/api/businesses/{bid}/creatives"
+        ad = _ai_ad(http, bid)
+        fakes.claude_text = json.dumps([ad["title"], "ЗАПИСАТЬСЯ"], ensure_ascii=False)
+        fakes.ocr_caption = ()                                                   # нейросеть про подпись забыла
+        http.post(f"{base}/ads/4/ai-banner")
+        http.get(base)
+        bad = _ai_ad(http, bid)
+        assert bad["ai"]["status"] == "failed" and "ошибки в тексте: Лотос" in bad["ai"]["error"]   # без подписи с названием не понять, кто рекламирует
+
+        fakes.ocr_caption = ("Лотос", "Маникюрный салон")
+        http.post(f"{base}/ads/4/ai-banner")
+        http.get(base)
+        assert _ai_ad(http, bid)["ai"]["status"] == "ready"
+
+        fakes.ocr_caption = ()                                                   # свой промпт без подписи: её не ждём
+        own = "Нарисуй спокойный баннер: крупный план рук мастера и короткий заголовок слева."
+        assert http.post(f"{base}/ads/4/ai-banner", json={"prompt": own}).status_code == 200
+        http.get(base)
+        assert _ai_ad(http, bid)["ai"]["status"] == "ready"
 
 
 def test_foreign_prices_are_the_amounts_the_ad_does_not_name():

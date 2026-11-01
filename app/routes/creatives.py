@@ -136,7 +136,8 @@ def _refresh_working(conn, business_id: int, transport) -> None:
                 conn.execute("UPDATE creatives SET status = 'failed', error = ? WHERE id = ?",
                              (f"Нейросеть дописала на картинке адрес сайта: {', '.join(links)}. Нажмите «Другой баннер».", r["id"]))
                 continue
-            extra = extra_words(expected, read or [])
+            owner = conn.execute("SELECT * FROM businesses WHERE id = ?", (business_id,)).fetchone()
+            extra = extra_words(expected + fal.caption_parts(owner), read or [])   # подпись с названием и видом деятельности допустима всегда
             if len(extra) > EXTRA_WORDS_OK:
                 conn.execute("UPDATE creatives SET status = 'failed', error = ? WHERE id = ?",
                              (f"Нейросеть дописала на картинке лишний текст: {', '.join(extra[:6])}. Нажмите «Другой баннер».", r["id"]))
@@ -147,7 +148,6 @@ def _refresh_working(conn, business_id: int, transport) -> None:
                              (f"На картинке указана цена, которой нет в объявлении: {', '.join(foreign)}. Нажмите «Другой баннер».", r["id"]))
                 continue
             if read:   # всё написанное на баннере сверяем с тем, что владелец рассказал о бизнесе: цены, сроки, условия не должны ему противоречить
-                owner = conn.execute("SELECT * FROM businesses WHERE id = ?", (business_id,)).fetchone()
                 wrong = asyncio.run(check_facts(facts_of(owner), r["title"], r["body"], read, key, s.fal_text_model, transport))
                 if wrong:
                     conn.execute("UPDATE creatives SET status = 'failed', error = ? WHERE id = ?",
@@ -398,6 +398,12 @@ def _brief_for(conn, business_id: int, variant: dict):
                         (business_id, variant["title"], variant["text"])).fetchone()
 
 
+def _with_caption(expected: list[str], biz, prompt: str) -> list[str]:
+    """Подпись с названием и видом деятельности обязательна на баннере, только если она есть в промпте (старые и свои промпты её не содержат)."""
+    caption = fal.caption_for(biz)
+    return expected + fal.caption_parts(biz) if caption and caption in prompt else expected
+
+
 def _order_banner(conn, biz, variants: list[dict], index: int, key: str, transport, others: list[str], custom_prompt: str = "") -> str:
     """Заказывает один ИИ-баннер. Есть фото владельца: модель делает баннер из этого фото (оформление у каждого объявления своё).
     Фото нет: арт-директор придумывает сцену, художник рисует с нуля. custom_prompt: промпт, который владелец поправил сам. Возвращает описание."""
@@ -436,7 +442,7 @@ def _order_banner(conn, biz, variants: list[dict], index: int, key: str, transpo
             _charge(conn, business_id, "ref_extra")
         job = asyncio.run(fal.start_edit(prompt, images, key, s.fal_banner_model, transport))
         what = f"фото «{PHOTO_TAGS.get(kind, kind)}», " + (f"по мотивам референса {brief['ref_id']}" if ref_bytes else f"оформление: {look}")
-        meta = {"expect": expected, "logo": False, "screen": False, "mode": "photo", "concept": kind, "look": look,
+        meta = {"expect": _with_caption(expected, biz, prompt), "logo": False, "screen": False, "mode": "photo", "concept": kind, "look": look,
                 "look_no": look_no % len(fal.PHOTO_LOOKS), "photo_id": getattr(data, "asset_id", None), "varied": varied,
                 "ref": brief["ref_id"] if ref_bytes else None,
                 "audience": brief["audience"] if brief else "", "hypothesis": brief["hypothesis"] if brief else "", "scene": what,
@@ -485,7 +491,7 @@ def _order_banner(conn, biz, variants: list[dict], index: int, key: str, transpo
                                                 logo_ratio=_logo_ratio(logo), scene=art["scene"], direction=direction)
     job = (asyncio.run(fal.start_edit(prompt, [_bytes_url(ref_bytes, 900)], key, s.fal_banner_model, transport)) if ref_bytes
            else asyncio.run(fal.start_image(prompt, key, s.fal_banner_model, transport)))
-    meta = {"expect": expected, "logo": use_logo, "screen": screen, "concept": art["concept"], "audience": art["audience"], "scene": art["scene"],
+    meta = {"expect": _with_caption(expected, biz, prompt), "logo": use_logo, "screen": screen, "concept": art["concept"], "audience": art["audience"], "scene": art["scene"],
             "mode": "scratch", "ref": ref_id, "ref_img": bool(ref_bytes), "varied": varied,
             "logo_reason": art["logo_reason"], "prompt_text": prompt,
             "brief": ("ВАЖНО: на экране телефона вставлен НАСТОЯЩИЙ скриншот приложения владельца. Это не выдумка нейросети и не недостаток: "
