@@ -10,6 +10,7 @@ import httpx
 
 from app.config import get_settings
 from app.direct.client import DirectClient, DirectError
+from app.direct.goals import fetch_goals, save_goals
 from app.direct.launch import sync_units
 from app.engine.config import DIRECT_CONFIG
 from app.engine.cycle import run_cycle
@@ -79,6 +80,8 @@ def sync_and_run(conn: sqlite3.Connection, biz: sqlite3.Row, today: str | None =
         if not biz["account_id"]:
             raise EngineError("К бизнесу не подключён рекламный кабинет.", "no_account")
         token, login = account_token(conn, biz["account_id"])
+        if biz["metrika_counter_id"]:   # названия и список целей счётчика: по ним собираем все действия посетителей, а не одну цель
+            save_goals(conn, biz["id"], asyncio.run(fetch_goals(token, biz["metrika_counter_id"], transport)))
 
         async def go():
             async with DirectClient(token, api_version=s.direct_api_version, login=login, transport=transport) as client:

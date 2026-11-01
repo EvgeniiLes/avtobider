@@ -110,6 +110,23 @@ CREATE TABLE IF NOT EXISTS stats_daily (
     PRIMARY KEY (unit_id, day)
 );
 
+-- Все цели счётчика Метрики: названия, и по дням и объявлениям сколько раз каждая достигнута (по отчёту Директа).
+-- Обращением считается одна выбранная цель (businesses.metrika_goal_id), остальные нужны, чтобы видеть путь посетителя.
+CREATE TABLE IF NOT EXISTS metrika_goals (
+    business_id INTEGER NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+    goal_id     TEXT NOT NULL,
+    name        TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (business_id, goal_id)
+);
+
+CREATE TABLE IF NOT EXISTS goal_stats (
+    unit_id     INTEGER NOT NULL REFERENCES ad_units(id) ON DELETE CASCADE,
+    day         TEXT NOT NULL,
+    goal_id     TEXT NOT NULL,
+    conversions INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (unit_id, day, goal_id)
+);
+
 -- Оценка объявления в каждом цикле (нужна для подтверждения решения двумя оценками подряд).
 CREATE TABLE IF NOT EXISTS evaluations (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,

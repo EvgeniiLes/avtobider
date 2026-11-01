@@ -23,6 +23,8 @@ class FakeDirect:
         self.images: list[str] = []
         self.advertiser = {"tin_type": None, "tin": None, "name": None, "phone": ""}  # данные рекламодателя в «кабинете»
         self.update_error = ""
+        self.metrika_goals: list[dict] = []   # цели счётчика Метрики: {"id": ..., "name": ...}
+        self.single_goal_only = False   # отчёт с несколькими целями отвечает ошибкой: проверка запасного пути на одну цель
         self._id = 1000
         self.transport = httpx.MockTransport(self._handle)
 
@@ -47,6 +49,8 @@ class FakeDirect:
             c.update(Status="ACCEPTED", State=state, StatusPayment=payment)
 
     def _handle(self, request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api-metrika.yandex.net":   # список целей счётчика, который сервис читает при каждой синхронизации
+            return httpx.Response(200, json={"goals": self.metrika_goals})
         service = request.url.path.rsplit("/", 1)[1]
         body = json.loads(request.content)
         if service == "reports":
@@ -155,17 +159,21 @@ class FakeDirect:
         params = body["params"]
         self.report_requests.append(params)
         goals = params.get("Goals") or []
+        if len(goals) > 1 and self.single_goal_only:
+            return httpx.Response(400, json={"error": {"error_code": 8000, "error_string": "Слишком много целей в отчёте"}})
         cols = ["Date", "CampaignId", "AdId", "Impressions", "Clicks", "Cost"]
-        if "Conversions" in params["FieldNames"]:
-            cols.append(f"Conversions_{goals[0]}_AUTO" if goals else "Conversions")
+        with_conversions = "Conversions" in params["FieldNames"]
+        if with_conversions:
+            cols += [f"Conversions_{g}_AUTO" for g in goals] if goals else ["Conversions"]
         lines = ["\t".join(cols)]
         for row in self.report_rows:
             day, ad_index, imp, clicks, cost = row[:5]   # ad_index: номер объявления по порядку создания
-            leads = row[5] if len(row) > 5 else 0
+            leads = row[5] if len(row) > 5 else 0         # число — обращения по первой цели отчёта, словарь — по каждой цели свои
             ad = list(self.ads)[ad_index]
             camp = self.ads[ad]["campaign"]
             values = [day, camp, ad, imp, clicks, cost]
-            if len(cols) > 6:
-                values.append(leads)
+            if with_conversions:
+                per_goal = leads if isinstance(leads, dict) else {goals[0]: leads} if goals else {}
+                values += [per_goal.get(str(g), 0) for g in goals] if goals else [leads if isinstance(leads, int) else 0]
             lines.append("\t".join(map(str, values)))
         return httpx.Response(200, text="\n".join(lines))

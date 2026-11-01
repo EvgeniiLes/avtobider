@@ -223,6 +223,32 @@ def series(business_id: int, days: int = 14, user: sqlite3.Row = Depends(current
     return {"days": out}
 
 
+@router.get("/goals")
+def goals(business_id: int, days: int = 14, user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connection = Depends(get_db)):
+    """Все действия посетителей по целям счётчика Метрики: сколько раз случилось, на 100 кликов и сколько стоит.
+    «Обращение» (выбранная цель) идёт первой; цели, которых не было, тоже показываются: по нулю видно, что действие не происходит."""
+    biz = _own(conn, user, business_id)
+    days = max(1, min(days, 90))
+    today = get_today(conn, business_id) or date.today().isoformat()
+    start = day_add(today, -(days - 1))
+    total = conn.execute(
+        "SELECT COALESCE(SUM(s.clicks), 0) AS clicks, COALESCE(SUM(s.spend_micro), 0) AS spend FROM stats_daily s "
+        "JOIN ad_units u ON u.id = s.unit_id WHERE u.business_id = ? AND s.day BETWEEN ? AND ?", (business_id, start, today)).fetchone()
+    names = {r["goal_id"]: r["name"] for r in conn.execute("SELECT goal_id, name FROM metrika_goals WHERE business_id = ?", (business_id,))}
+    reached = {r["goal_id"]: r["n"] for r in conn.execute(
+        "SELECT g.goal_id AS goal_id, SUM(g.conversions) AS n FROM goal_stats g JOIN ad_units u ON u.id = g.unit_id "
+        "WHERE u.business_id = ? AND g.day BETWEEN ? AND ? GROUP BY g.goal_id", (business_id, start, today))}
+    main = biz["metrika_goal_id"] or ""
+    items = []
+    for gid in dict.fromkeys(([main] if main else []) + list(names) + list(reached)):
+        n = reached.get(gid, 0)
+        items.append({"id": gid, "name": names.get(gid) or f"Цель {gid}", "main": gid == main, "count": n,
+                      "per_100_clicks": round(n * 100 / total["clicks"], 1) if total["clicks"] else None,
+                      "cost": _ratio(total["spend"], n)})
+    items.sort(key=lambda i: (not i["main"], -i["count"]))
+    return {"connected": bool(biz["metrika_counter_id"]), "days": days, "clicks": total["clicks"], "spend": _rub(total["spend"]), "goals": items}
+
+
 STYLE_LABELS = {"photo": "Фото-герой", "luxe": "Тёмный люкс", "pastel": "Пастель", "bold": "Яркая типографика", "card": "Светлая карточка", "ai": "ИИ-дизайн"}
 MIN_IMPRESSIONS = 1000  # меньше показов на стиль: разница в кликах может быть случайной
 MIN_LEADS = 3           # меньше обращений: цену обращения сравнивать рано

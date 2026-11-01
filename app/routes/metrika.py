@@ -10,6 +10,7 @@ from app.config import get_settings
 from app.db import get_db
 from app.deps import client_factory, current_user, yandex_http
 from app.direct.client import DirectError
+from app.direct.goals import save_goals
 from app.direct.runner import account_token
 from app.engine.util import EngineError
 from app.routes.businesses import _own
@@ -97,8 +98,10 @@ def save(business_id: int, data: MetrikaIn, user: sqlite3.Row = Depends(current_
             found = await _get(http, token, f"/counter/{data.counter_id}/goals")
         if data.goal_id not in {str(g["id"]) for g in found.get("goals", [])}:
             raise HTTPException(400, detail={"message": "Такой цели нет в этом счётчике. Выберите цель из списка."})
+        return [{"id": str(g["id"]), "name": g.get("name") or str(g["id"])} for g in found.get("goals", [])]
 
-    asyncio.run(check())
+    all_goals = asyncio.run(check())
+    save_goals(conn, business_id, all_goals)   # сервис сохраняет все цели счётчика, а не только выбранную «обращением»
 
     # Директ считает обращения только для кампаний, к которым привязан счётчик: привязываем к уже созданным.
     units = conn.execute("SELECT DISTINCT external_campaign_id FROM ad_units WHERE business_id = ? AND external_campaign_id IS NOT NULL", (business_id,)).fetchall()

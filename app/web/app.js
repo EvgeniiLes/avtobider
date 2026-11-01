@@ -1286,6 +1286,20 @@ async function loadInsights() {
   $("insights-angles").querySelector("tbody").replaceChildren(...(result.data.angle_groups || []).map(row));
 }
 
+async function loadGoals() {
+  const card = $("goals-card");
+  const result = await api("GET", `/api/businesses/${currentBusiness.id}/goals`);
+  const goals = result.ok ? result.data.goals : [];
+  card.hidden = !goals.length;
+  if (!goals.length) return;
+  const d = result.data;
+  $("goals-hint").textContent = `За последние ${d.days} дн.: ${d.clicks} ${plural(d.clicks, "клик", "клика", "кликов")}. «Обращение» отмечено, по нему сервис принимает решения; остальные цели показывают путь посетителя до него.`;
+  const row = (g) => el("tr", {},
+    ...[g.main ? `${g.name} (обращение)` : g.name, String(g.count), g.per_100_clicks == null ? "—" : String(g.per_100_clicks), money(g.cost)]
+      .map((v) => el("td", { textContent: v })));
+  $("goals-table").querySelector("tbody").replaceChildren(...goals.map(row));
+}
+
 async function loadSeries() {
   const result = await api("GET", `/api/businesses/${currentBusiness.id}/series?days=14`);
   renderChart(result.ok ? result.data.days : []);
@@ -1377,6 +1391,7 @@ async function loadStats() {
   renderGoal(data);
   if (data.real || data.example) loadSeries(); else renderChart([]);
   if (data.real || data.example) loadInsights(); else $("insights-card").hidden = true;
+  if (data.real) loadGoals(); else $("goals-card").hidden = true;
   renderDecisions();
   $("example-notice").hidden = !data.example;
   $("stats-needs").textContent = data.real || data.example ? data.needs : "";

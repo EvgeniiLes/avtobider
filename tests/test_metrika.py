@@ -133,7 +133,7 @@ def test_real_leads_flow_into_engine_decisions(isolated):
         biz = lambda: conn.execute("SELECT * FROM businesses WHERE id = ?", (bid,)).fetchone()
         sync_and_run(conn, biz(), today, transport=fake.transport)
         seen = fake.report_requests[-1]
-        assert seen["Goals"] == ["9001"] and "Conversions" in seen["FieldNames"] and seen["AttributionModels"] == ["AUTO"]
+        assert seen["Goals"] == ["9001", "9002"] and "Conversions" in seen["FieldNames"]   # «обращение» и остальные цели счётчика and seen["AttributionModels"] == ["AUTO"]
 
         # объявление 0 дорогое и без обращений, объявление 1 дешёвое с обращениями
         fake.report_rows = [(day_add(today, -d), 0, 1000, 40, 1000 * MICRO, 0) for d in (1, 2, 3, 4)] + \
@@ -158,3 +158,86 @@ def test_real_leads_flow_into_engine_decisions(isolated):
         assert http.post(f"/api/businesses/{bid}/clients", json={"day": "2999-01-01", "count": 1}).status_code == 400
         assert http.post(f"/api/businesses/{bid}/clients", json={"day": "вчера", "count": 1}).status_code == 422
         assert http.post(f"/api/businesses/{bid}/clients", json={"day": today, "count": -1}).status_code == 422
+
+
+# ---------- все цели счётчика: весь путь посетителя, а не одно «обращение» ----------
+
+GOALS = [{"id": 9001, "name": "Заявка"}, {"id": 9002, "name": "Клик по кнопке «Позвонить»"}, {"id": 9003, "name": "Открыл форму"}, {"id": 9004, "name": "Дошёл до оплаты"}]
+
+
+def connected(http, fake, db_path):
+    """Бизнес с запущенной рекламой и подключённой Метрикой: главная цель 9001, в счётчике ещё три."""
+    bid = setup(http, fake, db_path)
+    http.post(f"/api/businesses/{bid}/launch", json={"marking_confirmed": True})
+    metrika_stub(goals=GOALS)
+    assert http.put(f"/api/businesses/{bid}/metrika", json={"counter_id": "555", "goal_id": "9001"}).status_code == 200
+    fake.metrika_goals = GOALS
+    fake.accept_all(state="ON", payment="ALLOWED")
+    return bid
+
+
+def test_sync_keeps_every_goal_by_day_and_ad_and_only_the_main_one_counts_as_lead(isolated):
+    fake = FakeDirect()
+    with TestClient(app) as http:
+        bid = connected(http, fake, isolated)
+        conn = connect(isolated)
+        today = date.today().isoformat()
+        fake.report_rows = [(today, 0, 1000, 30, 450 * MICRO, {"9001": 2, "9002": 9, "9003": 4}),
+                            (today, 1, 800, 20, 200 * MICRO, {"9002": 5})]
+        biz = conn.execute("SELECT * FROM businesses WHERE id = ?", (bid,)).fetchone()
+        assert sync_and_run(conn, biz, today, transport=fake.transport)["error"] == ""
+
+        assert fake.report_requests[-1]["Goals"] == ["9001", "9002", "9003", "9004"]
+        per_goal = {r["goal_id"]: r["n"] for r in conn.execute("SELECT goal_id, SUM(conversions) AS n FROM goal_stats GROUP BY goal_id")}
+        assert per_goal == {"9001": 2, "9002": 14, "9003": 4, "9004": 0}
+        assert conn.execute("SELECT SUM(leads) FROM stats_daily").fetchone()[0] == 2   # решает движок по «обращению», остальные цели его не сбивают
+        assert {r["goal_id"]: r["name"] for r in conn.execute("SELECT * FROM metrika_goals")}["9002"] == "Клик по кнопке «Позвонить»"
+
+        # повторная синхронизация за те же дни не удваивает достижения
+        sync_and_run(conn, biz, today, transport=fake.transport)
+        assert conn.execute("SELECT SUM(conversions) FROM goal_stats").fetchone()[0] == 20
+        conn.close()
+
+        data = http.get(f"/api/businesses/{bid}/goals").json()
+        assert data["connected"] is True and data["clicks"] == 50
+        assert [g["id"] for g in data["goals"]] == ["9001", "9002", "9003", "9004"]   # «обращение» первым, дальше по числу достижений
+        main, call, form, pay = data["goals"]
+        assert main["main"] is True and main["name"] == "Заявка" and main["count"] == 2
+        assert call["name"] == "Клик по кнопке «Позвонить»" and call["count"] == 14 and call["per_100_clicks"] == 28.0
+        assert call["cost"] == round(650 / 14, 2)   # расход всех объявлений, делённый на достижения цели
+        assert pay["count"] == 0 and pay["cost"] is None   # цель без достижений тоже видна: по нулю понятно, что действие не происходит
+
+
+def test_directs_refusal_of_many_goals_does_not_lose_the_main_one(isolated):
+    fake = FakeDirect()
+    fake.single_goal_only = True
+    with TestClient(app) as http:
+        bid = connected(http, fake, isolated)
+        conn = connect(isolated)
+        today = date.today().isoformat()
+        fake.report_rows = [(today, 0, 1000, 30, 450 * MICRO, 3)]
+        biz = conn.execute("SELECT * FROM businesses WHERE id = ?", (bid,)).fetchone()
+        assert sync_and_run(conn, biz, today, transport=fake.transport)["error"] == ""
+        assert fake.report_requests[-1]["Goals"] == ["9001"]
+        assert conn.execute("SELECT SUM(leads) FROM stats_daily").fetchone()[0] == 3
+        assert {r["goal_id"]: r["conversions"] for r in conn.execute("SELECT * FROM goal_stats")} == {"9001": 3}
+        conn.close()
+
+
+def test_goal_list_is_not_wiped_when_metrika_does_not_answer(isolated):
+    fake = FakeDirect()
+    with TestClient(app) as http:
+        bid = connected(http, fake, isolated)
+        conn = connect(isolated)
+        fake.metrika_goals = []   # Метрика промолчала: прежний список остаётся
+        biz = conn.execute("SELECT * FROM businesses WHERE id = ?", (bid,)).fetchone()
+        sync_and_run(conn, biz, date.today().isoformat(), transport=fake.transport)
+        assert conn.execute("SELECT COUNT(*) FROM metrika_goals WHERE business_id = ?", (bid,)).fetchone()[0] == 4
+        conn.close()
+
+
+def test_goals_page_is_empty_without_metrika(isolated):
+    with TestClient(app) as http:
+        bid = setup(http, FakeDirect(), isolated)
+        data = http.get(f"/api/businesses/{bid}/goals").json()
+        assert data["connected"] is False and data["goals"] == []

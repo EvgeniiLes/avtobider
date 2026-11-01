@@ -14,6 +14,7 @@ from datetime import date, timedelta
 from app.creative.compose import style_for
 from app.creative.angles import is_nationwide
 from app.direct.client import RUSSIA_REGION_ID, DirectClient, DirectError
+from app.direct.goals import goal_ids_for_report
 from app.direct.negatives import negatives_for
 from app.direct.texts import check, draft_variants
 from app.engine.util import EngineError, MICRO, day_add, plural, rub
@@ -446,7 +447,14 @@ async def sync_units(client: DirectClient, conn: sqlite3.Connection, biz, today:
             conn.execute("UPDATE ad_units SET state = ?, status_note = ? WHERE id = ?", (state, note, u["id"]))
 
     goal = biz["metrika_goal_id"] or None
-    rows = await client.ad_stats(day_add(today, -(days - 1)), today, goal_id=goal)
+    all_goals = goal_ids_for_report(conn, biz) if goal else []   # все цели счётчика: не только «обращение», а весь путь посетителя
+    start = day_add(today, -(days - 1))
+    try:
+        rows = await client.ad_stats(start, today, goal_id=goal, goal_ids=all_goals)
+    except DirectError:
+        if len(all_goals) <= 1:
+            raise
+        rows = await client.ad_stats(start, today, goal_id=goal)   # Директ не принял часть целей (чужой счётчик, цель удалена): хотя бы «обращение» не теряем
     by_ad = {str(u["external_ad_id"]): u["id"] for u in units}
     n = 0
     for r in rows:
@@ -459,6 +467,10 @@ async def sync_units(client: DirectClient, conn: sqlite3.Connection, biz, today:
             "spend_micro = excluded.spend_micro, leads = excluded.leads",
             (unit_id, r["day"], r["impressions"], r["clicks"], r["spend_micro"], r["leads"] if goal else 0),
         )
+        for goal_id, count in (r.get("goals") or {}).items():   # каждая цель по дню и объявлению
+            conn.execute(
+                "INSERT INTO goal_stats (unit_id, day, goal_id, conversions) VALUES (?,?,?,?) "
+                "ON CONFLICT(unit_id, day, goal_id) DO UPDATE SET conversions = excluded.conversions", (unit_id, r["day"], goal_id, count))
         n += 1
     conn.commit()
     return {"units": len(units), "rows": n}

@@ -300,6 +300,7 @@
         <div class="card" id="metrika-card" hidden>
           <h2>Обращения с сайта (Яндекс Метрика)</h2>
           <p id="metrika-howto" class="hint"></p>
+          <p class="hint">Сервис запоминает все цели счётчика (клик по кнопке, открытие формы, звонок, заявка…) по дням и объявлениям. Обращением считается та цель, которую вы выберете ниже, по ней сервис принимает решения. Остальные видны на странице результатов: по ним понятно, где посетители отваливаются.</p>
           <div id="metrika-form" hidden>
             <label for="m-counter">Счётчик</label>
             <select id="m-counter"></select>
@@ -516,6 +517,17 @@
             <div class="table-wrap">
               <table id="insights-types">
                 <thead><tr><th>Тип фото</th><th>Объявлений</th><th>Показы</th><th>Клики</th><th>CTR</th><th>Обращения</th><th>Цена обращения</th></tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="card" id="goals-card" hidden>
+            <h2>Действия посетителей</h2>
+            <p class="hint" id="goals-hint"></p>
+            <div class="table-wrap">
+              <table id="goals-table">
+                <thead><tr><th>Действие (цель Метрики)</th><th>Раз за период</th><th>На 100 кликов</th><th>Цена действия</th></tr></thead>
                 <tbody></tbody>
               </table>
             </div>

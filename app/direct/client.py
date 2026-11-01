@@ -395,24 +395,33 @@ class DirectClient:
                         return int(prop["Value"])
         return None
 
-    async def ad_stats(self, date_from: str, date_to: str, goal_id: str | None = None) -> list[dict]:
-        """Статистика по объявлениям и дням: показы, клики, расход (микрорубли) и обращения по цели Метрики."""
+    async def ad_stats(self, date_from: str, date_to: str, goal_id: str | None = None, goal_ids: list[str] | None = None) -> list[dict]:
+        """Статистика по объявлениям и дням: показы, клики, расход (микрорубли), обращения по цели «обращение» (goal_id)
+        и достижения каждой цели из goal_ids (goals: номер цели → сколько раз). Директ принимает в отчёте до 10 целей."""
+        goals = list(dict.fromkeys(([str(goal_id)] if goal_id else []) + [str(g) for g in (goal_ids or [])]))[:10]
         fields = ["Date", "CampaignId", "AdId", "Impressions", "Clicks", "Cost"]
-        if goal_id:
+        if goals:
             fields.append("Conversions")
-        rows = await self.report("AD_PERFORMANCE_REPORT", fields, date_from, date_to, goals=[goal_id] if goal_id else None)
-        return [
-            {
+        rows = await self.report("AD_PERFORMANCE_REPORT", fields, date_from, date_to, goals=goals or None)
+        out = []
+        for r in rows:
+            by_goal: dict[str, int] = {}
+            for key, value in r.items():
+                if key.startswith("Conversions"):   # колонки Conversions_<цель>_<модель>; без номера цели это единственная цель отчёта
+                    parts = key.split("_")
+                    gid = parts[1] if len(parts) > 2 else (goals[0] if len(goals) == 1 else "")
+                    by_goal[gid] = by_goal.get(gid, 0) + _to_int(value)
+            out.append({
                 "day": r["Date"],
                 "campaign_id": r["CampaignId"],
                 "ad_id": r["AdId"],
                 "impressions": _to_int(r["Impressions"]),
                 "clicks": _to_int(r["Clicks"]),
                 "spend_micro": _to_int(r["Cost"]),
-                "leads": sum(_to_int(v) for k, v in r.items() if k.startswith("Conversions")),
-            }
-            for r in rows
-        ]
+                "leads": by_goal.get(str(goal_id), 0) if goal_id else sum(by_goal.values()),
+                "goals": by_goal,
+            })
+        return out
 
     async def set_counters(self, campaign_id: int, counter_ids: list[int]) -> None:
         """Привязывает счётчики Метрики к кампании (нужно, чтобы Директ считал обращения)."""
