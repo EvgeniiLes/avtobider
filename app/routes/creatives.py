@@ -277,7 +277,7 @@ def ads(business_id: int, user: sqlite3.Row = Depends(current_user), conn: sqlit
         if brief:   # объявление сделано по идее стратега: показываем, что именно проверяем
             ai.update({"hypothesis": brief["hypothesis"], "audience": brief["audience"], "inspiration": refs.note(brief["ref_id"])})
         no_photo = bool(brief and brief["no_photo"])
-        auto_ref = None if brief or _extras() else _auto_ref(biz, i)   # подача, которую возьмём при первом заказе
+        auto_ref = None if brief or _extras() else _auto_ref(conn, biz, i, v)   # подача, которую возьмём при первом заказе
         if photos and not _extras() and no_photo:   # без фото промпт собирается при заказе: показываем последний, если он был
             if meta.get("mode") == "scratch" and meta.get("prompt_text"):
                 ai["prompt"] = meta["prompt_text"]
@@ -452,14 +452,16 @@ def _order_banner(conn, biz, variants: list[dict], index: int, key: str, transpo
     own_scenes = [m.get("scene", "")[:160] for m in earlier if m.get("mode") != "photo"][:3]   # прежние сцены этого же объявления: не повторять
     logo = logo_for(conn, biz) if extras else None
     screen = extras and _screenshot(conn, business_id) is not None
-    art = asyncio.run(art_direction(biz, v, index, [x for x in others + own_scenes if x][-8:], _logo_info(conn, biz, logo), screen, key, s.fal_text_model, transport))
+    art = asyncio.run(art_direction(biz, v, index, [x for x in others + own_scenes if x][-8:], _logo_info(conn, biz, logo), screen, key, s.fal_text_model, transport,
+                                    refs.note(ref_id) if ref_id else ""))
     use_logo = bool(art["logo"]) and logo is not None
     # референс уходит модели картинкой: по одной строке слов сходства почти нет, а картинка задаёт композицию, цвет и шрифт
     ref_bytes = refs.load(ref_id) if ref_id else None
     if ref_bytes:
         _charge(conn, business_id, "ref_extra")
         direction = (f"the attached image is ONLY a style inspiration (the idea of its composition, color mood, typography weight and feel: {refs.note(ref_id)}). "
-                     "Follow that layout idea closely, but make a new original banner with the scene above: do not copy or reuse its text, logo, products, people or characters")
+                     "Follow that layout idea closely, but make a new original banner with the scene above: do not copy or reuse its text, logo, products, people or characters, "
+                     "and do not recreate its small print, captions, lists, badges, footer or contact lines: the only text on the banner is the text given below")
     else:
         direction = (f"{refs.note(ref_id)}. Take this advertising idea only as inspiration for the layout, color mood and type weight; "
                      "make an original design with your own scene and do not reuse any text, logo or character from it") if ref_id else ""
@@ -707,15 +709,24 @@ def _niche_refs(biz, limit: int = 8) -> list[int]:
     return found[:limit]
 
 
-def _auto_ref(biz, index: int) -> int | None:
+def _taken_refs(conn, business_id: int, variant: dict) -> set[int]:
+    """Приёмы, которые уже стоят у соседних объявлений."""
+    return {r["ref_id"] for r in conn.execute("SELECT ref_id FROM briefs WHERE business_id = ? AND status = 'used' AND ref_id IS NOT NULL "
+                                              "AND NOT (title = ? AND body = ?)", (business_id, variant["title"], variant["text"]))}
+
+
+def _auto_ref(conn, biz, index: int, variant: dict) -> int | None:
     """Приём для объявления, у которого подача ещё не выбрана: у соседних объявлений разные, когда приёмы кончаются, берём обычное оформление."""
     found = _niche_refs(biz)
-    return found[index] if index < len(found) else None
+    if index >= len(found):
+        return None
+    taken = _taken_refs(conn, biz["id"], variant)
+    return found[index] if found[index] not in taken else next((r for r in found if r not in taken), found[index])
 
 
 def _auto_style(conn, biz, v: dict, index: int, asset_id: int | None = None):
     """Первый заказ баннера без выбранной подачи: сохраняем приём из ниши как подачу объявления (она видна в редакторе)."""
-    ref = _auto_ref(biz, index)
+    ref = _auto_ref(conn, biz, index, v)
     if ref is None:
         return None
     _apply_style(conn, biz, v, None, asset_id, index % len(fal.PHOTO_LOOKS), ref)
@@ -762,18 +773,19 @@ def _vary_style(conn, biz, variant: dict, brief, index: int, scratch: bool = Fal
     if current != used[-1]:
         return None
     options = _style_options(biz, scratch)
-    # приёмы, которые уже стоят у соседних объявлений: по возможности не повторяем их, чтобы объявления отличались друг от друга
-    taken = {r["ref_id"] for r in conn.execute("SELECT ref_id FROM briefs WHERE business_id = ? AND status = 'used' AND ref_id IS NOT NULL "
-                                               "AND NOT (title = ? AND body = ?)", (biz["id"], variant["title"], variant["text"]))}
+    taken = _taken_refs(conn, biz["id"], variant)   # по возможности не повторяем приёмы соседних объявлений, чтобы они отличались друг от друга
     last_drawn = lambda o: max((i for i, u in enumerate(used) if u == o), default=-1)   # -1: этому объявлению ещё не рисовали
     pick = lambda pool: min(pool, key=lambda o: (last_drawn(o), options.index(o)))   # сначала то, что не рисовали, потом то, что рисовали давнее всех
-    free = [o for o in options if o != current and (o[0] is None or o[0] not in taken)]
+    others = [o for o in options if o != current]
+    free = [o for o in others if o[0] is None or o[0] not in taken]
+    if scratch:
+        # без фото «без референса» это не другая подача, а её отсутствие: объявление, которое уже рисовалось по приёму, его не теряет.
+        # Свободных приёмов нет: лучше повторить приём соседнего объявления, чем остаться без референса
+        pool = [o for o in free if o[0]] or ([o for o in others if o[0]] if current[0] else [])
+        return pick(pool) if pool else None
     if free:
         return pick(free)
-    if scratch and current == (None, None):
-        return None   # без референса другого пути нет: обычное направление и так сдвигается с каждым заказом
-    rest = [o for o in options if o != current]
-    return pick(rest) if rest else None
+    return pick(others) if others else None
 
 
 class SettingsIn(BaseModel):

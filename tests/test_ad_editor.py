@@ -7,6 +7,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from fastapi.testclient import TestClient  # noqa: E402
 
+from app.creative import refs  # noqa: E402
 from app.main import app  # noqa: E402
 from test_creatives import Fakes, isolated, png, setup  # noqa: E402,F401
 
@@ -128,6 +129,8 @@ def test_ad_without_a_photo_is_drawn_from_scratch_and_the_reference_works_in_wor
         _h, path, body = next(r for r in fakes.requests if r[0] == "queue.fal.run")
         assert path.endswith("/gpt-image-2/edit") and body.count(b"data:image/jpeg;base64") == 1       # фото владельца не уходит, уходит только картинка референса
         assert b"ONLY a style inspiration" in body                                                   # и сказано, что её нельзя копировать
+        asked = [json.loads(b)["messages"][-1]["content"] for _h, _p, b in fakes.requests if b.startswith(b"{") and b"messages" in b]
+        assert any("Подача по референсу" in a and refs.note(ref) in a for a in asked)               # арт-директору приём назван: сцена строится вокруг него
         http.get(f"{base}/creatives")
         ad = ads()["ads"][0]
         assert ad["ai"]["status"] == "ready" and ad["ai"]["prompt"] and ad["ref_id"] == ref and ad["no_photo"] is True
@@ -148,34 +151,67 @@ def test_first_order_takes_a_different_niche_reference_for_each_ad(monkeypatch):
         bid = setup(http, kind="Барбершоп", description="Мужские стрижки и оформление бороды. Работаем ежедневно с 10 до 22.")
         base = f"/api/businesses/{bid}/creatives"
         shown = [a["ref_id"] for a in http.get(f"{base}/ads").json()["ads"]]
-        assert shown[0] and all(shown[:5]) and len(set(shown[:5])) == 5          # у первых пяти объявлений разные приёмы ниши
-        assert shown[5] is None                                                    # приёмы кончились: дальше обычное оформление
-        assert not {29, 36} & set(shown)                                           # приёмы про акции и цену не берём, пока скидки не разрешены
+        assert all(shown) and len(set(shown)) == 6                                # у всех шести объявлений разные приёмы ниши
+        assert 29 in shown and 36 not in shown                                     # кресло барбера берём, приём про зачёркнутую цену нет: скидки не разрешены
 
         assert http.post(f"{base}/ads/ai-banners").json() == {"started": 6}
         assert [a["ref_id"] for a in http.get(f"{base}/ads").json()["ads"]] == shown   # выбранные подачи сохранились на карточках
-        assert all(r is None for r in [a["ref_id"] for a in http.get(f"{base}/ads").json()["ads"]][5:])
 
 
-def test_redrawing_does_not_repeat_a_reference_that_a_neighbour_ad_already_uses(monkeypatch):
+def test_ads_after_the_niche_references_run_out_are_drawn_without_one(monkeypatch):
+    monkeypatch.setenv("FAL_KEY", "fal-test")
+    Fakes(fal_done=False)
+    with TestClient(app) as http:
+        bid = setup(http)    # маникюр: в каталоге два приёма
+        base = f"/api/businesses/{bid}/creatives"
+        shown = [a["ref_id"] for a in http.get(f"{base}/ads").json()["ads"]]
+        assert all(shown[:2]) and len(set(shown[:2])) == 2 and all(r is None for r in shown[2:])
+        assert http.post(f"{base}/ads/ai-banners").json() == {"started": 6}
+        assert [a["ref_id"] for a in http.get(f"{base}/ads").json()["ads"]] == shown
+
+
+def _draw(http, base, fakes, ad):
+    """Заказывает баннер и забирает готовый: подставное чтение текста возвращает только надписи этого объявления."""
+    fakes.claude_text = json.dumps([ad["title"], "Записаться"], ensure_ascii=False)
+    started = http.post(f"{base}/ads/{ad['index']}/ai-banner").json()
+    http.get(base)
+    return started
+
+
+def test_redrawing_never_drops_the_reference_when_neighbours_use_all_of_them(monkeypatch):
     monkeypatch.setenv("FAL_KEY", "fal-test")
     fakes = Fakes(fal_done=True)
     with TestClient(app) as http:
         bid = setup(http, kind="Барбершоп", description="Мужские стрижки и оформление бороды. Работаем ежедневно с 10 до 22.")
         base = f"/api/businesses/{bid}/creatives"
         ads = lambda: http.get(f"{base}/ads").json()["ads"]
-        titles = [a["title"] for a in ads()]
-        fakes.claude_text = json.dumps(titles + ["Записаться"], ensure_ascii=False)
-        assert http.post(f"{base}/ads/ai-banners").json() == {"started": 6}
-        http.get(base)
-        taken = {a["ref_id"] for a in ads()[:5]}
-        assert len(taken) == 5 and ads()[5]["ref_id"] is None
+        for ad in ads():
+            _draw(http, base, fakes, ad)
+        assert all(a["ai"]["status"] == "ready" for a in ads())
+        taken = {a["ref_id"] for a in ads()}
+        assert len(taken) == 6
+        before = ads()[0]["ref_id"]
 
-        again = http.post(f"{base}/ads/5/ai-banner").json()                     # у шестого объявления приёмов не осталось: берём обычное направление
-        assert not again.get("varied") and ads()[5]["ref_id"] is None
-        http.get(base)
-        first = http.post(f"{base}/ads/0/ai-banner").json()                     # у первого свободных приёмов нет, соседи заняли все
-        assert ads()[0]["ref_id"] in taken or first.get("varied") == "без референса"
+        first = _draw(http, base, fakes, ads()[0])                              # свободных приёмов нет, соседи заняли все: лучше повтор приёма соседа, чем рисунок без референса
+        assert first["varied"] and first["varied"] != "без референса" and ads()[0]["ref_id"] in taken - {before}
+        second = _draw(http, base, fakes, ads()[0])                             # и дальше идёт по кругу, а не теряет приём
+        assert second["varied"] != "без референса" and ads()[0]["ref_id"] in taken
+        assert {a["ref_id"] for a in ads()[1:]} == taken - {before}              # у соседей приёмы остались свои
+
+
+def test_redrawing_prefers_a_free_reference_over_one_a_neighbour_uses(monkeypatch):
+    monkeypatch.setenv("FAL_KEY", "fal-test")
+    fakes = Fakes(fal_done=True)
+    with TestClient(app) as http:
+        bid = setup(http, kind="Барбершоп", description="Мужские стрижки и оформление бороды. Работаем ежедневно с 10 до 22.")
+        base = f"/api/businesses/{bid}/creatives"
+        ads = lambda: http.get(f"{base}/ads").json()["ads"]
+        for i in (0, 1):                                                          # заказаны только два объявления: остальные приёмы свободны
+            _draw(http, base, fakes, ads()[i])
+        mine, neighbour = ads()[0]["ref_id"], ads()[1]["ref_id"]
+        assert mine and neighbour and mine != neighbour
+        assert _draw(http, base, fakes, ads()[0])["varied"]
+        assert ads()[0]["ref_id"] not in (mine, neighbour)                        # новый приём: не прежний и не занятый соседом
 
 
 def test_renaming_the_text_keeps_the_photo_and_style_with_the_ad(monkeypatch):
