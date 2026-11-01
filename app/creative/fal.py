@@ -140,8 +140,9 @@ def _text_block(title: str, price: str, cta: str, by_direction: bool = False, ca
              "with strong contrast against their background. " if by_direction else
              "The headline is heavy bold sans-serif with tight letter spacing, very large, left aligned, at most 4 lines, the first thing the eye sees, "
              "with strong contrast against its background. ")
-    tail = (f"Along the bottom edge add one small caption line in a small clean sans-serif, spelled exactly «{caption}»: it tells who advertises what, "
-            "so it stays small (never larger than the button text), has good contrast and never covers the subject. " if caption else "")
+    tail = (f"Along the bottom edge add one caption line in a clean sans-serif, clearly legible even when the banner is shown small (letter height about 3% "
+            f"of the banner height), spelled exactly «{caption}»: it tells who advertises what, so it is never larger than the button text, has strong contrast "
+            "and never covers the subject. " if caption else "")
     return ("Text in Russian, spelled EXACTLY as written between the quotes: not translated, not abbreviated, no letter added or lost, and no other large text "
             f"anywhere. {style}Text to show: {shown}, and a solid rounded button «{cta}». " + tail)
 
@@ -156,6 +157,8 @@ def banner_prompt(biz, title: str, price: str, cta: str, logo_corner: bool = Fal
             + ("" if caption else f"; the brand name «{biz['name']}» is NOT written on the banner") + ". " + _visual_rules(biz)
             + f"Scene, follow it closely: {scene or 'one clear subject that shows what the business really offers'}. "
             "One clear focal subject, natural realistic photography with natural skin texture, correct anatomy and hands, no clutter. "
+            "People are busy with real work and their faces are calm and natural: no theatrical surprise or shock (wide-open eyes and mouth), "
+            "no show-off delight, no stock-photo poses. "
             "Choose the composition freely like an art director (the text may sit on the left, right, top or bottom), but the text always lies on "
             "a calm area with strong contrast and never covers faces or the main subject. "
             + _text_block(title, price, cta, caption=caption)

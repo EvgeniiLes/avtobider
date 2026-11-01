@@ -154,7 +154,7 @@ def test_first_order_takes_a_different_niche_reference_for_each_ad(monkeypatch):
         assert all(shown) and len(set(shown)) == 6                                # у всех шести объявлений разные приёмы ниши
         assert 29 in shown and 36 not in shown                                     # кресло барбера берём, приём про зачёркнутую цену нет: скидки не разрешены
 
-        assert http.post(f"{base}/ads/ai-banners").json() == {"started": 6}
+        assert http.post(f"{base}/ads/ai-banners").json() == {"started": 3}            # заказаны три объявления кампании
         assert [a["ref_id"] for a in http.get(f"{base}/ads").json()["ads"]] == shown   # выбранные подачи сохранились на карточках
 
 
@@ -166,7 +166,7 @@ def test_ads_after_the_niche_references_run_out_are_drawn_without_one(monkeypatc
         base = f"/api/businesses/{bid}/creatives"
         shown = [a["ref_id"] for a in http.get(f"{base}/ads").json()["ads"]]
         assert all(shown[:2]) and len(set(shown[:2])) == 2 and all(r is None for r in shown[2:])
-        assert http.post(f"{base}/ads/ai-banners").json() == {"started": 6}
+        assert http.post(f"{base}/ads/ai-banners").json() == {"started": 3}
         assert [a["ref_id"] for a in http.get(f"{base}/ads").json()["ads"]] == shown
 
 

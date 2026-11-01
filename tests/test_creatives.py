@@ -455,14 +455,17 @@ def test_all_ai_banners_are_ordered_once_each_with_different_directions(monkeypa
     with TestClient(app) as http:
         bid = setup(http)
         base = f"/api/businesses/{bid}/creatives"
-        assert http.post(f"{base}/ads/ai-banners").json() == {"started": 6}
+        assert http.post(f"{base}/ads/ai-banners").json() == {"started": 3}        # только три объявления кампании: запасным баннеры не нужны
         assert http.post(f"{base}/ads/ai-banners").json() == {"started": 0}        # повторно не платим за то, что уже рисуется
         prompts = [b.decode(errors="ignore") for h, _, b in fakes.requests if h == "queue.fal.run"]
-        assert len(prompts) == 6 and len({p.split("Visual direction:")[1][:170] for p in prompts}) == 6   # у каждого баннера своё направление
-        assert sum("ONLY a style inspiration" in p for p in prompts) == 2                                       # у маникюра в каталоге два приёма: их берут первые два объявления, остальные идут обычными направлениями
+        assert len(prompts) == 3 and len({p.split("Visual direction:")[1][:170] for p in prompts}) == 3   # у каждого баннера своё направление
+        assert sum("ONLY a style inspiration" in p for p in prompts) == 2                                       # у маникюра в каталоге два приёма: их берут первые два объявления, третье идёт обычным направлением
         ads = http.get(f"{base}/ads").json()["ads"]
-        assert all(a["ai"]["status"] == "working" for a in ads)
-        assert http.get(base).json()["spend"]["spent_usd"] == 0.46     # шесть баннеров и два референса картинкой
+        assert [a["ai"]["status"] for a in ads] == ["working"] * 3 + ["none"] * 3 and [a["reserve"] for a in ads] == [False] * 3 + [True] * 3
+        assert http.get(base).json()["spend"]["spent_usd"] == 0.25     # три баннера и два референса картинкой
+
+        assert http.post(f"{base}/ads/3/ai-banner").status_code == 200   # запасной можно нарисовать по одному, когда понадобится
+        assert http.get(f"{base}/ads").json()["ads"][3]["ai"]["status"] == "working"
 
 
 def test_ai_banner_with_typos_is_rejected(monkeypatch):
@@ -519,10 +522,18 @@ def test_the_caption_says_who_advertises_what_and_skips_what_cannot_be_checked()
 
     for prompt in (fal.banner_prompt(shop, "Маникюр", "", "Записаться"), fal.photo_banner_prompt(shop, "Маникюр", "", "Записаться"),
                    fal.reference_banner_prompt(shop, "Маникюр", "", "Записаться", "takes inspiration")):
-        assert "«Лотос · Маникюрный салон»" in prompt and "small caption" in prompt and "NOT written" not in prompt
+        assert "«Лотос · Маникюрный салон»" in prompt and "caption line" in prompt and "3% of the banner height" in prompt and "NOT written" not in prompt
         assert "except the caption" in prompt and "the business name," not in prompt                          # запрет на название снят только для подписи
     nameless = fal.banner_prompt({**shop, "name": "burocart.ru", "kind": "x" * 60}, "Маникюр", "", "Записаться")
-    assert "small caption" not in nameless and "NOT written" in nameless and "the business name," in nameless   # подписать нечем: прежние правила
+    assert "caption line" not in nameless and "NOT written" in nameless and "the business name," in nameless   # подписать нечем: прежние правила
+
+
+def test_people_on_banners_are_natural_and_the_service_itself_rejects_stock_clichés():
+    from app.creative import art, fal
+    shop = {"name": "Лотос", "kind": "Маникюрный салон", "description": "Маникюр.", "allow_promo": 0, "color_main": "", "color_extra": "", "visual_hint": ""}
+    assert "calm and natural" in fal.banner_prompt(shop, "Маникюр", "", "Записаться") and "stock-photo poses" in fal.banner_prompt(shop, "Маникюр", "", "Записаться")
+    assert "без театрального удивления и шока" in art.ART_SYSTEM and "стоковые метафоры" in art.ART_SYSTEM                  # сцену арт-директор придумывает без клише
+    assert "театральное удивление или шок" in art.REVIEW_SYSTEM and "стоковая метафора" in art.REVIEW_SYSTEM            # а проверка готового баннера такое бракует
 
 
 def test_the_caption_is_required_when_the_prompt_asked_for_it_and_not_for_a_custom_prompt(monkeypatch):
