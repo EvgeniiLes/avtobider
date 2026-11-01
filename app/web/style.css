@@ -166,6 +166,7 @@ button.chip-plus.hot { background: var(--mint); }
 .how h3 { font-size: 26px; letter-spacing: -.035em; line-height: 1.1; margin: 0 0 10px; }
 .how p { margin: 0; font-size: 15px; line-height: 1.5; }
 .how .m { background: var(--mint); color: var(--mint-ink); } .how .l { background: var(--lav); color: var(--lav-ink); } .how .b { background: var(--butter); color: var(--butter-ink); }
+.how .hcard p { margin-bottom: 22px; }   /* картинка не должна вплотную прилегать к тексту (на мобилке margin-top: auto даёт ноль) */
 .how .shot { margin-top: auto; border-radius: 20px; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; display: block; }
 .how .hcard .cbars { margin-top: auto; padding-top: 22px; }
 .strip { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 14px; }
