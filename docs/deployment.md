@@ -114,7 +114,14 @@ powershell -ExecutionPolicy Bypass -File deploy\rollback.ps1 -Name bids # вер
 4. «Settings», «Variables and Secrets», «Add»: тип Secret, имя `BOT_TOKEN`, значение: токен вашего бота. Сохраните и ещё раз «Deploy».
 5. Адрес воркера вида `https://autobider-tg.ВАШ-ПОДДОМЕН.workers.dev` укажите в `set-telegram-keys.ps1` в вопросе про API base. Проверка с сервера: `curl https://адрес-воркера/` должен ответить `forbidden` (значит, воркер доступен, а посторонних он не пускает); `curl https://адрес-воркера/bot<токен>/getMe` вернёт данные бота.
 
-**Способ Б: свой сервер за границей.** На любом сервере за границей поставьте nginx и проксируйте запросы:
+**Способ Б: свой сервер за границей** (например, в Швеции). Одной командой:
+1. В DNS домена добавьте запись `A`: поддомен `tg` (то есть `tg.addtracker.ru`) на IP того сервера. Порты 80 и 443 на нём должны быть открыты.
+2. С вашего компьютера, из корня проекта (подставьте IP и свою почту для сертификата):
+   `scp deploy/setup-tg-relay.sh root@IP:/tmp/` и затем `ssh root@IP "bash /tmp/setup-tg-relay.sh tg.addtracker.ru вы@почта.ру"`.
+   Скрипт ставит nginx и certbot, пропускает к Telegram только три метода и только с IP нашего сервера (третьим аргументом можно указать другой), выпускает сертификат. Запускать его можно повторно.
+3. Проверка: `curl -s -o /dev/null -w '%{http_code}' https://tg.addtracker.ru/` должен ответить `403`. Адрес `https://tg.addtracker.ru` укажите в `set-telegram-keys.ps1` как API base.
+
+Вручную то же самое делает такой конфиг nginx:
 
 ```nginx
 server {
