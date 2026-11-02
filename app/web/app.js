@@ -895,8 +895,10 @@ function renderLaunchStep() {
     const [label, tone] = adStatus(a);
     const pic = a.banner_url ? el("img", { className: "pic", src: a.banner_url, alt: "" }) : el("span", { className: "pic" });
     const status = a.reserve ? el("span", { className: "st spare", textContent: "Запасное" }) : el("span", { className: `st ${tone}`, textContent: label });
+    const edit = el("button", { className: "small secondary", type: "button", textContent: "Изменить" });
+    edit.addEventListener("click", () => { selectedAd = adKey(a); renderBannerStep(); setStep("banners"); });
     return el("div", { className: "launch-row" + (a.reserve ? " spare" : " live") }, el("span", { className: "num", textContent: a.reserve ? "·" : String(n) }), pic,
-      el("div", {}, el("div", { className: "t", textContent: a.title }), el("div", { className: "hint", textContent: a.text })), status);
+      el("div", {}, el("div", { className: "t", textContent: a.title }), el("div", { className: "hint", textContent: a.text })), status, edit);
   };
   const parts = [];
   if (live.length) parts.push(el("div", { className: "launch-head live", textContent: `Пойдут в рекламу: ${live.length}` }), ...live.map((a, i) => row(a, i + 1)));

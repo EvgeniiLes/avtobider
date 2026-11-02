@@ -442,6 +442,9 @@ button.chip.sel { background: var(--lav); color: var(--lav-ink); border-color: v
 .launch-row.spare { border-style: dashed; opacity: .6; }
 .launch-row.spare .num { background: var(--soft); color: var(--muted); }
 .launch-row .st.spare { color: var(--muted); }
+.launch-row > button { flex: none; }
+.launch-row.spare { opacity: 1; }
+.launch-row.spare > :not(button) { opacity: .6; }
 .media-sec { margin-bottom: 18px; }
 .media-sec h3:first-child { margin-top: 0; }
 @media (max-width: 1100px) { .ed-grid { grid-template-columns: minmax(0, 1fr); } .ed-preview { max-width: 460px; } }
