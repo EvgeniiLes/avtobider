@@ -316,6 +316,45 @@ def test_ready_ads_pair_text_with_banner():
         assert other.get(f"{base}/ads").status_code == 404  # чужие объявления не видны
 
 
+def test_dragging_a_spare_ad_into_the_live_places_changes_what_is_launched(isolated):
+    with TestClient(app) as http:
+        bid = setup(http)
+        base = f"/api/businesses/{bid}/creatives"
+        ads = http.get(f"{base}/ads").json()["ads"]
+        keys = [{"title": a["title"], "text": a["text"]} for a in ads]
+        spare = keys[4]                                         # запасное объявление, шаблонный текст без записи
+        new = [spare] + keys[:4] + keys[5:]                     # перетащили на первое место
+        assert http.put(f"{base}/ads/order", json={"ads": new}).status_code == 200
+        after = http.get(f"{base}/ads").json()["ads"]
+        assert [{"title": a["title"], "text": a["text"]} for a in after] == new
+        assert after[0]["reserve"] is False and after[2]["reserve"] is False and after[3]["reserve"] is True and sum(a["reserve"] for a in after) == 3
+        assert http.put(f"{base}/ads/order", json={"ads": new}).status_code == 200   # повтор ничего не ломает
+        assert [a["title"] for a in http.get(f"{base}/ads").json()["ads"]] == [k["title"] for k in new]
+        from app.db import connect
+        from app.direct.launch import choose_variants, text_candidates
+        conn = connect(isolated)
+        biz = conn.execute("SELECT * FROM businesses WHERE id = ?", (bid,)).fetchone()
+        launched, _own = choose_variants(biz, text_candidates(conn, biz), 3)   # в кампанию уходит то же, что показано как «пойдут в рекламу»
+        assert [v["title"] for v in launched] == [k["title"] for k in new[:3]]
+        conn.close()
+
+
+def test_the_order_of_ads_is_checked_and_private():
+    with TestClient(app) as http:
+        bid = setup(http)
+        base = f"/api/businesses/{bid}/creatives"
+        ads = http.get(f"{base}/ads").json()["ads"]
+        keys = [{"title": a["title"], "text": a["text"]} for a in ads]
+        assert http.put(f"{base}/ads/order", json={"ads": keys + [{"title": "Чужое", "text": "Нет такого"}]}).status_code == 400
+        assert http.put(f"{base}/ads/order", json={"ads": [keys[0], keys[0]]}).status_code == 400
+        assert http.put(f"{base}/ads/order", json={"ads": keys[::-1][:2]}).status_code == 200   # неполный список: остальные идут следом
+        titles = [a["title"] for a in http.get(f"{base}/ads").json()["ads"]]
+        assert titles[:2] == [keys[5]["title"], keys[4]["title"]] and len(titles) == 6
+    with TestClient(app) as other:
+        other.post("/api/auth/register", json={"email": "x@example.com", "password": "password123"})
+        assert other.put(f"{base}/ads/order", json={"ads": []}).status_code == 404
+
+
 def _ai_ad(http, bid):
     ad = http.get(f"/api/businesses/{bid}/creatives/ads").json()["ads"][4]
     assert ad["style"] == "ai"

@@ -850,6 +850,37 @@ def ad_settings(business_id: int, index: int, data: SettingsIn, user: sqlite3.Ro
     return {"ok": True}
 
 
+class AdKey(BaseModel):
+    title: str = Field(max_length=200)
+    text: str = Field(max_length=400)
+
+
+class OrderIn(BaseModel):
+    ads: list[AdKey] = Field(max_length=40)
+
+
+@router.put("/ads/order")
+def ads_order(business_id: int, data: OrderIn, user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connection = Depends(get_db)):
+    """Порядок объявлений, который владелец задал перетаскиванием: первые в списке идут в показ, остальные запасные.
+    Шаблонный текст без записи при этом сохраняется (он нужен, чтобы запомнить место)."""
+    biz = _own(conn, user, business_id)
+    variants, _count, _pool = _ad_variants(conn, biz)
+    current = {(v["title"], v["text"]): v for v in variants}
+    asked = [(a.title, a.text) for a in data.ads]
+    if len(set(asked)) != len(asked) or not set(asked) <= set(current):
+        raise HTTPException(400, detail={"message": "Список объявлений изменился. Обновите страницу и попробуйте ещё раз."})
+    order = asked + [k for k in current if k not in set(asked)]   # объявления, которых нет в запросе, остаются в конце в прежнем порядке
+    for place, key in enumerate(order):
+        v = current[key]
+        if v["creative_id"]:
+            conn.execute("UPDATE creatives SET position = ? WHERE id = ?", (place, v["creative_id"]))
+        else:
+            conn.execute("INSERT INTO creatives (business_id, kind, title, body, angle, source, status, position) VALUES (?, 'text', ?, ?, ?, 'template', 'approved', ?)",
+                         (business_id, v["title"], v["text"], v.get("angle", ""), place))
+    conn.commit()
+    return {"ok": True}
+
+
 class CreativeIn(BaseModel):
     title: str | None = Field(default=None, max_length=200)
     body: str | None = Field(default=None, max_length=400)

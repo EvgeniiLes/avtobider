@@ -77,9 +77,10 @@ def text_candidates(conn: sqlite3.Connection, biz) -> list[dict]:
     """Тексты для объявлений по порядку: сначала одобренные владельцем, затем предложенные ИИ (по одному на угол подачи), потом шаблоны.
     Отклонённые не берём. Так новые тексты от ИИ попадают в рекламу, не дожидаясь одобрения, а владелец может их убрать."""
     rows = conn.execute(
-        "SELECT id, title, body, angle, status, source FROM creatives WHERE business_id = ? AND kind = 'text' "
+        "SELECT id, title, body, angle, status, source, position FROM creatives WHERE business_id = ? AND kind = 'text' "
         "AND status IN ('approved', 'draft') ORDER BY id", (biz["id"],)).fetchall()
-    chosen = [{"id": r["id"], "title": r["title"], "text": r["body"], "angle": r["angle"], "status": "approved"} for r in rows if r["status"] == "approved"]
+    chosen = [{"id": r["id"], "title": r["title"], "text": r["body"], "angle": r["angle"], "status": "approved", "position": r["position"]}
+              for r in rows if r["status"] == "approved"]
     angles = {c["angle"] for c in chosen if c["angle"]}
     from app.creative.texts_ai import facts_of  # здесь, чтобы не было круга
     from app.direct.texts import unsupported_claims
@@ -90,7 +91,8 @@ def text_candidates(conn: sqlite3.Connection, biz) -> list[dict]:
         if unsupported_claims(f"{r['title']} {r['body']}", facts):   # старый черновик со скидкой, когда скидки выключены, в рекламу не идёт
             continue
         angles.add(r["angle"])
-        chosen.append({"id": r["id"], "title": r["title"], "text": r["body"], "angle": r["angle"], "status": "draft"})
+        chosen.append({"id": r["id"], "title": r["title"], "text": r["body"], "angle": r["angle"], "status": "draft", "position": r["position"]})
+    chosen.sort(key=lambda c: c["position"] if c["position"] is not None else 1 << 30)   # порядок, который владелец задал перетаскиванием; остальные следом в прежнем порядке
     return chosen
 
 

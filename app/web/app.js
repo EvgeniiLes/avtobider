@@ -716,19 +716,97 @@ function renderBannerStep(fromPoll = false) {
   all.textContent = `Нарисовать все недостающие · ${usd(missingAds().reduce((sum, a) => sum + adPrice(a), 0))}`;
 
   const stamp = Date.now();
-  $("ads").replaceChildren(...lastAds.map((a) => {
-    const [label, tone] = adStatus(a);
-    const pic = a.banner_url ? el("img", { className: "pic", src: `${a.banner_url}?t=${stamp}`, alt: "" }) : el("span", { className: "pic", textContent: a.ai && a.ai.status === "working" ? "…" : "нет" });
-    const item = el("button", { className: "ad-item" + (adKey(a) === selectedAd ? " sel" : ""), type: "button" }, pic,
-      el("span", {}, el("span", { className: "t", textContent: a.title }), el("span", { className: `st ${tone}`, textContent: label + (a.reserve ? " · запасное" : "") })));
-    item.addEventListener("click", () => { selectedAd = adKey(a); renderBannerStep(); });
-    return item;
-  }));
+  if (!adDrag) {   // пока человек тащит объявление, список не перерисовываем
+    const list = $("ads");
+    list.replaceChildren(...lastAds.map((a, i) => {
+      const [label, tone] = adStatus(a);
+      const pic = a.banner_url ? el("img", { className: "pic", src: `${a.banner_url}?t=${stamp}`, alt: "" }) : el("span", { className: "pic", textContent: a.ai && a.ai.status === "working" ? "…" : "нет" });
+      const grip = el("span", { className: "grip", title: "Перетащите, чтобы поменять порядок: первые идут в рекламу, остальные запасные", textContent: "⋮⋮", tabIndex: 0 });
+      grip.setAttribute("role", "button");
+      grip.setAttribute("aria-label", `Поменять порядок объявления «${a.title}»`);
+      const item = el("button", { className: "ad-item" + (adKey(a) === selectedAd ? " sel" : ""), type: "button" }, grip, pic,
+        el("span", {}, el("span", { className: "t", textContent: a.title }), el("span", { className: `st ${tone}`, textContent: label + (a.reserve ? " · запасное" : "") })));
+      item.dataset.i = String(i);
+      item.addEventListener("click", () => { selectedAd = adKey(a); renderBannerStep(); });
+      enableAdDrag(grip, item, list);
+      return item;
+    }));
+    placeAdSeparator(list);
+  }
   const editor = $("ad-editor");
   const typing = editor.contains(document.activeElement) && ["INPUT", "TEXTAREA"].includes(document.activeElement.tagName);
   if (fromPoll && typing) return;   // пока человек печатает, поле не перерисовываем
   const a = lastAds.find((x) => adKey(x) === selectedAd);
   editor.replaceChildren(...(a ? [adEditor(a)] : [el("p", { className: "hint", textContent: "Объявлений пока нет. Вернитесь к идеям или напишите свой вариант." })]));
+}
+
+let adDrag = false;   // идёт перетаскивание объявления в списке
+
+// Черта между объявлениями, которые идут в рекламу, и запасными
+function placeAdSeparator(list) {
+  list.querySelector(".ad-sep")?.remove();
+  const items = list.querySelectorAll(".ad-item");
+  if (lastCount && items.length > lastCount) items[lastCount - 1].after(el("div", { className: "ad-sep", textContent: "Запасные: в показ не идут" }));
+}
+
+async function saveAdOrder(ads) {
+  const r = await creativeCall("PUT", "/ads/order", { ads: ads.map((a) => ({ title: a.title, text: a.text })) });
+  if (!r.ok) say(errorText(r), "err");
+  await loadAds();
+}
+
+// Перетаскивание за ручку: работает мышью и пальцем. Пока тянем, показываем линию вставки, список меняется при отпускании.
+function enableAdDrag(grip, item, list) {
+  grip.addEventListener("click", (e) => e.stopPropagation());
+  grip.addEventListener("keydown", async (e) => {   // то же самое с клавиатуры: стрелки двигают объявление на одно место
+    const step = { ArrowUp: -1, ArrowLeft: -1, ArrowDown: 1, ArrowRight: 1 }[e.key];
+    if (!step) return;
+    e.preventDefault();
+    const from = Number(item.dataset.i), to = from + step;
+    if (to < 0 || to >= lastAds.length) return;
+    const next = lastAds.slice();
+    next.splice(to, 0, next.splice(from, 1)[0]);
+    await saveAdOrder(next);
+  });
+  grip.addEventListener("pointerdown", (e) => {
+    if (e.button) return;
+    e.preventDefault();
+    e.stopPropagation();
+    grip.setPointerCapture(e.pointerId);
+    adDrag = true;
+    item.classList.add("dragging");
+    const horizontal = getComputedStyle(list).flexDirection === "row";
+    const marker = el("div", { className: "ad-drop" });
+    let before = null;   // перед каким объявлением вставим; null: в конец
+    const others = () => [...list.querySelectorAll(".ad-item")].filter((x) => x !== item);
+    const move = (ev) => {
+      before = null;
+      for (const o of others()) {
+        const r = o.getBoundingClientRect();
+        if ((horizontal ? ev.clientX : ev.clientY) < (horizontal ? r.left + r.width / 2 : r.top + r.height / 2)) { before = o; break; }
+      }
+      if (before) before.before(marker); else list.append(marker);
+    };
+    const done = async (ev) => {
+      grip.removeEventListener("pointermove", move);
+      grip.removeEventListener("pointerup", done);
+      grip.removeEventListener("pointercancel", done);
+      marker.remove();
+      item.classList.remove("dragging");
+      adDrag = false;
+      if (ev.type === "pointercancel") return;
+      const rest = others().map((o) => lastAds[Number(o.dataset.i)]);
+      const at = before ? others().indexOf(before) : rest.length;
+      const next = rest.slice();
+      next.splice(at, 0, lastAds[Number(item.dataset.i)]);
+      if (next.every((a, i) => a === lastAds[i])) return;
+      await saveAdOrder(next);
+    };
+    grip.addEventListener("pointermove", move);
+    grip.addEventListener("pointerup", done);
+    grip.addEventListener("pointercancel", done);
+    move(e);
+  });
 }
 
 function adEditor(a) {
