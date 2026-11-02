@@ -14,6 +14,7 @@ from app.direct.counter_health import check_counter
 from app.direct.goals import fetch_goals, save_goals
 from app.direct.launch import sync_units
 from app.direct.queries import sync_queries
+from app.direct.slices import sync_slices
 from app.engine.config import DIRECT_CONFIG
 from app.engine.cycle import run_cycle
 from app.engine.util import EngineError
@@ -91,6 +92,10 @@ def sync_and_run(conn: sqlite3.Connection, biz: sqlite3.Row, today: str | None =
                 try:
                     await sync_queries(client, conn, biz, today)   # поисковые запросы раз в день; сбой этого отчёта не должен ломать остальное
                 except DirectError:
+                    pass
+                try:
+                    await sync_slices(client, conn, biz, today, token, transport)   # срезы по устройствам, полу, возрасту, часам и т. д.: тоже раз в день и тоже не ломают основное
+                except (DirectError, sqlite3.Error):
                     pass
                 return result
 

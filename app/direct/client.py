@@ -477,6 +477,26 @@ class DirectClient:
             item["leads"] += sum(_to_int(v) for k, v in r.items() if k.startswith("Conversions"))
         return list(totals.values())
 
+    async def slice_report(self, dimension: str, date_from: str, date_to: str, goal_id: str | None = None, campaign_ids: list | None = None) -> list[dict]:
+        """Показатели по одному измерению (устройство, пол, возраст, площадка…) и дням: показы, клики, расход (микрорубли), обращения по цели.
+        Отчёт охватывает весь кабинет, поэтому campaign_ids оставляет только наши кампании; строки разных кампаний за день складываются."""
+        fields = ["Date", "CampaignId", dimension, "Impressions", "Clicks", "Cost"]
+        if goal_id:
+            fields.append("Conversions")
+        rows = await self.report("CUSTOM_REPORT", fields, date_from, date_to, name=f"autobider-{dimension.lower()}", goals=[goal_id] if goal_id else None)
+        mine = {str(c) for c in campaign_ids} if campaign_ids else None
+        totals: dict[tuple, dict] = {}
+        for r in rows:
+            if mine is not None and r.get("CampaignId") not in mine:
+                continue
+            key = (r["Date"], (r.get(dimension) or "--").strip() or "--")
+            item = totals.setdefault(key, {"day": key[0], "key": key[1], "impressions": 0, "clicks": 0, "spend_micro": 0, "leads": 0})
+            item["impressions"] += _to_int(r["Impressions"])
+            item["clicks"] += _to_int(r["Clicks"])
+            item["spend_micro"] += _to_int(r["Cost"])
+            item["leads"] += sum(_to_int(v) for k, v in r.items() if k.startswith("Conversions"))
+        return list(totals.values())
+
     async def demographic_adjustments(self, campaign_id: int) -> list[dict]:
         """Корректировки ставок по полу и возрасту, которые сейчас стоят на кампании."""
         result = await self.call("bidmodifiers", "get", {

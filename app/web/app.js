@@ -1616,6 +1616,31 @@ async function loadQueries() {
   if (!d.has_profile && d.queries.length) setStatus("q-status", "Чтобы применять правки, составьте профиль аудитории на шаге «Запуск» вкладки «Объявления».", "");
 }
 
+const SLICE_FLAGS = { dear: "дорого", cheap: "дёшево", none: "нет обращений" };
+
+async function loadSlices() {
+  const card = $("slices-card");
+  const result = await api("GET", `/api/businesses/${currentBusiness.id}/slices`);
+  if (!result.ok || !result.data.launched) { card.hidden = true; return; }
+  const d = result.data;
+  card.hidden = false;
+  const failed = Object.entries(d.failed);
+  $("slices-failed").hidden = !failed.length;
+  $("slices-failed").textContent = failed.length ? `Не удалось получить: ${failed.map(([name]) => name).join(", ")}. Сервис попробует ещё раз завтра.` : "";
+  $("slices-hint").textContent = d.dimensions.length
+    ? `За последние ${d.days} дн. (обновлено ${d.synced}). Сервис копит эти данные каждый день: по ним настраиваются ставки, расписание и площадки.${d.has_goal ? " Пометки «дорого» и «дёшево» сравнивают цену обращения с вашей средней, когда кликов достаточно." : " Чтобы видеть цену обращения, выберите цель «обращение» на странице «Бизнес»."}`
+    : "Данные появятся после первых показов: сервис забирает их у Директа и Метрики раз в день.";
+  $("slices-list").replaceChildren(...d.dimensions.map((dim) => {
+    const head = ["Сегмент", "Доля", dim.visits ? "Визиты" : "Клики", "Расход", "Обращения", "Цена обращения", ""];
+    const body = dim.rows.map((r) => el("tr", {}, ...[r.label, `${r.share}%`, String(r.clicks), dim.visits ? "—" : money(r.spend), String(r.leads), money(r.cost_per_lead), SLICE_FLAGS[r.flag] || ""]
+      .map((v) => el("td", { textContent: v }))));
+    return el("details", { className: "slice" },
+      el("summary", { textContent: dim.title }),
+      dim.visits ? el("p", { className: "hint", textContent: d.visits_note }) : el("span"),
+      el("div", { className: "table-wrap" }, el("table", {}, el("thead", {}, el("tr", {}, ...head.map((t) => el("th", { textContent: t })))), el("tbody", {}, ...body))));
+  }));
+}
+
 async function analyzeQueries() {
   const button = $("q-analyze");
   button.disabled = true;
@@ -1734,7 +1759,7 @@ async function loadStats() {
   if (data.real || data.example) loadSeries(); else renderChart([]);
   if (data.real || data.example) loadInsights(); else $("insights-card").hidden = true;
   loadLeads();
-  if (data.real) { loadReport(); loadVisitorGoals(); loadQueries(); } else { $("report-card").hidden = true; $("goals-card").hidden = true; $("queries-card").hidden = true; }
+  if (data.real) { loadReport(); loadVisitorGoals(); loadQueries(); loadSlices(); } else { $("report-card").hidden = true; $("goals-card").hidden = true; $("queries-card").hidden = true; $("slices-card").hidden = true; }
   renderDecisions();
   $("example-notice").hidden = !data.example;
   $("stats-needs").textContent = data.real || data.example ? data.needs : "";

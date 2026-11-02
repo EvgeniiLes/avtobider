@@ -163,6 +163,20 @@ CREATE TABLE IF NOT EXISTS search_queries (
     PRIMARY KEY (business_id, query)
 );
 
+-- Срезы рекламы по измерениям (устройство, пол, возраст, площадка, час суток…): отчёты Директа и Метрики, копятся по дням,
+-- см. app/direct/slices.py. day пустой у измерений, которые Метрика отдаёт итогом за 30 дней (часы и дни недели); в них clicks = визиты.
+CREATE TABLE IF NOT EXISTS dimension_stats (
+    business_id INTEGER NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+    dimension   TEXT NOT NULL,
+    key         TEXT NOT NULL,
+    day         TEXT NOT NULL DEFAULT '',
+    impressions INTEGER NOT NULL DEFAULT 0,
+    clicks      INTEGER NOT NULL DEFAULT 0,
+    spend_micro INTEGER NOT NULL DEFAULT 0,
+    leads       INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (business_id, dimension, key, day)
+);
+
 -- Оценка объявления в каждом цикле (нужна для подтверждения решения двумя оценками подряд).
 CREATE TABLE IF NOT EXISTS evaluations (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -323,7 +337,9 @@ ADDED_COLUMNS = [
     ("users", "notify_on", "INTEGER NOT NULL DEFAULT 1"),             # 0: отчёты и тревоги выключены
     ("businesses", "counter_health", "TEXT NOT NULL DEFAULT ''"),    # результат последней проверки счётчика Метрики (JSON), см. app/direct/counter_health.py
     ("businesses", "queries_day", "TEXT NOT NULL DEFAULT ''"),       # день, когда последний раз загружали поисковые запросы
-    ("businesses", "audience", "TEXT NOT NULL DEFAULT ''"),          # профиль целевой аудитории (JSON), см. app/direct/audience.py
+    ("businesses", "slices_day", "TEXT NOT NULL DEFAULT ''"),        # день, когда последний раз загружали срезы (app/direct/slices.py)
+    ("businesses", "slices_status", "TEXT NOT NULL DEFAULT ''"),     # что вышло и что нет по каждому измерению (JSON)
+    ("businesses", "audience", "TEXT NOT NULL DEFAULT ''"),        # профиль целевой аудитории (JSON), см. app/direct/audience.py
     ("businesses", "nationwide", "INTEGER NOT NULL DEFAULT 0"),      # 1: показывать рекламу по всей России, города нет (онлайн-услуга)
     ("campaigns", "external_id", "INTEGER"),                          # номер кампании в Директе
     ("campaigns", "weekly_micro", "INTEGER NOT NULL DEFAULT 0"),      # недельный лимит кампании

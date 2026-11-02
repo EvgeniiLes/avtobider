@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import get_settings, load_env
 from app.db import connect, init_db
-from app.routes import accounts, audience, auth, briefs, businesses, creatives, direct_connect, launch, leads, marking, metrika, queries, stats, telegram, yandex_login
+from app.routes import accounts, audience, auth, briefs, businesses, creatives, direct_connect, launch, leads, marking, metrika, queries, slices, stats, telegram, yandex_login
 
 WEB_DIR = Path(__file__).resolve().parent / "web"
 
@@ -52,6 +52,7 @@ app.include_router(stats.router)
 app.include_router(launch.router)
 app.include_router(audience.router)
 app.include_router(queries.router)
+app.include_router(slices.router)
 app.include_router(telegram.router)
 app.include_router(leads.public)
 app.include_router(leads.owner)

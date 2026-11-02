@@ -528,3 +528,7 @@ button.photo-pick-item.none.sel { border-style: solid; background: var(--mint); 
 
 /* подпись плитки с фото сдвинута вправо: слева её сжимает скругление угла */
 .ptile.photo p { text-align: right; margin: 14px 4px 2px 40px; }
+
+/* срезы: каждое измерение раскрывается отдельно */
+.slice { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
+.slice > summary { cursor: pointer; font-weight: 600; }

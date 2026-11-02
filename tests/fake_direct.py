@@ -34,7 +34,14 @@ class FakeDirect:
         self.counter_code_status = "CS_OK"    # что Метрика отвечает про установку кода счётчика на сайте
         self.metrika_visits = 1000            # визитов за 7 дней по данным Метрики
         self.metrika_stat_requests: list[dict] = []
-        self.single_goal_only = False   # отчёт с несколькими целями отвечает ошибкой: проверка запасного пути на одну цель
+        self.slice_rows: dict[str, list[tuple]] = {}      # поле отчёта (Device, Gender…) → строки нашей кампании (день, значение, показы, клики, расход в микро[, обращения])
+        self.slice_foreign_rows: dict[str, list[tuple]] = {}   # то же у чужой кампании кабинета
+        self.slice_fail: set[str] = set()                 # поля, по которым Директ отказывается строить отчёт
+        self.slice_requests: list[dict] = []
+        self.metrika_hours: list[tuple] = []              # (час, визиты, обращения) с рекламы
+        self.metrika_days: list[tuple] = []               # (дата, визиты, обращения) с рекламы
+        self.metrika_slices_fail = False
+        self.single_goal_only = False  # отчёт с несколькими целями отвечает ошибкой: проверка запасного пути на одну цель
         self._id = 1000
         self.transport = httpx.MockTransport(self._handle)
 
@@ -62,7 +69,13 @@ class FakeDirect:
         if request.url.host == "api-metrika.yandex.net":   # Метрика: цели счётчика, статус установки кода и визиты (читаются при каждой синхронизации)
             path = request.url.path
             if path.startswith("/stat/v1/data"):
-                self.metrika_stat_requests.append(dict(request.url.params))
+                params = dict(request.url.params)
+                self.metrika_stat_requests.append(params)
+                if params.get("dimensions"):   # срезы по часам и датам: строки (значение, визиты, обращения)
+                    if self.metrika_slices_fail:
+                        return httpx.Response(500, json={"message": "Внутренняя ошибка"})
+                    source = self.metrika_hours if params["dimensions"] == "ym:s:hour" else self.metrika_days
+                    return httpx.Response(200, json={"data": [{"dimensions": [{"id": str(k), "name": str(k)}], "metrics": [v, g]} for k, v, g in source]})
                 return httpx.Response(200, json={"totals": [self.metrika_visits], "data": [], "total_rows": 1})
             if path.endswith("/goals"):
                 return httpx.Response(200, json={"goals": self.metrika_goals})
@@ -225,10 +238,26 @@ class FakeDirect:
                 lines.append("\t".join(map(str, values)))
         return httpx.Response(200, text="\n".join(lines))
 
+    def _slice_report(self, params) -> httpx.Response:
+        self.slice_requests.append(params)
+        field = next(f for f in params["FieldNames"] if f not in ("Date", "CampaignId", "Impressions", "Clicks", "Cost", "Conversions"))
+        if field in self.slice_fail:
+            return httpx.Response(400, json={"error": {"error_code": 8000, "error_string": f"Поле {field} недоступно"}})
+        goals = params.get("Goals") or []
+        cols = ["Date", "CampaignId", field, "Impressions", "Clicks", "Cost"] + ([f"Conversions_{goals[0]}_AUTO"] if goals else [])
+        mine = next(iter(self.campaigns), 0)
+        lines = ["\t".join(cols)]
+        for campaign, rows in ((mine, self.slice_rows.get(field, [])), (999, self.slice_foreign_rows.get(field, []))):
+            for row in rows:
+                lines.append("\t".join(map(str, [row[0], campaign, row[1], *row[2:5]] + ([row[5] if len(row) > 5 else 0] if goals else []))))
+        return httpx.Response(200, text="\n".join(lines))
+
     def _report(self, body) -> httpx.Response:
         params = body["params"]
         if params["ReportType"] == "SEARCH_QUERY_PERFORMANCE_REPORT":
             return self._query_report(params)
+        if params["ReportType"] == "CUSTOM_REPORT":
+            return self._slice_report(params)
         self.report_requests.append(params)
         goals = params.get("Goals") or []
         if len(goals) > 1 and self.single_goal_only:
