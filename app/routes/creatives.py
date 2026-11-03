@@ -726,7 +726,8 @@ def _apply_style(conn, biz, v: dict, brief, asset_id: int | None, look: int, ref
 
 
 _PROMO_NOTE = re.compile(r"цен|акци|скидк|%|срочн", re.IGNORECASE)
-MIN_NICHE_REFS = 6   # у каждого из шести объявлений должен быть свой приём
+REF_ADS = 3   # по референсам рисуются только три первых объявления, у остальных обычное оформление
+MIN_NICHE_REFS = REF_ADS   # у каждого из них должен быть свой приём
 
 
 def _niche_refs(biz, limit: int = 8) -> list[int]:
@@ -748,7 +749,7 @@ def _taken_refs(conn, business_id: int, variant: dict) -> set[int]:
 def _auto_ref(conn, biz, index: int, variant: dict) -> int | None:
     """Приём для объявления, у которого подача ещё не выбрана: у соседних объявлений разные, когда приёмы кончаются, берём обычное оформление."""
     found = _niche_refs(biz)
-    if index >= len(found):
+    if index >= REF_ADS or index >= len(found):   # по референсу рисуются только первые объявления, остальные в обычном оформлении
         return None
     taken = _taken_refs(conn, biz["id"], variant)
     return found[index] if found[index] not in taken else next((r for r in found if r not in taken), found[index])
@@ -763,10 +764,11 @@ def _auto_style(conn, biz, v: dict, index: int, asset_id: int | None = None):
     return _brief_for(conn, biz["id"], v)
 
 
-def _style_options(biz, scratch: bool = False) -> list[tuple[int | None, int | None]]:
+def _style_options(biz, scratch: bool = False, index: int = 0) -> list[tuple[int | None, int | None]]:
     """Подачи по порядку, (референс, оформление): сначала приёмы из ниши бизнеса, потом обычные оформления.
-    Без фото обычных оформлений нет (они про кадр с фото): есть только референсы и «без референса»."""
-    found = [(r, None) for r in _niche_refs(biz)]
+    Без фото обычных оформлений нет (они про кадр с фото): есть только референсы и «без референса».
+    Объявления после первых трёх по референсам не рисуются: у них только обычные оформления."""
+    found = [(r, None) for r in _niche_refs(biz)] if index < REF_ADS else []
     return found + ([(None, None)] if scratch else [(None, n) for n in range(len(fal.PHOTO_LOOKS))])
 
 
@@ -802,7 +804,7 @@ def _vary_style(conn, biz, variant: dict, brief, index: int, scratch: bool = Fal
     current = (ref, None) if scratch else (ref, None if ref else look)
     if current != used[-1]:
         return None
-    options = _style_options(biz, scratch)
+    options = _style_options(biz, scratch, index)
     taken = _taken_refs(conn, biz["id"], variant)   # по возможности не повторяем приёмы соседних объявлений, чтобы они отличались друг от друга
     last_drawn = lambda o: max((i for i, u in enumerate(used) if u == o), default=-1)   # -1: этому объявлению ещё не рисовали
     pick = lambda pool: min(pool, key=lambda o: (last_drawn(o), options.index(o)))   # сначала то, что не рисовали, потом то, что рисовали давнее всех
