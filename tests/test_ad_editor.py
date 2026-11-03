@@ -325,3 +325,23 @@ def test_an_idea_from_the_strategist_without_a_reference_gets_a_niche_reference_
         other = next(a for a in ads() if not a["own"] and a["index"] < 3)
         assert http.put(f"{base}/creatives/ads/{other['index']}/settings", json={"look": 2}).status_code == 200   # владелец сам выбрал оформление без референса
         assert next(a for a in ads() if a["index"] == other["index"])["ref_id"] is None
+
+
+def test_the_owner_can_reset_the_reference_and_it_does_not_come_back_on_redraw(monkeypatch):
+    monkeypatch.setenv("FAL_KEY", "fal-test")
+    fakes = Fakes(fal_done=True)
+    fakes.keep = 10 ** 8
+    with TestClient(app) as http:
+        bid = setup(http)
+        base = f"/api/businesses/{bid}"
+        put = lambda body: http.put(f"{base}/creatives/ads/0/settings", json=body)
+        ads = lambda: http.get(f"{base}/creatives/ads").json()["ads"]
+        assert ads()[0]["ref_id"]                                                                    # по умолчанию у первого объявления приём ниши
+        assert put({"no_photo": True}).status_code == 200 and put({"ref_id": 0}).status_code == 200   # сброс: рисовать без образца
+        assert ads()[0]["ref_id"] is None and ads()[0]["no_photo"] is True
+        fakes.claude_text = json.dumps([ads()[0]["title"], "Записаться"], ensure_ascii=False)
+        _draw(http, f"{base}/creatives", fakes, ads()[0])
+        assert ads()[0]["ai"]["ref_sent"] is None and ads()[0]["ref_id"] is None                       # баннер нарисован без референса
+        _draw(http, f"{base}/creatives", fakes, ads()[0])
+        assert ads()[0]["ai"]["ref_sent"] is None and ads()[0]["ref_id"] is None                       # и «Нарисовать заново» референс не возвращает
+        assert put({"ref_id": 9999}).status_code == 400

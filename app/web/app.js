@@ -1005,6 +1005,7 @@ function adEditor(a) {
     row.append(c);
   };
   const cap = (t) => t.charAt(0).toUpperCase() + t.slice(1);
+  addChip(refChips, "Без референса", !a.ref_id, { ref_id: 0 });   // сброс: баннер рисуется без образца (автоподбор приёма его не вернёт)
   lastStyles.refs.forEach((r) => addChip(refChips, cap(r.label.length > 34 ? `${r.label.slice(0, 32)}…` : r.label), a.ref_id === r.id, { ref_id: r.id }));
   if (!scratch) lastStyles.looks.forEach((l) => addChip(lookChips, cap(l.label), !a.ref_id && a.look_no === l.no, { look: l.no }));
   const chips = el("div", {}, el("span", { className: "sub", textContent: scratch ? "По мотивам (идея из рекламы вашей ниши, без фото)" : "По мотивам (вдохновение из рекламы вашей ниши)" }), refChips,

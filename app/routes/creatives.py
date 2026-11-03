@@ -839,6 +839,8 @@ def _vary_style(conn, biz, variant: dict, brief, index: int, scratch: bool = Fal
     pick = lambda pool: min(pool, key=lambda o: (last_drawn(o), options.index(o)))   # сначала то, что не рисовали, потом то, что рисовали давнее всех
     others = [o for o in options if o != current]
     free = [o for o in others if o[0] is None or o[0] not in taken]
+    if scratch and brief and brief["chosen"] and not brief["ref_id"]:   # владелец сам сбросил референс: «Нарисовать заново» его не возвращает
+        return None
     if scratch:
         # без фото «без референса» это не другая подача, а её отсутствие: объявление, которое уже рисовалось по приёму, его не теряет.
         # Свободных приёмов нет: лучше повторить приём соседнего объявления, чем остаться без референса
@@ -852,7 +854,7 @@ def _vary_style(conn, biz, variant: dict, brief, index: int, scratch: bool = Fal
 class SettingsIn(BaseModel):
     asset_id: int | None = None   # какое фото взять
     look: int | None = Field(default=None, ge=0, le=4)   # обычное оформление (сбрасывает референс)
-    ref_id: int | None = None     # подача по мотивам референса из каталога
+    ref_id: int | None = None     # подача по мотивам референса из каталога; 0: сбросить референс (рисовать без образца)
     no_photo: bool | None = None  # True: без готового фото, ИИ рисует всю сцену с нуля; выбор фото или оформления возвращает режим с фото
 
 
@@ -868,7 +870,7 @@ def ad_settings(business_id: int, index: int, data: SettingsIn, user: sqlite3.Ro
     usable = {r["id"] for r in usable_photos(conn, biz)}
     if data.asset_id is not None and data.asset_id not in usable:
         raise HTTPException(400, detail={"message": "Это фото нельзя использовать в рекламе."})
-    if data.ref_id is not None and data.ref_id not in refs.REFS:
+    if data.ref_id and data.ref_id not in refs.REFS:
         raise HTTPException(400, detail={"message": "Такой подачи нет."})
     photos, _logo = media_typed(conn, biz)
     brief = _brief_for(conn, business_id, v)
@@ -882,7 +884,7 @@ def ad_settings(business_id: int, index: int, data: SettingsIn, user: sqlite3.Ro
         asset_id = getattr(photo_for(photos, index)[1], "asset_id", None)
     look, ref_id = (brief["look"] if brief else index % len(fal.PHOTO_LOOKS)), (brief["ref_id"] if brief else None)
     if data.ref_id is not None:
-        ref_id = data.ref_id
+        ref_id = data.ref_id or None
     elif data.look is not None:
         look, ref_id = data.look, None
     _apply_style(conn, biz, v, brief, asset_id, look, ref_id, no_photo, chosen=True)
