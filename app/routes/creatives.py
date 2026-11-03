@@ -437,7 +437,7 @@ def _order_banner(conn, biz, variants: list[dict], index: int, key: str, transpo
         look = fal.PHOTO_LOOKS[look_no % len(fal.PHOTO_LOOKS)][0]
         prompt = custom_prompt or (brief["prompt"] if brief and brief["prompt"] else fal.photo_banner_prompt(biz, v["title"], price, cta, look_no))
         ref_bytes = refs.load(brief["ref_id"]) if brief and brief["ref_id"] else None   # референс-вдохновение идёт второй картинкой
-        images = [_bytes_url(data, 1280)] + ([_bytes_url(ref_bytes, 900)] if ref_bytes else [])
+        images = ([_bytes_url(ref_bytes, 900)] if ref_bytes else []) + [_bytes_url(data, 1280)]   # референс первым: он основа дизайна, фото владельца встаёт на место его кадра
         if ref_bytes:
             _charge(conn, business_id, "ref_extra")
         job = asyncio.run(fal.start_edit(prompt, images, key, s.fal_banner_model, transport))
@@ -482,7 +482,8 @@ def _order_banner(conn, biz, variants: list[dict], index: int, key: str, transpo
     if ref_bytes:
         _charge(conn, business_id, "ref_extra")
         direction = (f"the attached image is ONLY a style inspiration (the idea of its composition, color mood, typography weight and feel: {refs.note(ref_id)}). "
-                     "Follow that layout idea closely, but make a new original banner with the scene above: do not copy or reuse its text, logo, products, people or characters, "
+                     "Recreate its design closely: the same composition, the same size, weight and position of the headline (including a huge headline overlapping the subject), "
+                     "the same color palette and the same overlay, transparency and frame effects; only the scene is new, the scene above. Do not copy or reuse its text, logo, products, people or characters, "
                      "and do not recreate its small print, captions, lists, badges, footer or contact lines: the only text on the banner is the text given below")
     else:
         direction = (f"{refs.note(ref_id)}. Take this advertising idea only as inspiration for the layout, color mood and type weight; "

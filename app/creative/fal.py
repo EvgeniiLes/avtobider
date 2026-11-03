@@ -214,16 +214,18 @@ def photo_banner_prompt(biz, title: str, price: str, cta: str, index: int = 0, m
             + _text_block(title, price, cta) + ONE_BANNER + AVOID)
 
 
-REF_STYLE = ("Style: the SECOND attached image is ONLY a style inspiration (its composition idea, color mood, typography weight and feel), but follow its layout closely: "
-             "the same kind of composition, the same placement and scale of the headline, the same color mood and type weight; put the business photo into that layout "
-             "in place of its subject. Do NOT reuse its text, small print, lists, badges, logo, products, animals or characters: the only text is the text given below. ")
+REF_STYLE = ("Template: the FIRST attached image is a layout and style template. Recreate its design closely, in landscape 4:3: the same composition, "
+             "the same type treatment (size, weight and position of the headline, including a huge headline that overlaps the subject), the same color palette "
+             "and the same overlay, transparency, frame and collage effects. Put the business photo (the SECOND attached image) into that layout in place of "
+             "the template's own photograph. Replace ALL the text of the template with the text given below only and fit the headline size to our words. "
+             "Do NOT reuse the template's brand names, logo, working hours, addresses, small print, products or people. ")
 
 
 def reference_banner_prompt(biz, title: str, price: str, cta: str, direction: str) -> str:
-    """Баннер из фото владельца по мотивам референса: вторая картинка служит только вдохновением, её не копируем."""
+    """Баннер по референсу: референс (первая картинка) задаёт дизайн целиком, фото владельца (вторая) встаёт на место его кадра."""
     return ("Purpose: one advertising banner for Yandex Direct, landscape 4:3, for a Russian audience "
             f"(the business is: {biz['kind']}; context only, never write it on the banner). "
-            "Subject: the FIRST attached image is the business's real photo and the one and only reference of the subject: preserve exactly the same people, "
+            "Subject: the SECOND attached image is the business's real photo and the one and only reference of the subject: preserve exactly the same people, "
             "animals, objects and place, their faces, coat or clothing and proportions, keep it natural and unaltered; you may crop it, extend its background "
             "and place it freely in the layout. "
             + REF_STYLE
