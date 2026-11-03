@@ -183,6 +183,30 @@ ANALYSIS_SYSTEM = (
 )
 
 
+DISTRICT_SYSTEM = (
+    "Ты определяешь по адресу, в каком районе города находится бизнес. Верни только JSON-массив строк: названия районов (максимум два) "
+    "в именительном падеже, как их называет Яндекс (например «Хамовники», «Тверской», «Центральный»), без слов «район» и «округ». "
+    "Если по адресу нельзя уверенно определить район, верни пустой массив []. Не выдумывай."
+)
+
+
+async def derive_districts(city: str, address: str, fal_key: str, model: str, transport: httpx.AsyncBaseTransport | None = None) -> list[str]:
+    """Район города по адресу бизнеса. Пустой список, если ИИ не ответил или не уверен."""
+    from app.creative.angles import split_districts  # здесь, чтобы не было круга
+    body = {"model": model, "max_tokens": 200,
+            "messages": [{"role": "system", "content": DISTRICT_SYSTEM}, {"role": "user", "content": f"Город: {city}. Адрес: {address}"}]}
+    try:
+        async with httpx.AsyncClient(timeout=60, transport=transport) as http:
+            r = await http.post(FAL_CHAT_URL, json=body, headers={"Authorization": f"Key {fal_key}", "Content-Type": "application/json"})
+        if r.status_code != 200:
+            return []
+        raw = r.json()["choices"][0]["message"]["content"] or ""
+        items = json.loads(raw[raw.find("["):raw.rfind("]") + 1])
+    except (httpx.HTTPError, ValueError, KeyError, IndexError):
+        return []
+    return split_districts(", ".join(str(i) for i in items if isinstance(i, str)))[:2] if isinstance(items, list) else []
+
+
 async def analyze_results(data_text: str, fal_key: str, model: str, transport: httpx.AsyncBaseTransport | None = None) -> str:
     body = {"model": model, "max_tokens": 1200,
             "messages": [{"role": "system", "content": ANALYSIS_SYSTEM}, {"role": "user", "content": data_text}]}

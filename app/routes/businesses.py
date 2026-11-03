@@ -1,4 +1,5 @@
 """Описание бизнеса, его файлы (логотип, фото, видео) и настройки."""
+import asyncio
 import re
 import secrets
 import shutil
@@ -22,7 +23,9 @@ from app.assets import (
 )
 from app.config import get_settings
 from app.db import get_db
-from app.creative.angles import join_districts
+from app.creative import fal
+from app.creative.angles import join_districts, needs_districts, split_districts
+from app.creative.texts_ai import derive_districts
 from app.creative.logo import has_transparency, remove_background
 from app.deps import creative_transport, current_user
 from app.direct.advice import budget_advice
@@ -213,8 +216,23 @@ def list_businesses(user: sqlite3.Row = Depends(current_user), conn: sqlite3.Con
     return {"businesses": [_business(r) for r in rows]}
 
 
+def fill_districts(conn: sqlite3.Connection, business_id: int, transport=None) -> None:
+    """Район не указан, а адрес есть: ИИ определяет район по адресу и сохраняет его. Владелец видит его в поле «Районы» и может поправить.
+    Без ключа ИИ, без адреса, для онлайн-проекта и когда район уже указан ничего не делает."""
+    row = conn.execute("SELECT * FROM businesses WHERE id = ?", (business_id,)).fetchone()
+    s = get_settings()
+    if row is None or not s.fal_key or split_districts(row["districts"]) or not (row["address"] or "").strip() or not needs_districts(row):
+        return
+    found = asyncio.run(derive_districts(row["city"], row["address"], s.fal_key, s.fal_text_model, transport))
+    if found:
+        conn.execute("UPDATE businesses SET districts = ? WHERE id = ?", (", ".join(found), business_id))
+        conn.execute("INSERT INTO generations (business_id, kind, cents) VALUES (?, 'check', ?)", (business_id, fal.COST_CENTS["check"]))
+        conn.commit()
+
+
 @router.post("")
-def create_business(data: BusinessIn, user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connection = Depends(get_db)):
+def create_business(data: BusinessIn, user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connection = Depends(get_db),
+                    transport=Depends(creative_transport)):
     count = conn.execute("SELECT COUNT(*) FROM businesses WHERE user_id = ?", (user["id"],)).fetchone()[0]
     if count >= MAX_BUSINESSES:
         raise HTTPException(400, detail={"message": f"Можно добавить не больше {MAX_BUSINESSES} бизнесов."})
@@ -229,6 +247,7 @@ def create_business(data: BusinessIn, user: sqlite3.Row = Depends(current_user),
     )
     conn.execute("UPDATE businesses SET districts = ? WHERE id = ?", (join_districts(data.districts), cur.lastrowid))
     conn.commit()
+    fill_districts(conn, cur.lastrowid, transport)
     return _business(_own(conn, user, cur.lastrowid), [])
 
 
@@ -244,6 +263,7 @@ def update_business(
     data: BusinessIn,
     user: sqlite3.Row = Depends(current_user),
     conn: sqlite3.Connection = Depends(get_db),
+    transport=Depends(creative_transport),
 ):
     _own(conn, user, business_id)
     conn.execute(
@@ -257,6 +277,7 @@ def update_business(
     )
     conn.execute("UPDATE businesses SET districts = ? WHERE id = ?", (join_districts(data.districts), business_id))
     conn.commit()
+    fill_districts(conn, business_id, transport)
     return _business(_own(conn, user, business_id), _assets_of(conn, business_id))
 
 

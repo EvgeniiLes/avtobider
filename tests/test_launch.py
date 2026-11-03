@@ -456,7 +456,7 @@ def test_a_local_business_cannot_launch_without_a_district_but_an_online_one_can
     with TestClient(app) as http:
         bid = setup(http, fake, isolated, districts="")
         refused = http.get(f"/api/businesses/{bid}/launch/preview")
-        assert refused.status_code == 400 and "Укажите район" in refused.json()["detail"]["message"]
+        assert refused.status_code == 400 and "Укажите адрес" in refused.json()["detail"]["message"]
         assert http.put(f"/api/businesses/{bid}", json={"name": "Лотос", "kind": "Маникюрный салон", "city": "", "nationwide": True,
                                                          "site_url": "salon.ru", "weekly_budget": BUDGET, "districts": "Арбат"}).status_code == 200
         plan = http.get(f"/api/businesses/{bid}/launch/preview").json()
@@ -468,3 +468,46 @@ def test_districts_are_saved_cleaned_up(isolated):
     with TestClient(app) as http:
         bid = setup(http, fake, isolated, districts=" Хамовники ;арбат,\nхамовники, , Тверской. ")
         assert http.get(f"/api/businesses/{bid}").json()["districts"] == "Хамовники, арбат, Тверской"
+
+
+def _district_ai(answer):
+    """Подставной ИИ, который по адресу называет район; запоминает, о чём его спросили."""
+    import httpx
+    from app.deps import creative_transport
+    asked = []
+
+    def handle(request):
+        asked.append(request.content.decode())
+        return httpx.Response(200, json={"choices": [{"message": {"content": answer}}]})
+    app.dependency_overrides[creative_transport] = lambda: httpx.MockTransport(handle)
+    return asked
+
+
+def test_the_district_is_taken_from_the_address_when_the_owner_left_it_empty(isolated, monkeypatch):
+    monkeypatch.setenv("FAL_KEY", "fal-test")
+    asked = _district_ai('["Хамовники"]')
+    fake = FakeDirect()
+    with TestClient(app) as http:
+        bid = setup(http, fake, isolated, districts="", address="Комсомольский проспект, 21, 2 этаж")
+        assert "Комсомольский проспект" in asked[0] and "Москва" in asked[0]
+        assert http.get(f"/api/businesses/{bid}").json()["districts"] == "Хамовники"           # видно в поле «Районы»: владелец проверяет и правит
+        plan = http.get(f"/api/businesses/{bid}/launch/preview").json()
+        assert plan["districts"] == ["Хамовники"] and plan["by_district"] is True
+        assert len(asked) == 1                                                                  # район уже есть: ИИ второй раз не спрашиваем
+
+
+def test_a_district_the_owner_typed_is_not_replaced_by_the_one_from_the_address(isolated, monkeypatch):
+    monkeypatch.setenv("FAL_KEY", "fal-test")
+    asked = _district_ai('["Арбат"]')
+    with TestClient(app) as http:
+        bid = setup(http, FakeDirect(), isolated, districts="Хамовники", address="Тверская, 12")
+        assert asked == [] and http.get(f"/api/businesses/{bid}").json()["districts"] == "Хамовники"
+
+
+def test_when_the_address_gives_no_district_launch_asks_the_owner_to_type_it(isolated, monkeypatch):
+    monkeypatch.setenv("FAL_KEY", "fal-test")
+    _district_ai("[]")                                                                          # по такому адресу район не определить
+    with TestClient(app) as http:
+        bid = setup(http, FakeDirect(), isolated, districts="", address="где-то за городом")
+        refused = http.get(f"/api/businesses/{bid}/launch/preview")
+        assert refused.status_code == 400 and "Не удалось определить район по вашему адресу" in refused.json()["detail"]["message"]

@@ -429,10 +429,12 @@ async function saveBusiness(event) {
     return;
   }
   const isNew = !currentBusiness, renamed = !isNew && currentBusiness.name !== result.data.name;
+  const guessed = !$("b-districts").value.trim() && result.data.districts;   // поле было пустым, а район определили по адресу
   currentBusiness = result.data;
   await loadBusinesses(currentBusiness.id);
   setStatus("business-status", "");
   say(isNew ? "Бизнес сохранён. Ниже можно загрузить фото и логотип." : "Сохранено.");
+  if (guessed) say(`Район определён по адресу: ${result.data.districts}. Проверьте его в поле «Районы».`);
   if (renamed) api("POST", `/api/businesses/${currentBusiness.id}/creatives/photos/check`).then(refreshAssets);   // забракованные фото ИИ посмотрит заново: вывеска с новым названием своя
 }
 

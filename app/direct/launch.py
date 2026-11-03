@@ -183,8 +183,10 @@ def plan_launch(biz, region_id: int | None, min_weekly_micro: int = MIN_WEEKLY, 
         raise EngineError("Укажите бюджет на неделю.", "no_budget")
     districts = districts_of(biz)
     if needs_districts(biz) and not districts:
-        raise EngineError("Укажите район (или несколько), где вы принимаете клиентов, на странице «Бизнес». Реклама показывается людям из этих районов, "
-                          "а часть объявлений говорит, что вы рядом с ними.", "no_districts")
+        has_address = bool((biz["address"] or "").strip())
+        raise EngineError(("Не удалось определить район по вашему адресу. Впишите район вручную в поле «Районы» на странице «Бизнес»" if has_address else
+                           "Укажите адрес (улица и дом) или район на странице «Бизнес»") +
+                          ": реклама показывается людям из вашего района, а часть объявлений говорит, что вы рядом с ними.", "no_districts")
 
     start_pool, count = start_split(biz, min_weekly_micro)
     if count < 1:

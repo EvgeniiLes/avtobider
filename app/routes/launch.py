@@ -17,7 +17,7 @@ from app.direct.runner import account_token, sync_and_run
 from app.engine.util import EngineError, MICRO
 from app.platforms.simulator import reset_demo
 from app.routes.audience import make_profile
-from app.routes.businesses import _own
+from app.routes.businesses import _own, fill_districts
 
 router = APIRouter(prefix="/api/businesses/{business_id}", tags=["launch"])
 
@@ -84,7 +84,9 @@ def _plan_json(plan, account, marking_confirmed: bool = False) -> dict:
 
 @router.get("/launch/preview")
 def preview(business_id: int, account_id: int | None = None, user: sqlite3.Row = Depends(current_user),
-            conn: sqlite3.Connection = Depends(get_db), factory=Depends(client_factory)):
+            conn: sqlite3.Connection = Depends(get_db), factory=Depends(client_factory), transport=Depends(creative_transport)):
+    biz = _own(conn, user, business_id)
+    fill_districts(conn, business_id, transport)   # район не указан, а адрес есть: берём район из адреса
     biz = _own(conn, user, business_id)
     try:
         account, _, _, plan = _plan_for(conn, user, biz, account_id, factory)
@@ -113,6 +115,8 @@ def start_launch(business_id: int, data: LaunchIn, user: sqlite3.Row = Depends(c
         raise HTTPException(400, detail={"message": "Реклама для этого бизнеса уже создана. Её состояние видно на вкладке «Статистика».", "code": "already"})
     if not (data.marking_confirmed or biz["marking_confirmed"]):
         raise HTTPException(400, detail={"message": "Сначала заполните «Данные рекламодателя» в Яндекс Директе: без них рекламу нельзя маркировать. " + MARKING_HELP, "code": "marking"})
+    fill_districts(conn, business_id, transport)
+    biz = _own(conn, user, business_id)
     if aud.load(biz) is None and make_profile(conn, biz, transport):   # профиль ещё не составлен: делаем его сами, чтобы запуск шёл с фразами и минус-словами
         biz = _own(conn, user, business_id)
     try:
