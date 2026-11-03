@@ -33,7 +33,7 @@ from app.direct.advice import budget_advice
 router = APIRouter(prefix="/api/businesses", tags=["businesses"])
 
 MICRO = 1_000_000
-MAX_BUSINESSES = 5
+MAX_BUSINESSES = 10
 TONES = {
     "gentle": "Нежный",
     "calm": "Спокойный",

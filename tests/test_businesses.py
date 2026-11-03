@@ -95,11 +95,11 @@ def test_maps_link_is_checked_and_org_id_extracted():
 def test_business_limit():
     with TestClient(app) as http:
         register(http)
-        for _ in range(5):
+        for _ in range(10):
             assert make_business(http).status_code == 200
         r = make_business(http)
         assert r.status_code == 400
-        assert "не больше 5" in r.json()["detail"]["message"]
+        assert "не больше 10" in r.json()["detail"]["message"]
 
 
 def test_users_do_not_see_each_others_businesses():
