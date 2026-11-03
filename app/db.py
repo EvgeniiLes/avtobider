@@ -366,7 +366,8 @@ def connect(db_path: Path) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     # Подключение живёт один запрос и не делится между запросами, поэтому его
     # безопасно передавать между потоком зависимости и обработчиком.
-    conn = sqlite3.connect(db_path, check_same_thread=False)
+    # timeout: пока один запрос ждёт ИИ (проверка фото, заказ баннера) и держит запись в базе, остальные ждут, а не падают через 5 секунд с ошибкой
+    conn = sqlite3.connect(db_path, check_same_thread=False, timeout=30)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")

@@ -676,10 +676,12 @@ def check_photos(business_id: int, force: bool = False, user: sqlite3.Row = Depe
         if result is None:
             conn.execute("DELETE FROM generations WHERE id = (SELECT MAX(id) FROM generations WHERE business_id = ? AND kind = 'check')", (business_id,))
             failed += 1
+            conn.commit()   # по файлу: запись в базе не должна висеть, пока ИИ смотрит следующие
             continue
         conn.execute("UPDATE business_assets SET ai_type = ?, ai_score = ?, ai_note = ?, ai_fx = ?, ai_fy = ?, ai_brand = ? WHERE id = ?",
                      (result["type"], result["score"], result["note"], result.get("fx"), result.get("fy"), biz["name"], r["id"]))
         checked += 1
+        conn.commit()
     conn.commit()
     return {"checked": checked, "failed": failed}
 

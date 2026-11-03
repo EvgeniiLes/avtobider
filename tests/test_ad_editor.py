@@ -247,3 +247,10 @@ def test_idea_can_be_taken_off_the_ads(monkeypatch):
         assert off["status"] == "idea"
         assert not any(a["title"] == "Маникюр без очередей" and a["own"] for a in http.get(f"{base}/creatives/ads").json()["ads"])
         assert http.post(f"{base}/briefs/{idea['id']}/use").json()["status"] == "used"                        # и снова можно взять
+
+
+def test_a_writer_waits_for_the_database_instead_of_failing_after_five_seconds(isolated):
+    from app.db import connect
+    conn = connect(isolated)
+    assert conn.execute("PRAGMA busy_timeout").fetchone()[0] == 30000   # пока идёт долгий запрос к ИИ, другие сохранения ждут, а не падают ошибкой
+    conn.close()
