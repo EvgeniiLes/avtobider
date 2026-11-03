@@ -279,3 +279,17 @@ def test_redraw_all_redraws_every_live_ad_with_a_new_style_and_skips_the_ones_st
         assert http.post(f"{base}/ads/ai-banners?redo=true").json() == {"started": 0}     # пока рисуются, второй раз не заказываем
         versions = [c for c in http.get(f"{base}").json()["creatives"] if c["kind"] == "ai_banner" and c["status"] in ("draft", "approved")]
         assert len(versions) >= 3                                                           # прежние версии остались, их можно вернуть
+
+
+def test_ads_report_which_reference_really_went_to_the_model(monkeypatch):
+    monkeypatch.setenv("FAL_KEY", "fal-test")
+    fakes = Fakes(fal_done=True)
+    fakes.keep = 10 ** 8
+    with TestClient(app) as http:
+        bid = setup(http)
+        base = f"/api/businesses/{bid}/creatives"
+        ads = lambda: http.get(f"{base}/ads").json()["ads"]
+        assert all("ref_sent" not in a["ai"] for a in ads())                                # ничего не заказывали: сказать нечего
+        _draw(http, base, fakes, ads()[0])
+        first = ads()[0]["ai"]
+        assert first["ref_sent"] == ads()[0]["ref_id"] and first["ref_note"] == refs.note(first["ref_sent"])   # номер и приём, которые ушли модели

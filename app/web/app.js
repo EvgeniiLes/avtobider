@@ -751,7 +751,8 @@ function renderBannerStep(fromPoll = false) {
       grip.setAttribute("role", "button");
       grip.setAttribute("aria-label", `Поменять порядок объявления «${a.title}»`);
       const item = el("button", { className: "ad-item" + (adKey(a) === selectedAd ? " sel" : ""), type: "button" }, grip, pic,
-        el("span", {}, el("span", { className: "t", textContent: a.title }), el("span", { className: `st ${tone}`, textContent: label + (a.reserve ? " · запасное" : "") })));
+        el("span", {}, el("span", { className: "t", textContent: a.title }), el("span", { className: `st ${tone}`, textContent: label + (a.reserve ? " · запасное" : "") }),
+          ...(a.ai && a.ai.ref_sent !== undefined ? [el("span", { className: "st", textContent: a.ai.ref_sent ? `Референс №${a.ai.ref_sent}` : "Без референса" })] : [])));
       item.dataset.i = String(i);
       item.addEventListener("click", () => { selectedAd = adKey(a); renderBannerStep(); });
       enableAdDrag(grip, item, list);
@@ -1040,7 +1041,8 @@ function adEditor(a) {
 
   const top = el("div", { className: "ed-top" }, el("h2", { textContent: "Объявление" }),
     ...(a.ai && a.ai.hypothesis ? [el("span", { className: "tag", textContent: `Проверяем: ${a.ai.hypothesis}` })] : []),
-    ...(a.ai && a.ai.inspiration ? [el("span", { className: "hint", textContent: `Вдохновение: ${a.ai.inspiration}` })] : []));
+    ...(a.ai && a.ai.inspiration ? [el("span", { className: "hint", textContent: `Вдохновение: ${a.ai.inspiration}` })] : []),
+    ...(a.ai && a.ai.ref_sent !== undefined ? [el("span", { className: "hint", textContent: a.ai.ref_sent ? `В последний заказ ушёл референс №${a.ai.ref_sent}: ${a.ai.ref_note}` : "В последний заказ референс не ушёл: баннер нарисован без него" })] : []));
   const fields = el("div", { className: "ed-fields" },
     el("div", {}, el("span", { className: "lab", textContent: "Заголовок на баннере" }), titleIn, counterEl(titleIn, creativeLimits.title)),
     el("div", {}, el("span", { className: "lab", textContent: "Текст объявления" }), textIn, counterEl(textIn, creativeLimits.text), saveBtn),

@@ -291,6 +291,10 @@ def ads(business_id: int, user: sqlite3.Row = Depends(current_user), conn: sqlit
             ai.update({"scene": meta["scene"] if meta.get("mode") == "photo" else scene_label(photo_type), "audience": meta.get("audience", ""),
                        "logo": "placed" if meta.get("logo") else "skipped", "logo_reason": meta.get("logo_reason", "")})
         brief = _brief_for(conn, business_id, v)
+        if state in ("ready", "working") and meta:   # какой референс по-настоящему ушёл модели картинкой в последнем заказе
+            sent = meta.get("ref") if meta.get("mode") == "photo" or meta.get("ref_img") else None
+            ai["ref_sent"] = sent
+            ai["ref_note"] = refs.note(sent) if sent else ""
         if brief:   # объявление сделано по идее стратега: показываем, что именно проверяем
             ai.update({"hypothesis": brief["hypothesis"], "audience": brief["audience"], "inspiration": refs.note(brief["ref_id"])})
         no_photo = bool(brief and brief["no_photo"])
