@@ -4,12 +4,13 @@
 интерфейс Platform и не знает, настоящие данные или пример.
 """
 import json
+import math
 import random
 import sqlite3
 
 from app.engine.config import EngineConfig
 from app.engine.stats import classify, enough_data, prob_b_better, prob_ok
-from app.engine.util import EngineError, day_add, days_between, plural, rub
+from app.engine.util import MICRO, EngineError, day_add, days_between, plural, rub
 from app.platforms.base import Platform
 
 CLASS_LABELS = {
@@ -489,6 +490,30 @@ def rollback(conn: sqlite3.Connection, platform: Platform, biz: sqlite3.Row, cha
 
 
 # ---------- решения владельца: подтвердить, отклонить, остановить всё ----------
+
+def set_budget_by_owner(conn: sqlite3.Connection, platform: Platform, biz: sqlite3.Row, campaign_id: int, weekly_micro: int, today: str,
+                        minimum: int, cfg: EngineConfig = EngineConfig()) -> int | None:
+    """Владелец сам меняет недельный бюджет кампании. Записывается в историю (можно отменить). Возвращает номер записи
+    или None, если бюджет тот же. Если новый бюджет не помещается в потолок недели (за вычетом запаса), общий бюджет бизнеса
+    поднимается следом: иначе потолок не даст сервису ничего менять в этой кампании и счётчик «потрачено из» показывал бы больше 100%."""
+    camp = conn.execute("SELECT * FROM campaigns WHERE id = ? AND business_id = ?", (campaign_id, biz["id"])).fetchone()
+    if camp is None or camp["external_id"] is None:
+        raise EngineError("Такой кампании в Директе нет.", "not_found")
+    old = camp["weekly_micro"]
+    if weekly_micro == old:
+        return None
+    if weekly_micro < minimum:
+        raise EngineError(f"Меньше {rub(minimum)} в неделю Яндекс на кампанию не принимает.", "budget_too_small")
+    platform.set_campaign_budget(campaign_id, weekly_micro, today)
+    if weekly_micro > int((1 - cfg.reserve) * biz["weekly_budget_micro"]):
+        needed = math.ceil(weekly_micro / (1 - cfg.reserve) / MICRO) * MICRO
+        conn.execute("UPDATE businesses SET weekly_budget_micro = ? WHERE id = ?", (needed, biz["id"]))
+    text = f"Вы изменили недельный бюджет кампании: {rub(old)} → {rub(weekly_micro)}."
+    change_id = log_change(conn, biz["id"], None, today, "user", "set_budget", "user_budget", text,
+                           {"campaign_budget_micro": old}, {"campaign_budget_micro": weekly_micro}, campaign_id=campaign_id)
+    conn.commit()
+    return change_id
+
 
 def _open_proposal(conn: sqlite3.Connection, biz: sqlite3.Row, change_id: int) -> sqlite3.Row:
     ch = conn.execute("SELECT * FROM changes WHERE id = ? AND business_id = ?", (change_id, biz["id"])).fetchone()

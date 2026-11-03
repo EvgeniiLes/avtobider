@@ -1964,32 +1964,74 @@ async function loadStats() {
     fill.className = "fill" + (b.percent >= 100 ? " full" : b.percent >= 90 ? " warn" : "");
   }
 
-  const line = $("campaign-line"), camp = data.campaign;   // реклама в Директе — одна кампания: бюджет и стратегия у неё общие
-  line.hidden = !camp;
-  if (camp) {
-    const parts = [`Одна кампания: бюджет ${money(camp.weekly)} в неделю делят все объявления.`];
-    if (camp.strategy === "conversions") parts.push("Работает на «Максимум конверсий»: Яндекс подбирает ставки под обращения.");
-    else if (!camp.conversions) parts.push("Сейчас оплата за клики («Максимум кликов»). Подключите Метрику на странице «Бизнес»: когда обращений станет 10 в неделю, сервис переведёт кампанию на «Максимум конверсий».");
-    else parts.push(`Сейчас оплата за клики («Максимум кликов»). Обращений за неделю: ${camp.leads_week} из ${camp.switch_at}. Когда их станет ${camp.switch_at}, сервис переведёт кампанию на «Максимум конверсий»: Яндекс начнёт подбирать ставки под обращения.`);
-    if (camp.warmup_left > 0) parts.push(`Ещё ${camp.warmup_left} ${plural(camp.warmup_left, "день", "дня", "дней")} сервис кампанию не трогает: Яндексу нужно время, чтобы собрать данные.`);
-    line.textContent = parts.join(" ");
+  $("units-hint").hidden = data.units.length === 0;
+  $("campaign-groups").replaceChildren(...(data.campaigns || []).map((g) => campaignGroup(g, (data.campaigns || []).length > 1)));
+}
+
+// Один запуск рекламы = одна кампания в Директе: у неё общий бюджет, стратегия и свои объявления
+function campaignHint(g) {
+  const parts = ["Этот бюджет делят все объявления кампании."];
+  if (g.strategy === "conversions") parts.push("Работает на «Максимум конверсий»: Яндекс подбирает ставки под обращения.");
+  else if (!g.conversions) parts.push("Сейчас оплата за клики («Максимум кликов»). Подключите Метрику на странице «Бизнес»: когда обращений станет 10 в неделю, сервис переведёт кампанию на «Максимум конверсий».");
+  else parts.push(`Сейчас оплата за клики («Максимум кликов»). Обращений за неделю: ${g.leads_week} из ${g.switch_at}. Когда их станет ${g.switch_at}, сервис переведёт кампанию на «Максимум конверсий»: Яндекс начнёт подбирать ставки под обращения.`);
+  if (g.warmup_left > 0) parts.push(`Ещё ${g.warmup_left} ${plural(g.warmup_left, "день", "дня", "дней")} сервис кампанию не трогает: Яндексу нужно время, чтобы собрать данные.`);
+  return parts.join(" ");
+}
+
+function campaignGroup(g, several) {
+  const started = g.created_day ? new Date(g.created_day).toLocaleDateString("ru-RU") : "";
+  const title = el("h3", { textContent: started ? `Запуск от ${started}` : "Кампания" });
+  const head = el("div", { className: "camp-head" }, title, el("span", { className: `badge ${g.state}`, textContent: g.state_label }));
+  const group = el("section", { className: "camp-group" }, head);
+  if (several) head.append(el("span", { className: "camp-total", textContent: `Расход ${money(g.spend)} · обращений ${g.leads}` }));
+  if (g.editable) {
+    const budget = el("div", { className: "camp-budget" });
+    const show = () => {
+      const edit = el("button", { type: "button", className: "small secondary", textContent: "Изменить бюджет" });
+      edit.addEventListener("click", form);
+      budget.replaceChildren(el("span", { className: "camp-sum", textContent: `Бюджет: ${money(g.weekly)} в неделю` }), edit);
+    };
+    const form = () => {
+      const input = el("input", { type: "number", min: String(g.min_weekly), step: "100", value: String(Math.round(g.weekly)) });
+      input.setAttribute("aria-label", "Бюджет кампании в неделю, рублей");
+      const save = el("button", { type: "button", className: "small", textContent: "Сохранить" });
+      const cancel = el("button", { type: "button", className: "small secondary", textContent: "Отмена" });
+      cancel.addEventListener("click", show);
+      save.addEventListener("click", async () => {
+        const weekly = Number(input.value);
+        if (!Number.isInteger(weekly) || weekly < g.min_weekly) { say(`Введите целое число рублей, не меньше ${g.min_weekly} в неделю.`, "err"); return; }
+        if (weekly === Math.round(g.weekly)) { show(); return; }
+        save.disabled = true;
+        const result = await api("PUT", `/api/businesses/${currentBusiness.id}/campaigns/${g.id}/budget`, { weekly });
+        save.disabled = false;
+        if (!result.ok) { say(errorText(result), "err"); return; }
+        say(`Бюджет кампании изменён: ${money(weekly)} в неделю. Новое значение уже в Яндекс Директе.`);
+        await loadStats();
+      });
+      input.addEventListener("keydown", (e) => { if (e.key === "Enter") save.click(); else if (e.key === "Escape") show(); });
+      budget.replaceChildren(el("label", { className: "camp-sum", textContent: "Бюджет в неделю, ₽" }), input, save, cancel);
+      input.focus();
+    };
+    show();
+    group.append(budget, el("p", { className: "hint", textContent: campaignHint(g) }));
   }
 
-  const body = $("units-table").querySelector("tbody");
-  body.replaceChildren();
-  $("units-table").hidden = data.units.length === 0;
-  $("units-hint").hidden = data.units.length === 0;
-  for (const u of data.units) {
+  const shared = g.editable;   // в общей кампании у объявления своего бюджета нет
+  const cells = (names) => names.map((n) => el("th", { textContent: n }));
+  const head2 = el("tr", {}, ...cells(["Объявление", "Оценка", ...(shared ? [] : ["Бюджет в неделю"]), "Расход", "Обращения", "Клиенты", "Цена клиента"]));
+  const body = el("tbody");
+  for (const u of g.units) {
     const name = el("td", { textContent: u.title });
     if (u.note) name.append(el("span", { className: "sub", textContent: u.note }));
     if (u.in_test) name.append(el("span", { className: "sub", textContent: "Идёт сравнение двух вариантов" }));
     else if (u.variant) name.append(el("span", { className: "sub", textContent: "Второй вариант для сравнения" }));
     const cell = (v) => el("td", { textContent: v });
     const badge = el("span", { className: `badge ${u.verdict_code}`, textContent: u.verdict });
-    const row = el("tr", { className: u.active ? "" : "off" }, name, el("td", {}, badge), cell(money(u.weekly_budget)),
-      cell(money(u.spend)), cell(String(u.leads)), cell(String(u.clients)), cell(money(u.cost_per_client)));
-    body.append(row);
+    body.append(el("tr", { className: u.active ? "" : "off" }, name, el("td", {}, badge), ...(shared ? [] : [cell(money(u.weekly_budget))]),
+      cell(money(u.spend)), cell(String(u.leads)), cell(String(u.clients)), cell(money(u.cost_per_client))));
   }
+  group.append(el("div", { className: "table-wrap" }, el("table", {}, el("thead", {}, head2), body)));
+  return group;
 }
 
 async function openLaunch() {

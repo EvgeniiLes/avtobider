@@ -17,13 +17,13 @@ from app.db import get_db
 from app.deps import creative_transport, current_user
 from app.engine.config import DIRECT_CONFIG as cfg_direct, EngineConfig
 from app.engine.cycle import (
-    CLASS_LABELS, approve, reject, resume_all, rollback, run_cycle, stop_all, target_cpa_micro, target_lead_micro, unit_stats,
+    CLASS_LABELS, approve, reject, resume_all, rollback, run_cycle, set_budget_by_owner, stop_all, target_cpa_micro, target_lead_micro, unit_stats,
 )
 from app.config import get_settings
 from app.direct.client import DirectError
 from app.direct.counter_health import load_health
 from app.reports import week_report
-from app.direct.launch import STATE_LABELS
+from app.direct.launch import MIN_WEEKLY, STATE_LABELS
 from app.direct.runner import account_token
 from app.platforms.direct import DirectPlatform
 from app.engine.util import EngineError, MICRO, day_add, days_between
@@ -88,6 +88,39 @@ def checklist(biz: sqlite3.Row, accounts: int, units: int) -> list[dict]:
     return steps
 
 
+def _campaign_info(camp: sqlite3.Row, today: str, conversions: bool, leads_week: int) -> dict:
+    return {
+        "weekly": _rub(camp["weekly_micro"]), "strategy": camp["strategy"], "strategy_label": STRATEGY_LABELS.get(camp["strategy"], camp["strategy"]),
+        "leads_week": leads_week, "switch_at": cfg_direct.switch_leads, "conversions": conversions,
+        "warmup_left": max(0, cfg_direct.warmup_days - days_between(camp["created_day"], today)) if camp["created_day"] else 0,
+    }
+
+
+def _campaign_groups(conn: sqlite3.Connection, business_id: int, entries: list[dict], units: list[sqlite3.Row],
+                     week_leads: dict[int, int], today: str, conversions: bool) -> list[dict]:
+    """Объявления по кампаниям: каждый запуск рекламы — отдельная группа со своим бюджетом, расходом и состоянием.
+    Пока запусков у бизнеса один, группа одна. Бюджет можно менять только у кампаний, созданных в Директе."""
+    groups = []
+    for camp in conn.execute("SELECT * FROM campaigns WHERE business_id = ? ORDER BY id", (business_id,)):
+        mine = [e for e in entries if e["campaign_id"] == camp["id"]]
+        if not mine:
+            continue
+        shared = camp["external_id"] is not None
+        states = {e["state"] for e in mine}
+        state = "active" if "active" in states else next((s for s in ("moderation", "unpaid", "rejected", "draft") if s in states), "paused")
+        group = {
+            "id": camp["id"], "name": camp["name"], "created_day": camp["created_day"], "editable": shared,
+            "state": state, "state_label": STATE_LABELS.get(state, "Остановлено"),
+            "spend": round(sum(e["spend"] for e in mine), 2), "leads": sum(e["leads"] for e in mine),
+            "clients": sum(e["clients"] for e in mine), "units": mine,
+        }
+        if shared:
+            group.update(_campaign_info(camp, today, conversions, sum(week_leads[u["id"]] for u in units if u["campaign_id"] == camp["id"])))
+            group["min_weekly"] = round(MIN_WEEKLY / MICRO)
+        groups.append(group)
+    return groups
+
+
 @router.get("/overview")
 def overview(business_id: int, user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connection = Depends(get_db)):
     biz = _own(conn, user, business_id)
@@ -126,13 +159,9 @@ def overview(business_id: int, user: sqlite3.Row = Depends(current_user), conn: 
         for uid in (r["unit_a"], r["unit_b"])
     }
     camp = conn.execute("SELECT * FROM campaigns WHERE business_id = ? AND external_id IS NOT NULL ORDER BY id LIMIT 1", (business_id,)).fetchone()
+    week_leads_by_unit = {u["id"]: unit_stats(conn, u["id"], day_add(today, -6), today)["leads"] for u in units}
     if camp is not None:   # одна кампания на всю рекламу: бюджет и стратегия общие
-        week_leads = sum(unit_stats(conn, u["id"], day_add(today, -6), today)["leads"] for u in units)
-        result["campaign"] = {
-            "weekly": _rub(camp["weekly_micro"]), "strategy": camp["strategy"], "strategy_label": STRATEGY_LABELS.get(camp["strategy"], camp["strategy"]),
-            "leads_week": week_leads, "switch_at": cfg_direct.switch_leads, "conversions": conversions,
-            "warmup_left": max(0, cfg_direct.warmup_days - days_between(camp["created_day"], today)) if camp["created_day"] else 0,
-        }
+        result["campaign"] = _campaign_info(camp, today, conversions, sum(week_leads_by_unit.values()))
     for u in units:
         s = unit_stats(conn, u["id"], start, today)
         if real and conversions and not s["clients"]:
@@ -144,6 +173,7 @@ def overview(business_id: int, user: sqlite3.Row = Depends(current_user), conn: 
         cls = ev["cls"] if ev else "waiting"
         result["units"].append({
             "id": u["id"],
+            "campaign_id": u["campaign_id"],
             "title": u["title"],
             "active": u["state"] == "active",
             "variant": u["variant_of"] is not None,
@@ -160,6 +190,7 @@ def overview(business_id: int, user: sqlite3.Row = Depends(current_user), conn: 
             "verdict": (CLASS_LABELS[cls] if not real or conversions else "Идёт показ") if u["state"] == "active" else STATE_LABELS.get(u["state"], "Остановлено"),
             "verdict_code": (cls if not real or conversions else "waiting") if u["state"] == "active" else u["state"],
         })
+    result["campaigns"] = _campaign_groups(conn, business_id, result["units"], units, week_leads_by_unit, today, conversions)
     marks = conn.execute(
         "SELECT COALESCE(SUM(count), 0) AS n, COUNT(*) AS days FROM client_marks WHERE business_id = ? AND day BETWEEN ? AND ?",
         (business_id, start, today),
@@ -497,6 +528,23 @@ def resume_everything(business_id: int, user: sqlite3.Row = Depends(current_user
         return {"resumed": resume_all(conn, _platform(conn, biz), biz, today)}
     except (EngineError, DirectError) as e:
         raise _fail(e)
+
+
+class BudgetIn(BaseModel):
+    weekly: int = Field(gt=0, le=10_000_000)
+
+
+@router.put("/campaigns/{campaign_id}/budget")
+def change_campaign_budget(business_id: int, campaign_id: int, data: BudgetIn, user: sqlite3.Row = Depends(current_user),
+                           conn: sqlite3.Connection = Depends(get_db)):
+    """Владелец меняет недельный бюджет кампании: правка уходит в Директ и записывается в историю."""
+    biz = _own(conn, user, business_id)
+    today = get_today(conn, business_id) or date.today().isoformat()
+    try:
+        change_id = set_budget_by_owner(conn, _platform(conn, biz), biz, campaign_id, data.weekly * MICRO, today, MIN_WEEKLY)
+    except (EngineError, DirectError) as e:
+        raise _fail(e)
+    return {"ok": True, "changed": change_id is not None}
 
 
 class RollbackIn(BaseModel):

@@ -284,6 +284,16 @@ td .sub { display: block; font-size: 12px; color: var(--muted); }
 tr.off td { color: var(--muted); }
 tbody tr:last-child td { border-bottom: 0; }
 
+/* ----- группы объявлений: одна кампания на запуск ----- */
+.camp-group { border: 1px solid var(--line); border-radius: 16px; padding: 14px 16px 6px; margin: 14px 0 0; }
+.camp-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.camp-head h3 { margin: 0; }
+.camp-total { margin-left: auto; font-size: 13px; color: var(--muted); }
+.camp-budget { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 10px 0 4px; }
+.camp-budget input[type=number] { width: 130px; }
+.camp-sum { font-weight: 600; }
+.camp-group > .hint { margin: 4px 0 8px; }
+
 /* ----- график ----- */
 .chart { width: 100%; height: auto; display: block; }
 .chart .grid-line { stroke: var(--line); stroke-width: 1; }

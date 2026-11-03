@@ -280,3 +280,56 @@ def test_a_stopped_business_is_never_resumed_by_the_engine(isolated, monkeypatch
         run(conn, bid, fake, LATER)
         assert campaign(fake)["State"] == "SUSPENDED" and campaign(fake)["Strategy"] == "WB_MAXIMUM_CLICKS"   # на паузе кампанию не переключаем
         conn.close()
+
+
+def test_overview_groups_the_ads_by_campaign_with_the_budget_of_each(isolated):
+    fake = FakeDirect()
+    with TestClient(app) as http:
+        bid, conn = prepare(http, fake, isolated)
+        data = http.get(f"/api/businesses/{bid}/overview").json()
+        (group,) = data["campaigns"]
+        assert group["editable"] is True and group["weekly"] == CAP // MICRO and group["min_weekly"] == 300
+        assert group["state"] == "moderation" and group["state_label"] == "На проверке в Яндексе" and len(group["units"]) == len(data["units"]) > 1
+        assert {u["campaign_id"] for u in data["units"]} == {group["id"]}
+        conn.close()
+
+
+def test_the_owner_changes_the_campaign_budget_and_it_reaches_direct(isolated, monkeypatch):
+    fake = FakeDirect()
+    monkeypatch.setattr(client_module, "DEFAULT_TRANSPORT", fake.transport)
+    with TestClient(app) as http:
+        bid, conn = prepare(http, fake, isolated)
+        (group,) = http.get(f"/api/businesses/{bid}/overview").json()["campaigns"]
+        url = f"/api/businesses/{bid}/campaigns/{group['id']}/budget"
+
+        assert http.put(url, json={"weekly": 5000}).json() == {"ok": True, "changed": True}
+        assert campaign(fake)["Limit"] == 5000 * MICRO and conn.execute("SELECT weekly_micro FROM campaigns").fetchone()[0] == 5000 * MICRO
+        (ch,) = changes(conn)
+        assert ch["actor"] == "user" and ch["action"] == "set_budget" and ch["campaign_id"] == group["id"] and "5\u00a0000" in ch["reason_text"]
+        assert conn.execute("SELECT weekly_budget_micro FROM businesses").fetchone()[0] == BUDGET * MICRO   # меньше потолка: общий бюджет не трогаем
+        assert http.get(f"/api/businesses/{bid}/overview").json()["campaigns"][0]["weekly"] == 5000
+
+        assert http.put(url, json={"weekly": 5000}).json()["changed"] is False and len(changes(conn)) == 1
+        assert http.post(f"/api/businesses/{bid}/changes/{ch['id']}/rollback", json={}).status_code == 200
+        assert campaign(fake)["Limit"] == CAP                                    # отмена возвращает прежний бюджет
+        conn.close()
+
+
+def test_a_campaign_budget_below_the_minimum_is_refused_and_one_above_the_cap_lifts_the_total(isolated, monkeypatch):
+    fake = FakeDirect()
+    monkeypatch.setattr(client_module, "DEFAULT_TRANSPORT", fake.transport)
+    with TestClient(app) as http:
+        bid, conn = prepare(http, fake, isolated)
+        (group,) = http.get(f"/api/businesses/{bid}/overview").json()["campaigns"]
+        url = f"/api/businesses/{bid}/campaigns/{group['id']}/budget"
+
+        launched = campaign(fake)["Limit"]
+        refused = http.put(url, json={"weekly": 100})
+        assert refused.status_code == 400 and "300" in refused.json()["detail"]["message"]
+        assert http.put(url, json={"weekly": 0}).status_code == 422
+        assert campaign(fake)["Limit"] == launched and changes(conn) == []
+        assert http.put(f"/api/businesses/{bid}/campaigns/9999/budget", json={"weekly": 1000}).status_code == 404
+
+        assert http.put(url, json={"weekly": 30_000}).status_code == 200      # потолок недели 18 000: общий бюджет растёт, чтобы потолок не мешал
+        assert conn.execute("SELECT weekly_budget_micro FROM businesses").fetchone()[0] == 33_334 * MICRO
+        conn.close()
