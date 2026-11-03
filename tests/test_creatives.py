@@ -358,7 +358,7 @@ def test_the_owner_can_take_fewer_or_more_ads_into_the_campaign_than_the_budget_
     from app.db import connect
     from app.direct.launch import choose_variants, plan_launch, start_split, text_candidates
     with TestClient(app) as http:
-        bid = setup(http)
+        bid = setup(http, districts="Хамовники")
         base = f"/api/businesses/{bid}/creatives"
         data = http.get(f"{base}/ads").json()
         assert data["count"] == 3 and data["advised"] == 3
@@ -1296,7 +1296,7 @@ def test_video_from_ready_image_only(monkeypatch):
 def test_approved_texts_go_into_the_launch_plan(isolated):
     fake = FakeDirect()
     with TestClient(app) as http:
-        bid = setup(http)
+        bid = setup(http, districts="Хамовники")
         app.dependency_overrides[client_factory] = fake.factory()
         conn = sqlite3.connect(isolated)
         conn.execute("INSERT INTO ad_accounts (user_id, title, token_enc) VALUES (1, 'fake-login', ?)", (encrypt_token("tok", "test-secret-key"),))

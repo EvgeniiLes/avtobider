@@ -222,6 +222,7 @@ async function loadAdvice() {
 function syncNationwide() {
   const on = $("b-nationwide").checked;
   $("b-city").disabled = on;
+  $("b-districts-box").hidden = on;   // по всей России района нет
   $("b-city-hint").textContent = on ? "Рекламу покажем по всей России, город не нужен." : "Только название города: по нему сервис выбирает, где показывать рекламу.";
 }
 
@@ -233,6 +234,7 @@ function fillForm(b) {
   $("b-nationwide").checked = !!(b && b.nationwide);
   syncNationwide();
   $("b-address").value = b ? (b.address || "") : "";
+  $("b-districts").value = b ? (b.districts || "") : "";
   $("b-promo").checked = !!(b && b.allow_promo);
   $("b-site").value = b ? b.site_url : "";
   $("b-maps").value = b ? b.maps_url : "";
@@ -397,6 +399,7 @@ function readForm() {
     city: $("b-nationwide").checked ? "" : $("b-city").value,
     nationwide: $("b-nationwide").checked,
     address: $("b-address").value,
+    districts: $("b-nationwide").checked ? "" : $("b-districts").value,
     allow_promo: $("b-promo").checked,
     site_url: $("b-site").value,
     maps_url: $("b-maps").value,
@@ -2041,7 +2044,7 @@ async function openLaunch() {
   if (!result.ok) { say(errorText(result), "err"); $("launch-card").hidden = true; return; }
   const p = result.data;
   $("launch-summary").textContent =
-    `Кабинет: ${p.account}. Где показывать: ${p.city}. Одна кампания: ${adsPhrase(p.count)} с общим бюджетом ${p.weekly} ₽ в неделю. Ведёт на: ${p.link}${p.tagged ? " (к ссылке добавятся метки utm: в Метрике будет видно, с какого объявления пришёл человек)" : ""}.`;
+    `Кабинет: ${p.account}. Где показывать: ${p.city}${p.districts.length ? (p.by_district ? `, только районы: ${p.districts.join(", ")}` : `, районы в текстах и фразах: ${p.districts.join(", ")}`) : ""}. Одна кампания: ${adsPhrase(p.count)} с общим бюджетом ${p.weekly} ₽ в неделю. Ведёт на: ${p.link}${p.tagged ? " (к ссылке добавятся метки utm: в Метрике будет видно, с какого объявления пришёл человек)" : ""}.`;
   $("launch-variants").replaceChildren(...p.variants.map((v) =>
     el("li", {}, el("div", { className: "t", textContent: v.title }), el("div", { className: "hint", textContent: v.text }))));
   $("launch-warnings").replaceChildren(...p.warnings.map((w) => el("li", { textContent: w })));

@@ -22,6 +22,7 @@ from app.assets import (
 )
 from app.config import get_settings
 from app.db import get_db
+from app.creative.angles import join_districts
 from app.creative.logo import has_transparency, remove_background
 from app.deps import creative_transport, current_user
 from app.direct.advice import budget_advice
@@ -56,6 +57,7 @@ class BusinessIn(BaseModel):
     city: str = Field(default="", max_length=100)
     nationwide: bool = False   # онлайн-услуга: показывать рекламу по всей России, город не нужен
     address: str = Field(default="", max_length=300)   # подробный адрес и как найти: улица, дом, этаж, ориентир (город отдельно, он нужен для региона)
+    districts: str = Field(default="", max_length=300)   # районы, где принимают клиентов, через запятую: по ним идёт таргетинг и тексты «рядом с вами»
     site_url: str = Field(default="", max_length=300)
     maps_url: str = Field(default="", max_length=500)
     visual_hint: str = Field(default="", max_length=300)
@@ -143,6 +145,7 @@ def _business(row: sqlite3.Row, assets: list[sqlite3.Row] | None = None) -> dict
         "city": row["city"],
         "nationwide": bool(row["nationwide"]),
         "address": row["address"],
+        "districts": row["districts"],
         "allow_promo": bool(row["allow_promo"]),
         "site_url": row["site_url"],
         "maps_url": row["maps_url"],
@@ -224,6 +227,7 @@ def create_business(data: BusinessIn, user: sqlite3.Row = Depends(current_user),
             data.client_share_percent / 100, data.mode, data.visual_hint.strip(), data.address, int(data.allow_promo), int(data.nationwide),
         ),
     )
+    conn.execute("UPDATE businesses SET districts = ? WHERE id = ?", (join_districts(data.districts), cur.lastrowid))
     conn.commit()
     return _business(_own(conn, user, cur.lastrowid), [])
 
@@ -251,6 +255,7 @@ def update_business(
             data.client_share_percent / 100, data.mode, data.visual_hint.strip(), data.address, int(data.allow_promo), int(data.nationwide), business_id,
         ),
     )
+    conn.execute("UPDATE businesses SET districts = ? WHERE id = ?", (join_districts(data.districts), business_id))
     conn.commit()
     return _business(_own(conn, user, business_id), _assets_of(conn, business_id))
 

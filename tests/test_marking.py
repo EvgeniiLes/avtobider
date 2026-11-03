@@ -28,7 +28,7 @@ def isolated(tmp_path, monkeypatch):
 def setup(http, fake, db_path):
     http.post("/api/auth/register", json={"email": "o@example.com", "password": "password123"})
     app.dependency_overrides[client_factory] = fake.factory()
-    bid = http.post("/api/businesses", json={"name": "Лотос", "kind": "Маникюрный салон", "city": "Москва", "weekly_budget": 20000,
+    bid = http.post("/api/businesses", json={"name": "Лотос", "kind": "Маникюрный салон", "city": "Москва", "districts": "Хамовники", "weekly_budget": 20000,
                                              "target_cpa": 800, "description": "Маникюр.", "site_url": "salon.ru", "mode": "auto"}).json()["id"]
     conn = sqlite3.connect(db_path)
     conn.execute("INSERT INTO ad_accounts (user_id, title, token_enc) VALUES (1, 'fake-login', ?)", (encrypt_token("tok", "test-secret-key"),))

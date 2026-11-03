@@ -107,6 +107,25 @@ def draft_variants(biz, count: int = 6) -> list[dict]:
         variants.append({"title": fit(title, TITLE_MAX), "text": fit(text, TEXT_MAX), "angle": angle})
     return variants
 
+def mentions_district(variant: dict, districts: list[str]) -> bool:
+    """Назван ли в объявлении один из районов (в любом падеже: «Хамовники», «в Хамовниках»)."""
+    low = f"{variant['title']} {variant['text']}".lower()
+    return any(d.lower()[:max(4, len(d) - 2)] in low for d in districts)
+
+
+def near_variants(biz, count: int = 6) -> list[dict]:
+    """Объявления «мы рядом с вами»: с названием района, где идёт реклама. Без районов или для онлайн-проекта их нет."""
+    from app.creative.angles import districts_of, needs_districts, profile  # импорт здесь, чтобы не было круга
+    districts = districts_of(biz)
+    if not districts or not needs_districts(biz):
+        return []
+    act, name, kind = profile(biz)["cta_sentence"], biz["name"].strip(), biz["kind"].strip()
+    out = []
+    for d in districts:
+        out += [(f"{kind} в районе {d}", f"{name} рядом с вами. {act}"), (f"{kind} рядом: {d}", f"{name}, {d}. {act}")]
+    return [{"title": fit(t, TITLE_MAX), "text": fit(x, TEXT_MAX), "angle": "location"} for t, x in out[:count]]
+
+
 def alternative_variant(biz, used_titles: set[str]) -> dict:
     """Второй вариант для сравнения: другой акцент, чем у уже созданных. Если все заняты, берёт первый с пометкой."""
     for v in draft_variants(biz):

@@ -31,7 +31,7 @@ def isolated(tmp_path, monkeypatch):
 def setup(http, fake, db_path, **business):
     http.post("/api/auth/register", json={"email": "o@example.com", "password": "password123"})
     app.dependency_overrides[client_factory] = fake.factory()
-    body = {"name": "Лотос", "kind": "Маникюрный салон", "city": "Москва", "weekly_budget": BUDGET, "target_cpa": 800,
+    body = {"name": "Лотос", "kind": "Маникюрный салон", "city": "Москва", "districts": "Хамовники", "weekly_budget": BUDGET, "target_cpa": 800,
             "description": "Маникюр и педикюр в центре города.", "site_url": "salon.ru", "mode": "auto"}
     body.update(business)
     bid = http.post("/api/businesses", json=body).json()["id"]
@@ -409,3 +409,62 @@ def test_ad_links_get_utm_macros_that_direct_fills_in(isolated):
 def test_tagged_href(url, expected):
     from app.direct.launch import UTM, tagged_href
     assert tagged_href(url) == expected.replace("{utm}", UTM)
+
+# ---------- районы: таргетинг и объявления «рядом с вами» ----------
+
+def test_ads_are_shown_only_in_the_owners_districts_with_phrases_and_two_ads_about_being_near(isolated):
+    fake = FakeDirect()
+    with TestClient(app) as http:
+        bid = setup(http, fake, isolated, districts="Хамовники, Арбат")
+        plan = http.get(f"/api/businesses/{bid}/launch/preview").json()
+        assert plan["districts"] == ["Хамовники", "Арбат"] and plan["by_district"] is True and plan["count"] == 3
+        near = [v for v in plan["variants"] if "Хамовник" in v["title"] + v["text"] or "Арбат" in v["title"] + v["text"]]
+        assert len(near) >= 2 and all(v["angle"] == "location" for v in near)                 # минимум два объявления говорят, что мы рядом, и называют район
+        assert not any("Яндекс знает" in w for w in plan["warnings"])
+        assert http.post(f"/api/businesses/{bid}/launch", json={"marking_confirmed": True}).status_code == 200
+        assert list(fake.group_regions.values()) == [[20002, 20003]]                       # показ по двум районам, а не по всей Москве (213)
+
+
+def test_district_phrases_are_added_to_the_keywords(isolated):
+    from app.direct.launch import _district_phrases
+    assert _district_phrases(["записаться на маникюр", "педикюр"], ["Хамовники", "Арбат"]) == [
+        "записаться на маникюр хамовники", "записаться на маникюр арбат", "педикюр хамовники", "педикюр арбат"]
+    assert _district_phrases(["педикюр хамовники"], ["Хамовники"]) == []                  # такая фраза уже есть
+    assert _district_phrases(["a"], []) == []
+
+
+def test_unknown_district_falls_back_to_the_whole_city_and_says_so(isolated):
+    fake = FakeDirect()
+    with TestClient(app) as http:
+        bid = setup(http, fake, isolated, districts="Хамовники, Нигдеградский")
+        plan = http.get(f"/api/businesses/{bid}/launch/preview").json()
+        assert plan["by_district"] is False and any("Яндекс знает как отдельную область показа не все районы" in w for w in plan["warnings"])
+        assert http.post(f"/api/businesses/{bid}/launch", json={"marking_confirmed": True}).status_code == 200
+        assert list(fake.group_regions.values()) == [[213]]                                # район потерялся бы молча: показываем по городу, названия остались в текстах
+        assert any("Нигдеградский" in v["title"] + v["text"] for v in plan["variants"]) or any("Хамовник" in v["title"] + v["text"] for v in plan["variants"])
+
+
+def test_a_district_of_another_city_is_not_taken(isolated):
+    fake = FakeDirect(regions={"казань": 43})
+    with TestClient(app) as http:
+        bid = setup(http, fake, isolated, city="Казань", districts="Хамовники")            # такой район есть в Москве, а не в Казани
+        assert http.get(f"/api/businesses/{bid}/launch/preview").json()["by_district"] is False
+
+
+def test_a_local_business_cannot_launch_without_a_district_but_an_online_one_can(isolated):
+    fake = FakeDirect()
+    with TestClient(app) as http:
+        bid = setup(http, fake, isolated, districts="")
+        refused = http.get(f"/api/businesses/{bid}/launch/preview")
+        assert refused.status_code == 400 and "Укажите район" in refused.json()["detail"]["message"]
+        assert http.put(f"/api/businesses/{bid}", json={"name": "Лотос", "kind": "Маникюрный салон", "city": "", "nationwide": True,
+                                                         "site_url": "salon.ru", "weekly_budget": BUDGET, "districts": "Арбат"}).status_code == 200
+        plan = http.get(f"/api/businesses/{bid}/launch/preview").json()
+        assert plan["city"] == "вся Россия" and plan["districts"] == [] and plan["by_district"] is False   # по всей России районов нет, даже записанные раньше
+
+
+def test_districts_are_saved_cleaned_up(isolated):
+    fake = FakeDirect()
+    with TestClient(app) as http:
+        bid = setup(http, fake, isolated, districts=" Хамовники ;арбат,\nхамовники, , Тверской. ")
+        assert http.get(f"/api/businesses/{bid}").json()["districts"] == "Хамовники, арбат, Тверской"

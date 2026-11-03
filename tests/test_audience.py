@@ -54,7 +54,7 @@ def ai(content=None, status=200):
 def setup(http, fake, db_path, **business):
     http.post("/api/auth/register", json={"email": "o@example.com", "password": "password123"})
     app.dependency_overrides[client_factory] = fake.factory()
-    body = {"name": "Лотос", "kind": "Маникюрный салон", "city": "Москва", "weekly_budget": 20_000, "target_cpa": 800,
+    body = {"name": "Лотос", "kind": "Маникюрный салон", "city": "Москва", "districts": "Хамовники", "weekly_budget": 20_000, "target_cpa": 800,
             "description": "Маникюр и педикюр в центре города.", "site_url": "salon.ru", "mode": "auto"}
     body.update(business)
     bid = http.post("/api/businesses", json=body).json()["id"]
@@ -190,7 +190,7 @@ def test_profile_cannot_be_built_without_ai_key_or_description(isolated, monkeyp
 
 
 def setup_empty_description(http, db_path):
-    return http.post("/api/businesses", json={"name": "Пусто", "kind": "Салон", "city": "Москва", "weekly_budget": 20_000, "target_cpa": 800,
+    return http.post("/api/businesses", json={"name": "Пусто", "kind": "Салон", "city": "Москва", "districts": "Хамовники", "weekly_budget": 20_000, "target_cpa": 800,
                                               "description": "", "site_url": "salon.ru", "mode": "auto"}).json()["id"]
 
 
@@ -202,18 +202,19 @@ def test_launch_sends_phrases_negatives_and_autotargeting_to_direct(isolated, mo
         bid = setup(http, fake, isolated)
         http.post(f"/api/businesses/{bid}/audience")
         plan = http.get(f"/api/businesses/{bid}/launch/preview").json()
-        assert plan["keywords"] == ["записаться на маникюр", "маникюр с покрытием цена", "педикюр аппаратный"]
+        assert plan["keywords"][:3] == ["записаться на маникюр", "маникюр с покрытием цена", "педикюр аппаратный"]   # дальше фразы с районом
         assert plan["audience"]["summary"].startswith("Женщины") and plan["audience"]["confidence"] == "средняя"
         assert not any("Профиль аудитории не составлен" in w for w in plan["warnings"])
 
         assert http.post(f"/api/businesses/{bid}/launch", json={"marking_confirmed": True}).status_code == 200
         phrases = [k["keyword"] for k in fake.keywords]
-        assert phrases == ["записаться на маникюр", "маникюр с покрытием цена", "педикюр аппаратный", "---autotargeting"]
+        assert phrases == ["записаться на маникюр", "маникюр с покрытием цена", "педикюр аппаратный", "записаться на маникюр хамовники", "маникюр с покрытием цена хамовники",
+                       "педикюр аппаратный хамовники", "---autotargeting"]   # свои фразы, затем те же с районом
         assert len({k["group"] for k in fake.keywords}) == 1 and list(fake.groups)[0] == fake.keywords[0]["group"]
         negatives = next(iter(fake.negatives.values()))
         assert "бесплатно" in negatives and "самостоятельно" in negatives and "маникюр" not in negatives
         launched = http.get(f"/api/businesses/{bid}/audience").json()["profile"]["launched"]
-        assert launched == {"added": 3, "rejected": [], "autotargeting": True, "autotargeting_error": ""}
+        assert launched == {"added": 6, "rejected": [], "autotargeting": True, "autotargeting_error": ""}   # три фразы профиля и три с районом
 
 
 def test_launch_builds_the_profile_itself_when_it_is_missing(isolated, monkeypatch):
@@ -248,7 +249,7 @@ def test_refused_phrases_do_not_stop_the_launch_and_are_shown_to_the_owner(isola
         http.post(f"/api/businesses/{bid}/audience")
         assert http.post(f"/api/businesses/{bid}/launch", json={"marking_confirmed": True}).status_code == 200
         launched = http.get(f"/api/businesses/{bid}/audience").json()["profile"]["launched"]
-        assert launched["added"] == 2 and launched["rejected"][0]["phrase"] == "педикюр аппаратный"
+        assert launched["added"] == 5 and launched["rejected"][0]["phrase"] == "педикюр аппаратный"   # три своих без одной отказной и три с районом
 
 
 def test_group_without_any_queries_is_not_left_in_the_cabinet(isolated):

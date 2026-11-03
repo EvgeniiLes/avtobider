@@ -418,6 +418,32 @@ class DirectClient:
                 return int(region["GeoRegionId"])
         return None
 
+    async def find_district_ids(self, city_id: int, districts: list[str]) -> list[int]:
+        """Номера регионов Директа для районов города. Район берётся, только если он лежит внутри города (по цепочке родителей справочника):
+        одноимённый район другого города не подходит. Не найденные районы пропускаются."""
+        result = await self.call("dictionaries", "get", {"DictionaryNames": ["GeoRegions"]})
+        regions = {int(r["GeoRegionId"]): r for r in result.get("GeoRegions", []) if r.get("GeoRegionId") is not None}
+
+        def inside(region: dict) -> bool:
+            seen, parent = set(), region.get("ParentId")
+            while parent and parent not in seen:
+                if int(parent) == city_id:
+                    return True
+                seen.add(parent)
+                parent = (regions.get(int(parent)) or {}).get("ParentId")
+            return False
+
+        def norm(name: str) -> str:
+            return re.sub(r"\s*(?:район|р-н|округ|микрорайон)\s*", " ", name.lower().replace("ё", "е")).strip()
+
+        found = []
+        for wanted in districts:
+            for rid, region in regions.items():
+                if rid != city_id and norm(region.get("GeoRegionName", "")) == norm(wanted) and inside(region):
+                    found.append(rid)
+                    break
+        return found
+
     async def min_weekly_budget(self, currency: str = "RUB") -> int | None:
         """Минимальный недельный бюджет кампании в микрорублях из справочника валют."""
         result = await self.call("dictionaries", "get", {"DictionaryNames": ["Currencies"]})

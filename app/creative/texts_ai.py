@@ -4,7 +4,7 @@ import re
 
 import httpx
 
-from app.creative.angles import ANGLES, business_block, effective_description, prompt_block, where_text
+from app.creative.angles import ANGLES, business_block, districts_of, effective_description, prompt_block, where_text
 from app.direct.audience import for_prompt as audience_prompt, load as load_audience
 from app.direct.texts import TEXT_MAX, TITLE_MAX, check, fit, unsupported_claims
 
@@ -30,7 +30,8 @@ def facts_of(biz) -> str:
         address = (biz["address"] or "").strip()
     except (KeyError, IndexError):
         address = ""
-    return f"{effective_description(biz)} {address}".strip()
+    districts = districts_of(biz)
+    return f"{effective_description(biz)} {address}{' Район: ' + ', '.join(districts) if districts else ''}".strip()   # слово «район» открывает угол «Расположение»
 
 
 def build_prompt(biz, count: int, hint: str = "") -> str:

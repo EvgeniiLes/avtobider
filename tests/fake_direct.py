@@ -11,6 +11,7 @@ class FakeDirect:
         self.fail_add_after = fail_add_after  # после стольких созданных кампаний Директ начинает отказывать
         self.fail_ads_after = fail_ads_after  # после стольких созданных объявлений отказывает при создании следующего
         self.regions = regions if regions is not None else {"москва": 213}
+        self.districts = {"центральный": 20001, "хамовники": 20002, "арбат": 20003}   # районы Москвы как отдельные регионы справочника
         self.min_weekly = min_weekly
         self.campaigns: dict[int, dict] = {}
         self.groups: dict[int, int] = {}      # группа → кампания
@@ -91,7 +92,10 @@ class FakeDirect:
 
         if service == "dictionaries":
             if params["DictionaryNames"] == ["GeoRegions"]:
-                return ok({"GeoRegions": [{"GeoRegionId": i, "GeoRegionName": n.capitalize(), "GeoRegionType": "City"} for n, i in self.regions.items()]})
+                cities = [{"GeoRegionId": i, "GeoRegionName": n.capitalize(), "GeoRegionType": "City", "ParentId": 1} for n, i in self.regions.items()]
+                districts = [{"GeoRegionId": i, "GeoRegionName": n.capitalize(), "GeoRegionType": "City district", "ParentId": self.regions.get("москва", 213)}
+                             for n, i in self.districts.items()]
+                return ok({"GeoRegions": cities + districts})
             return ok({"Currencies": [{"Currency": "RUB", "Properties": [{"Name": "MinimumWeeklySpendLimit", "Value": str(self.min_weekly)}]}]})
         if service == "clients":
             if method == "update":

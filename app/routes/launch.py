@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 from app.config import get_settings
 from app.db import get_db
-from app.creative.angles import is_nationwide
+from app.creative.angles import districts_of, is_nationwide
 from app.deps import client_factory, creative_transport, current_user
 from app.direct import audience as aud
 from app.direct.client import DirectError
@@ -49,12 +49,14 @@ def _plan_for(conn, user, biz, account_id, factory):
         async with factory(token, api_version=s.direct_api_version, login=login) as client:
             region = None if is_nationwide(biz) or not biz["city"].strip() else await client.find_region_id(biz["city"])   # вся Россия: регион задаст сам план
             minimum = await client.min_weekly_budget("RUB")
-            return region, minimum
+            districts = districts_of(biz)
+            district_ids = await client.find_district_ids(region, districts) if region and districts else []   # районы как отдельные области показа
+            return region, minimum, district_ids
 
-    region, minimum = asyncio.run(go())
+    region, minimum, district_ids = asyncio.run(go())
     kwargs = {"min_weekly_micro": minimum} if minimum else {}
     custom = text_candidates(conn, biz)
-    return account, token, login, plan_launch(biz, region, custom=custom, audience=aud.load(biz), **kwargs)
+    return account, token, login, plan_launch(biz, region, custom=custom, audience=aud.load(biz), district_ids=district_ids, **kwargs)
 
 
 def _plan_json(plan, account, marking_confirmed: bool = False) -> dict:
@@ -65,6 +67,8 @@ def _plan_json(plan, account, marking_confirmed: bool = False) -> dict:
         "weekly": round(plan.campaign_micro / MICRO),
         "total": round(plan.campaign_micro / MICRO),
         "city": plan.city,
+        "districts": plan.districts or [],
+        "by_district": bool(plan.region_ids),   # показ ограничен районами (иначе весь город)
         "link": plan.href or "Профиль организации в Яндекс Картах",
         "tagged": bool(plan.href) and tagged_href(plan.href) != plan.href,   # ссылка получит utm-метки (откуда пришёл человек)
         "variants": plan.variants,

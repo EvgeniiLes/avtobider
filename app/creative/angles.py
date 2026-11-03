@@ -68,14 +68,48 @@ def is_nationwide(biz) -> bool:
         return False
 
 
+MAX_DISTRICTS = 6
+
+
+def split_districts(text: str) -> list[str]:
+    """Районы из строки владельца: через запятую, точку с запятой или с новой строки; без повторов и пустых."""
+    found: list[str] = []
+    for part in re.split(r"[,;\n]+", text or ""):
+        name = re.sub(r"\s+", " ", part).strip(" .")[:60]
+        if name and name.lower() not in {x.lower() for x in found}:
+            found.append(name)
+    return found[:MAX_DISTRICTS]
+
+
+def join_districts(text: str) -> str:
+    return ", ".join(split_districts(text))
+
+
+def districts_of(biz) -> list[str]:
+    """Районы показа. По всей России районов нет, даже если владелец записал их раньше."""
+    if is_nationwide(biz):
+        return []
+    try:
+        return split_districts(biz["districts"])
+    except (KeyError, IndexError):
+        return []
+
+
+def needs_districts(biz) -> bool:
+    """Рекламе нужен район: бизнес принимает клиентов на месте, а не работает онлайн по всей России."""
+    return not is_nationwide(biz) and not profile(biz)["online"]
+
+
 def where_text(biz) -> str:
     """Где показываем рекламу, словами для подсказок модели."""
     if is_nationwide(biz):
         return "вся Россия, онлайн: города в объявлении нет, про город и «рядом» не пиши"
     try:
-        return biz["city"] or "не указан"
+        city = biz["city"] or "не указан"
     except (KeyError, IndexError):
         return "не указан"
+    districts = districts_of(biz)
+    return f"{city}, районы показа: {', '.join(districts)}" if districts else city
 
 
 PROMO = re.compile(r"скидк|акци[июяе]|акционн|подар|комплимент|бонус|\d\s?%", re.I)
@@ -117,6 +151,10 @@ def business_block(biz) -> str:
     p = profile(biz)
     where = ("Это онлайн-проект: физического адреса нет, не пиши про «рядом», «у метро», «приходите», «запись к мастеру»."
              if p["online"] else "Это бизнес с адресом, клиенты приходят на место." if p["local"] else "")
+    districts = districts_of(biz)
+    if districts and needs_districts(biz):   # реклама идёт по районам: минимум два варианта прямо говорят, что мы рядом с клиентом
+        where += (f" Реклама показывается людям в районах: {', '.join(districts)}. Минимум два варианта пиши про то, что мы рядом с клиентом "
+                  "(угол location): назови район из списка, например «Маникюр в Хамовниках» или «Рядом с вами в районе Арбат».")
     return f"{where} Главное действие клиента на кнопке: «{p['cta']}». Пиши под это действие.".strip()
 
 

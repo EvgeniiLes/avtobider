@@ -330,6 +330,7 @@ ADDED_COLUMNS = [
     ("business_assets", "ai_type", "TEXT NOT NULL DEFAULT ''"),
     ("business_assets", "ai_score", "INTEGER NOT NULL DEFAULT 0"),
     ("business_assets", "ai_note", "TEXT NOT NULL DEFAULT ''"),
+    ("businesses", "districts", "TEXT NOT NULL DEFAULT ''"),   # районы показа через запятую: таргетинг, ключевые фразы и тексты «рядом с вами»
     ("business_assets", "ai_brand", "TEXT NOT NULL DEFAULT ''"),   # название бизнеса, с которым ИИ проверял файл: забракованное при другом названии проверяется заново
     ("changes", "status", "TEXT NOT NULL DEFAULT 'applied'"),
     # Директ: одна кампания на весь бизнес, объявления-варианты лежат внутри неё и делят один недельный лимит

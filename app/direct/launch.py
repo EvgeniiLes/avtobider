@@ -13,11 +13,11 @@ from datetime import date, timedelta
 from urllib.parse import urlsplit, urlunsplit
 
 from app.creative.compose import style_for
-from app.creative.angles import is_nationwide
+from app.creative.angles import districts_of, is_nationwide, needs_districts
 from app.direct.client import RUSSIA_REGION_ID, DirectClient, DirectError
 from app.direct.goals import goal_ids_for_report
 from app.direct.audience import autotargeting_for, effective_negatives
-from app.direct.texts import check, draft_variants
+from app.direct.texts import check, draft_variants, mentions_district, near_variants
 from app.engine.util import EngineError, MICRO, day_add, plural, rub
 
 MAX_VARIANTS = 6   # столько вариантов готовим и показываем в редакторе; в кампанию входят первые MAX_ADS, остальные запасные
@@ -52,6 +52,8 @@ class Plan:
     keywords: list[str] | None = None       # ключевые фразы группы; пусто: только автотаргетинг
     autotargeting: dict | None = None       # категории и бренды автотаргетинга
     audience: dict | None = None            # профиль аудитории, по которому всё это собрано
+    region_ids: list[int] | None = None     # районы, по которым идёт показ (Директ знает их как отдельные регионы); пусто: показ по region_id
+    districts: list[str] | None = None      # районы, названные владельцем
 
 
 UTM = "utm_source=yandex&utm_medium=cpc&utm_campaign={campaign_id}&utm_content={ad_id}&utm_term={keyword}"   # {…} подставляет Директ при каждом клике
@@ -126,8 +128,32 @@ def choose_variants(biz, custom: list[dict] | None, count: int) -> tuple[list[di
             break
         if v["title"].lower() not in {x["title"].lower() for x in variants}:
             variants.append(v)
-    return variants, own
+    return _with_near_ads(biz, variants, count, {c["title"].lower() for c in custom or [] if c.get("status") == "approved"}), own
 
+
+def _with_near_ads(biz, variants: list[dict], count: int, approved: set[str]) -> list[dict]:
+    """Реклама идёт по районам, поэтому минимум два объявления (одно, если их меньше трёх) прямо говорят, что мы рядом, и называют район.
+    Недостающие встают после текстов, которые владелец одобрил подряд с начала списка, и вытесняют только то, что он не одобрял."""
+    districts = districts_of(biz)
+    if not districts:
+        return variants
+    near = [v for v in variants if mentions_district(v, districts)]
+    need = 2 if count >= 3 else 1
+    if len(near) >= need:
+        return variants
+    free = sum(1 for v in variants if v["title"].lower() not in approved and v not in near) + max(0, count - len(variants))   # места, которые можно отдать
+    have = {v["title"].lower() for v in variants}
+    extra = [v for v in near_variants(biz) if v["title"].lower() not in have][:min(need - len(near), free)]
+    lead = 0
+    while lead < len(variants) and variants[lead]["title"].lower() in approved:
+        lead += 1
+    lead = max(lead, 1) if variants else 0
+    merged = variants[:lead] + extra + variants[lead:]
+    while len(merged) > count:   # лишнее убираем с конца: сначала то, что не одобрено владельцем и не про район
+        drop = next((i for i in range(len(merged) - 1, -1, -1)
+                     if merged[i]["title"].lower() not in approved and merged[i] not in near and merged[i] not in extra), len(merged) - 1)
+        merged.pop(drop)
+    return merged
 
 def banner_layout(index: int) -> str:
     return "bottom" if index % 2 == 0 else "left"
@@ -144,7 +170,7 @@ def render_banner(biz, variant: dict, photo: bytes, logo: bytes | None, index: i
 
 
 def plan_launch(biz, region_id: int | None, min_weekly_micro: int = MIN_WEEKLY, custom: list[dict] | None = None,
-                audience: dict | None = None) -> Plan:
+                audience: dict | None = None, district_ids: list[int] | None = None) -> Plan:
     """Считает, что будет создано. Если создавать нечего или нельзя, объясняет простыми словами."""
     if not (biz["site_url"] or _maps_id(biz)):
         raise EngineError("Укажите сайт или ссылку на ваш бизнес в Яндекс Картах: без них объявлению некуда вести.", "no_target_link")
@@ -155,6 +181,10 @@ def plan_launch(biz, region_id: int | None, min_weekly_micro: int = MIN_WEEKLY, 
         raise EngineError(f"Не нашёл город «{biz['city']}» в Яндексе. Проверьте, как он написан (например, «Москва»).", "no_region")
     if biz["weekly_budget_micro"] <= 0:
         raise EngineError("Укажите бюджет на неделю.", "no_budget")
+    districts = districts_of(biz)
+    if needs_districts(biz) and not districts:
+        raise EngineError("Укажите район (или несколько), где вы принимаете клиентов, на странице «Бизнес». Реклама показывается людям из этих районов, "
+                          "а часть объявлений говорит, что вы рядом с ними.", "no_districts")
 
     start_pool, count = start_split(biz, min_weekly_micro)
     if count < 1:
@@ -163,6 +193,9 @@ def plan_launch(biz, region_id: int | None, min_weekly_micro: int = MIN_WEEKLY, 
 
     variants, own = choose_variants(biz, custom, count)
     warnings = []
+    if districts and sum(1 for v in variants[:count] if mentions_district(v, districts)) < (2 if count >= 3 else 1):
+        warnings.append("В показ идёт меньше двух объявлений, где назван район и сказано, что вы рядом (нужны как минимум два). "
+                        "Это потому, что вы одобрили свои тексты без района: добавьте в какие-нибудь из них район или замените их.")
     for v in variants:
         warnings += check(v["title"], v["text"])
     if custom and own < min(count, 2):
@@ -180,6 +213,12 @@ def plan_launch(biz, region_id: int | None, min_weekly_micro: int = MIN_WEEKLY, 
         warnings.append(advice["summary"])
     counters = [int(biz["metrika_counter_id"])] if biz["metrika_counter_id"] else None
     keywords = list((audience or {}).get("keywords") or [])
+    keywords += _district_phrases(keywords, districts)
+    by_district = bool(districts) and len(district_ids or []) == len(districts)   # показ по районам только если Яндекс знает их все: иначе часть районов потерялась бы молча
+    if districts and not by_district:
+        listed = ", ".join(districts)
+        warnings.append(f"Яндекс знает как отдельную область показа не все районы из списка ({listed}). Реклама пойдёт по всему городу, "
+                        "а названия районов добавлены в тексты и ключевые фразы. Если район написан иначе, чем у Яндекса, поправьте его на странице «Бизнес».")
     if audience is None:
         warnings.append("Профиль аудитории не составлен, ключевых фраз нет: показ пойдёт только по автотаргетингу Яндекса. "
                         "Составьте профиль на шаге «Запуск», чтобы запросы подбирались под вашего клиента.")
@@ -189,7 +228,20 @@ def plan_launch(biz, region_id: int | None, min_weekly_micro: int = MIN_WEEKLY, 
         count=count, campaign_micro=start_pool, variants=variants, region_id=RUSSIA_REGION_ID if nationwide else region_id,
         city="вся Россия" if nationwide else biz["city"], href=biz["site_url"], business_id=_maps_id(biz), warnings=warnings, counter_ids=counters,
         own_count=own, negatives=effective_negatives(biz, audience), keywords=keywords, autotargeting=autotargeting_for(audience), audience=audience,
+        region_ids=list(district_ids) if by_district and not nationwide else None, districts=districts or None,
     )
+
+
+def _district_phrases(keywords: list[str], districts: list[str], limit: int = 12) -> list[str]:
+    """Ключевые фразы с районом: «маникюр» + «Хамовники» → «маникюр хамовники». Так реклама ловит запросы людей, которые ищут рядом с собой."""
+    have = {k.lower() for k in keywords}
+    out = []
+    for base in keywords[:4]:
+        for d in districts:
+            phrase = f"{base} {d}".lower()
+            if d.lower() not in base.lower() and phrase not in have and len(phrase) <= 80 and phrase not in out:   # район в фразе уже есть: второй раз не дописываем
+                out.append(phrase)
+    return out[:limit]
 
 
 async def create_campaign(client: DirectClient, plan: Plan, name: str, start_date: str) -> dict:
@@ -198,7 +250,7 @@ async def create_campaign(client: DirectClient, plan: Plan, name: str, start_dat
     try:
         campaign_id = await client.create_text_campaign(
             name, plan.campaign_micro, start_date, counter_ids=plan.counter_ids, negative_keywords=plan.negatives)
-        group_id = await client.create_ad_group(campaign_id, "Основная", [plan.region_id])
+        group_id = await client.create_ad_group(campaign_id, "Основная", plan.region_ids or [plan.region_id])
         keywords = await client.add_keywords(group_id, plan.keywords or [], plan.autotargeting)
         ad_ids = [await client.create_text_ad(group_id, v["title"], v["text"], href=tagged_href(plan.href), business_id=plan.business_id)
                   for v in plan.variants]
