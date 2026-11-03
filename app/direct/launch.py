@@ -81,7 +81,8 @@ def text_candidates(conn: sqlite3.Connection, biz) -> list[dict]:
         "AND status IN ('approved', 'draft') ORDER BY id", (biz["id"],)).fetchall()
     chosen = [{"id": r["id"], "title": r["title"], "text": r["body"], "angle": r["angle"], "status": "approved", "position": r["position"]}
               for r in rows if r["status"] == "approved"]
-    angles = {c["angle"] for c in chosen if c["angle"]}
+    # шаблонный текст, сохранённый ради места в списке, угол не занимает: иначе он вытесняет черновики ИИ с тем же углом
+    angles = {r["angle"] for r in rows if r["status"] == "approved" and r["angle"] and r["source"] != "template"}
     from app.creative.texts_ai import facts_of  # здесь, чтобы не было круга
     from app.direct.texts import unsupported_claims
     facts = facts_of(biz)

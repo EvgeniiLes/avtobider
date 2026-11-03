@@ -339,6 +339,21 @@ def test_dragging_a_spare_ad_into_the_live_places_changes_what_is_launched(isola
         conn.close()
 
 
+def test_a_template_kept_for_its_place_does_not_push_out_ai_drafts_with_the_same_angle(isolated):
+    from app.db import connect
+    from app.direct.launch import text_candidates
+    with TestClient(app) as http:
+        bid = setup(http)
+        conn = connect(isolated)
+        biz = conn.execute("SELECT * FROM businesses WHERE id = ?", (bid,)).fetchone()
+        conn.execute("INSERT INTO creatives (business_id, kind, title, body, angle, source, status, position) VALUES (?, 'text', 'Маникюр в центре Москвы', 'Запишитесь онлайн на удобное время', 'запись', 'template', 'approved', 0)", (bid,))
+        conn.execute("INSERT INTO creatives (business_id, kind, title, body, angle, source, status) VALUES (?, 'text', 'Педикюр рядом с метро', 'Салон «Лотос» работает ежедневно', 'запись', 'claude', 'draft')", (bid,))
+        conn.commit()
+        titles = [c["title"] for c in text_candidates(conn, biz)]
+        conn.close()
+        assert titles == ["Маникюр в центре Москвы", "Педикюр рядом с метро"]   # черновик с тем же углом остался
+
+
 def test_the_order_of_ads_is_checked_and_private():
     with TestClient(app) as http:
         bid = setup(http)
