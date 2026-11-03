@@ -478,8 +478,8 @@ button.chip.sel { background: var(--lav); color: var(--lav-ink); border-color: v
 .th em { font-style: normal; font-size: 13px; background: var(--text); color: #fff; border-radius: 999px; padding: 3px 12px; font-weight: 600; }
 .bigno { font-size: 38px; font-weight: 700; letter-spacing: -.04em; line-height: 1.1; margin: 6px 0 14px; }
 .bigno small { font-size: 14px; font-weight: 500; letter-spacing: 0; opacity: .7; }
-.cap { height: 12px; background: rgba(255, 255, 255, .65); border-radius: 999px; overflow: hidden; }
-.cap i { display: block; height: 100%; background: var(--text); border-radius: 999px; }
+.cap[role="img"] { height: 12px; background: rgba(255, 255, 255, .65); border-radius: 999px; overflow: hidden; }   /* полоска прогресса; подписи фото тоже зовутся .cap, их это правило обрезало */
+.cap[role="img"] i { display: block; height: 100%; background: var(--text); border-radius: 999px; }
 .sm { margin: 10px 0 0; font-size: 13px; opacity: .8; }
 .thumbs { display: flex; flex: none !important; }
 .thumbs img { width: 58px; height: 58px; border-radius: 50%; object-fit: cover; border: 3px solid var(--pink); margin-left: -14px; }
