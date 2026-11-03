@@ -301,3 +301,27 @@ def test_a_niche_without_promo_still_has_a_reference_for_every_ad():
     biz["id"] = 0
     found = _niche_refs(type("B", (), {"__getitem__": lambda self, k: biz.get(k, "")})())
     assert len(found) >= 3 and len(set(found)) == len(found)
+
+
+def test_an_idea_from_the_strategist_without_a_reference_gets_a_niche_reference_unless_the_owner_chose_a_look(monkeypatch):
+    monkeypatch.setenv("FAL_KEY", "fal-test")
+    fakes = Fakes(fal_done=True)
+    fakes.keep = 10 ** 8
+    with TestClient(app) as http:
+        bid = setup(http)
+        base = f"/api/businesses/{bid}"
+        upload(http, base, "work")
+        fakes.claude_text = json.dumps([{"hypothesis": "Проверяем запись", "audience": "Занятые", "angle": "booking", "title": "Маникюр без очередей",
+                                         "text": "Запишитесь онлайн", "photo": 1, "look": 1, "mood": "calm", "ref": None, "direction": ""}], ensure_ascii=False)
+        idea = http.post(f"{base}/briefs/generate", json={"count": 2}).json()["briefs"][0]
+        assert http.post(f"{base}/briefs/{idea['id']}/use").json()["status"] == "used"
+        ads = lambda: http.get(f"{base}/creatives/ads").json()["ads"]
+        mine = next(a for a in ads() if a["title"] == "Маникюр без очередей")
+        assert mine["own"] and mine["ref_id"] and mine["ai"]["hypothesis"] == "Проверяем запись"   # идея стратега без референса: приём ниши подобран, гипотеза осталась
+        drawn = _draw(http, base + "/creatives", fakes, mine)
+        mine = next(a for a in ads() if a["title"] == "Маникюр без очередей")
+        assert mine["ai"]["ref_sent"] == mine["ref_id"] and mine["ai"]["hypothesis"] == "Проверяем запись"
+
+        other = next(a for a in ads() if not a["own"] and a["index"] < 3)
+        assert http.put(f"{base}/creatives/ads/{other['index']}/settings", json={"look": 2}).status_code == 200   # владелец сам выбрал оформление без референса
+        assert next(a for a in ads() if a["index"] == other["index"])["ref_id"] is None

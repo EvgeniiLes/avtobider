@@ -214,6 +214,11 @@ def photo_banner_prompt(biz, title: str, price: str, cta: str, index: int = 0, m
             + _text_block(title, price, cta) + ONE_BANNER + AVOID)
 
 
+REF_STYLE = ("Style: the SECOND attached image is ONLY a style inspiration (its composition idea, color mood, typography weight and feel), but follow its layout closely: "
+             "the same kind of composition, the same placement and scale of the headline, the same color mood and type weight; put the business photo into that layout "
+             "in place of its subject. Do NOT reuse its text, small print, lists, badges, logo, products, animals or characters: the only text is the text given below. ")
+
+
 def reference_banner_prompt(biz, title: str, price: str, cta: str, direction: str) -> str:
     """Баннер из фото владельца по мотивам референса: вторая картинка служит только вдохновением, её не копируем."""
     return ("Purpose: one advertising banner for Yandex Direct, landscape 4:3, for a Russian audience "
@@ -221,10 +226,8 @@ def reference_banner_prompt(biz, title: str, price: str, cta: str, direction: st
             "Subject: the FIRST attached image is the business's real photo and the one and only reference of the subject: preserve exactly the same people, "
             "animals, objects and place, their faces, coat or clothing and proportions, keep it natural and unaltered; you may crop it, extend its background "
             "and place it freely in the layout. "
-            "Style: the SECOND attached image is ONLY a style inspiration (its composition idea, color mood, typography weight and feel), but follow its layout closely: "
-            "the same kind of composition, the same placement and scale of the headline, the same color mood and type weight; put the business photo into that layout "
-            "in place of its subject. Do NOT reuse its text, small print, lists, badges, logo, products, animals or characters: the only text is the text given below. "
-            f"Look and composition: Direction: {direction}. The text never covers faces or the main subject. "
+            + REF_STYLE
+            + f"Look and composition: Direction: {direction}. The text never covers faces or the main subject. "
             + _text_block(title, price, cta, by_direction=True) + ONE_BANNER + AVOID)
 
 

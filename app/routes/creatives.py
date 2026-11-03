@@ -298,7 +298,7 @@ def ads(business_id: int, user: sqlite3.Row = Depends(current_user), conn: sqlit
         if brief:   # объявление сделано по идее стратега: показываем, что именно проверяем
             ai.update({"hypothesis": brief["hypothesis"], "audience": brief["audience"], "inspiration": refs.note(brief["ref_id"])})
         no_photo = bool(brief and brief["no_photo"])
-        auto_ref = None if brief or _extras() else _auto_ref(conn, biz, i, v)   # подача, которую возьмём при первом заказе
+        auto_ref = None if not _wants_auto_ref(brief, i) or _extras() else _auto_ref(conn, biz, i, v)   # подача, которую возьмём при первом заказе
         if photos and not _extras() and no_photo:   # без фото промпт собирается при заказе: показываем последний, если он был
             if meta.get("mode") == "scratch" and meta.get("prompt_text"):
                 ai["prompt"] = meta["prompt_text"]
@@ -316,7 +316,7 @@ def ads(business_id: int, user: sqlite3.Row = Depends(current_user), conn: sqlit
                       "photo_type": photo_type, "photo_label": PHOTO_TAGS.get(photo_type) or scene_label(photo_type),
                       "photo_id": None if no_photo else (brief["asset_id"] if brief and brief["asset_id"] else getattr(photo_for(photos, i)[1], "asset_id", None) if photos else None),
                       "no_photo": no_photo, "reserve": bool(count) and i >= count,   # запасное: в кампанию войдёт, когда понадобится заменить слабое
-                      "look_no": brief["look"] if brief else i % len(fal.PHOTO_LOOKS), "ref_id": brief["ref_id"] if brief else auto_ref})
+                      "look_no": brief["look"] if brief else i % len(fal.PHOTO_LOOKS), "ref_id": brief["ref_id"] if brief and not auto_ref else auto_ref})
     return {
         "ads": items,
         "count": count,
@@ -419,8 +419,8 @@ def _order_banner(conn, biz, variants: list[dict], index: int, key: str, transpo
     no_photo = bool(brief and brief["no_photo"])   # владелец выбрал «без фото»: ИИ рисует всю сцену сам
     if photos and not extras and not no_photo:   # главный путь: настоящее фото владельца отдаётся модели вместе с промптом про оформление
         varied = ""
-        if brief is None and not custom_prompt:   # подача не выбрана: берём приём из ниши, у соседних объявлений разные
-            brief = _auto_style(conn, biz, v, index, getattr(photo_for(photos, index)[1], "asset_id", None)) or brief
+        if _wants_auto_ref(brief, index) and not custom_prompt:   # подача не выбрана: берём приём из ниши, у соседних объявлений разные
+            brief = _auto_style(conn, biz, v, index, getattr(photo_for(photos, index)[1], "asset_id", None), brief) or brief
         if not custom_prompt:   # повторный заказ без правок подачи: берём другую подачу, чтобы вариант отличался от прежних
             pick = _vary_style(conn, biz, v, brief, index)
             if pick:
@@ -457,8 +457,8 @@ def _order_banner(conn, biz, variants: list[dict], index: int, key: str, transpo
         return what
     # баннер с нуля: фото нет или владелец выбрал «без фото». Сцену придумывает арт-директор, подача по референсу идёт словами
     varied = ""
-    if brief is None and not extras and not custom_prompt:   # подача не выбрана: берём приём из ниши
-        brief = _auto_style(conn, biz, v, index) or brief
+    if _wants_auto_ref(brief, index) and not extras and not custom_prompt:   # подача не выбрана: берём приём из ниши
+        brief = _auto_style(conn, biz, v, index, None, brief) or brief
     if not extras and not custom_prompt:   # повторный заказ без правок подачи берёт следующий референс
         pick = _vary_style(conn, biz, v, brief, index, scratch=True)
         if pick:
@@ -713,16 +713,19 @@ def _brief_prompt(biz, title: str, text: str, look: int, ref_id: int | None) -> 
     return fal.photo_banner_prompt(biz, title, price, cta, look)
 
 
-def _apply_style(conn, biz, v: dict, brief, asset_id: int | None, look: int, ref_id: int | None, no_photo: bool = False) -> None:
+def _apply_style(conn, biz, v: dict, brief, asset_id: int | None, look: int, ref_id: int | None, no_photo: bool = False, chosen: bool = False, keep_prompt: str = "") -> None:
     """Сохраняет фото и подачу объявления как идею (brief): по ней потом рисуется баннер.
-    no_photo: баннер без готового фото, ИИ рисует всю сцену с нуля (промпт тогда строится при заказе)."""
+    no_photo: баннер без готового фото, ИИ рисует всю сцену с нуля (промпт тогда строится при заказе).
+    chosen: подачу выбрал сам владелец, автоподбор референса её потом не трогает."""
     prompt = _brief_prompt(biz, v["title"], v["text"], look, ref_id) if asset_id and not no_photo else ""
+    if keep_prompt and prompt:   # промпт идеи стратега (настроение, подача) не теряем: к нему добавляется только указание про референс
+        prompt = f"{keep_prompt} {fal.REF_STYLE}Direction: take inspiration from this idea: {refs.note(ref_id)}."
     if brief:
-        conn.execute("UPDATE briefs SET asset_id = ?, look = ?, ref_id = ?, prompt = ?, no_photo = ? WHERE id = ?",
-                     (None if no_photo else asset_id, look, ref_id, prompt, int(no_photo), brief["id"]))
+        conn.execute("UPDATE briefs SET asset_id = ?, look = ?, ref_id = ?, prompt = ?, no_photo = ?, chosen = MAX(chosen, ?) WHERE id = ?",
+                     (None if no_photo else asset_id, look, ref_id, prompt, int(no_photo), int(chosen), brief["id"]))
     else:
-        conn.execute("INSERT INTO briefs (business_id, angle, title, body, asset_id, look, prompt, ref_id, no_photo, status) VALUES (?,?,?,?,?,?,?,?,?, 'used')",
-                     (biz["id"], v.get("angle", ""), v["title"], v["text"], None if no_photo else asset_id, look, prompt, ref_id, int(no_photo)))
+        conn.execute("INSERT INTO briefs (business_id, angle, title, body, asset_id, look, prompt, ref_id, no_photo, chosen, status) VALUES (?,?,?,?,?,?,?,?,?,?, 'used')",
+                     (biz["id"], v.get("angle", ""), v["title"], v["text"], None if no_photo else asset_id, look, prompt, ref_id, int(no_photo), int(chosen)))
 
 
 _PROMO_NOTE = re.compile(r"цен|акци|скидк|%|срочн", re.IGNORECASE)
@@ -755,12 +758,21 @@ def _auto_ref(conn, biz, index: int, variant: dict) -> int | None:
     return found[index] if found[index] not in taken else next((r for r in found if r not in taken), found[index])
 
 
-def _auto_style(conn, biz, v: dict, index: int, asset_id: int | None = None):
-    """Первый заказ баннера без выбранной подачи: сохраняем приём из ниши как подачу объявления (она видна в редакторе)."""
+def _wants_auto_ref(brief, index: int) -> bool:
+    """Нужно ли подобрать приём из ниши: подачу не выбирали, либо у идеи стратега референса нет (владелец его не отменял)."""
+    return brief is None or (not brief["ref_id"] and not brief["chosen"])
+
+
+def _auto_style(conn, biz, v: dict, index: int, asset_id: int | None = None, brief=None):
+    """Первый заказ баннера без выбранной подачи: сохраняем приём из ниши как подачу объявления (она видна в редакторе).
+    Идея стратега без референса получает приём, остальное в ней (гипотеза, фото) остаётся."""
     ref = _auto_ref(conn, biz, index, v)
     if ref is None:
         return None
-    _apply_style(conn, biz, v, None, asset_id, index % len(fal.PHOTO_LOOKS), ref)
+    if brief:
+        _apply_style(conn, biz, v, brief, brief["asset_id"] or asset_id, brief["look"], ref, no_photo=bool(brief["no_photo"]), keep_prompt=brief["prompt"] or "")
+    else:
+        _apply_style(conn, biz, v, None, asset_id, index % len(fal.PHOTO_LOOKS), ref)
     return _brief_for(conn, biz["id"], v)
 
 
@@ -856,7 +868,7 @@ def ad_settings(business_id: int, index: int, data: SettingsIn, user: sqlite3.Ro
         ref_id = data.ref_id
     elif data.look is not None:
         look, ref_id = data.look, None
-    _apply_style(conn, biz, v, brief, asset_id, look, ref_id, no_photo)
+    _apply_style(conn, biz, v, brief, asset_id, look, ref_id, no_photo, chosen=True)
     conn.commit()
     return {"ok": True}
 
