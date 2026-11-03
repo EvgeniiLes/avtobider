@@ -257,3 +257,25 @@ def test_a_writer_waits_for_the_database_instead_of_failing_after_five_seconds(i
     conn = connect(isolated)
     assert conn.execute("PRAGMA busy_timeout").fetchone()[0] == 30000   # пока идёт долгий запрос к ИИ, другие сохранения ждут, а не падают ошибкой
     conn.close()
+
+
+def test_redraw_all_redraws_every_live_ad_with_a_new_style_and_skips_the_ones_still_drawing(monkeypatch):
+    monkeypatch.setenv("FAL_KEY", "fal-test")
+    fakes = Fakes(fal_done=True)
+    fakes.keep = 10 ** 8
+    with TestClient(app) as http:
+        bid = setup(http)
+        base = f"/api/businesses/{bid}/creatives"
+        ads = lambda: http.get(f"{base}/ads").json()["ads"]
+        for ad in ads()[:3]:
+            _draw(http, base, fakes, ad)                                                  # у каждого объявления свой текст на баннере
+        assert [a["ai"]["status"] for a in ads()] == ["ready"] * 3 + ["none"] * 3
+        assert http.post(f"{base}/ads/ai-banners").json() == {"started": 0}               # без redo готовые не трогаем
+        refs_before = [a["ref_id"] for a in ads()[:3]]
+
+        assert http.post(f"{base}/ads/ai-banners?redo=true").json() == {"started": 3}     # все три объявления кампании заново, запасные нет
+        assert [a["ai"]["status"] for a in ads()] == ["working"] * 3 + ["none"] * 3
+        assert all(a["ref_id"] != before for a, before in zip(ads()[:3], refs_before))      # каждое взяло другую подачу
+        assert http.post(f"{base}/ads/ai-banners?redo=true").json() == {"started": 0}     # пока рисуются, второй раз не заказываем
+        versions = [c for c in http.get(f"{base}").json()["creatives"] if c["kind"] == "ai_banner" and c["status"] in ("draft", "approved")]
+        assert len(versions) >= 3                                                           # прежние версии остались, их можно вернуть

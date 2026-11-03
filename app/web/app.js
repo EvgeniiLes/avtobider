@@ -671,6 +671,20 @@ async function makeAllBanners() {
   await loadCreatives();
 }
 
+// «Перерисовать все»: заново рисует все объявления кампании, кроме тех, что рисуются прямо сейчас
+const redrawAds = () => lastAds.filter((a) => !a.reserve && !(a.ai && a.ai.status === "working"));
+
+async function redrawAllBanners() {
+  const list = redrawAds();
+  if (!list.length) { say("Сейчас все баннеры рисуются, подождите минуту."); return; }
+  const price = usd(list.reduce((sum, a) => sum + adPrice(a), 0));
+  if (!(await askConfirm("Перерисовать все баннеры?", `Баннеров: ${list.length}, это платно: около ${price}. Каждый объявлению нарисуется заново, с другой подачей. Прежние версии останутся: их можно вернуть в редакторе. Готовятся около минуты.`, "Перерисовать"))) return;
+  const r = await creativeCall("POST", "/ads/ai-banners?redo=true");
+  if (!r.ok) { say(errorText(r), "err"); return; }
+  say(`Заказано баннеров: ${r.data.started}. Они появятся сами.`);
+  await loadCreatives();
+}
+
 const AD_STATUS = {
   ready: ["Готов", "ok"], working: ["Рисуется…", "work"], failed: ["Не вышло, нарисуйте заново", "err"], none: ["Нужен баннер", "warn"],
 };
@@ -723,6 +737,9 @@ function renderBannerStep(fromPoll = false) {
   const all = $("ads-ai-all");
   all.hidden = need === 0;
   all.textContent = `Нарисовать все недостающие · ${usd(missingAds().reduce((sum, a) => sum + adPrice(a), 0))}`;
+  const redo = $("ads-ai-redo");
+  redo.hidden = ready === 0;   // перерисовывать нечего, пока нет ни одного готового баннера
+  redo.textContent = `Перерисовать все · ${usd(redrawAds().reduce((sum, a) => sum + adPrice(a), 0))}`;
 
   const stamp = Date.now();
   if (!adDrag) {   // пока человек тащит объявление, список не перерисовываем
@@ -2363,6 +2380,7 @@ async function start() {
   $("aud-save").addEventListener("click", saveAudience);
   $("ads-launch").addEventListener("click", () => { showPage("home"); openLaunch(); });
   $("ads-ai-all").addEventListener("click", makeAllBanners);
+  $("ads-ai-redo").addEventListener("click", redrawAllBanners);
   $("cr-gen-texts").addEventListener("click", () => generateTexts());
   $("photos-check").addEventListener("click", checkPhotos);
   $("insights-ai").addEventListener("click", analyzeResults);
