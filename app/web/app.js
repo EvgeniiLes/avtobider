@@ -337,7 +337,7 @@ function bindBizMenu() {
 
 // Просмотр картинки по клику: фоновые, баннеры из истории, фото, логотип и превью в редакторе открываются крупно.
 function openLightbox(img) {
-  $("lightbox-img").src = img.currentSrc.replace(/\?t=\d+$/, "");
+  $("lightbox-img").src = img.currentSrc;   // с меткой ?t=: адрес баннера зависит от места объявления в списке, без метки браузер отдаёт картинку, которая стояла на этом месте раньше
   $("lightbox-img").alt = img.alt || "";
   const cap = img.closest(".thumb")?.querySelector(".cap");
   $("lightbox-cap").textContent = (cap ? cap.textContent : img.alt) || "";
@@ -1050,7 +1050,7 @@ function renderLaunchStep() {
   $("launch-warn").textContent = `У объявлений без ИИ-баннера (${missing}) сервис соберёт обычную шаблонную картинку. Вернитесь к баннерам, если хотите нарисовать им баннеры.`;
   const row = (a, n) => {
     const [label, tone] = adStatus(a);
-    const pic = a.banner_url ? el("img", { className: "pic", src: a.banner_url, alt: "" }) : el("span", { className: "pic" });
+    const pic = a.banner_url ? el("img", { className: "pic", src: `${a.banner_url}?t=${Date.now()}`, alt: "" }) : el("span", { className: "pic" });
     const status = a.reserve ? el("span", { className: "st spare", textContent: "Запасное" }) : el("span", { className: `st ${tone}`, textContent: label });
     const edit = el("button", { className: "small secondary", type: "button", textContent: "Изменить" });
     edit.addEventListener("click", () => { selectedAd = adKey(a); renderBannerStep(); setStep("banners"); });
