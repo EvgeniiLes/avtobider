@@ -811,10 +811,29 @@ function enableSepDrag(grip, sep, list) {
   });
 }
 
-async function saveAdOrder(ads) {
+async function saveAdOrder(ads, count) {
   const r = await creativeCall("PUT", "/ads/order", { ads: ads.map((a) => ({ title: a.title, text: a.text })) });
   if (!r.ok) say(errorText(r), "err");
+  else if (count !== undefined) {
+    const c = await creativeCall("PUT", "/ads/live", { count });
+    if (!c.ok) say(errorText(c), "err");
+  }
   await loadAds();
+}
+
+// Объявление перенесли на место `at` среди остальных; live: по какую сторону черты, если место на самой черте.
+// Черта остаётся между теми же объявлениями, поэтому перешедшее её объявление меняет число идущих в рекламу.
+async function moveAd(from, at, live) {
+  const total = lastAds.length, now = Math.min(lastCount, total);
+  const rest = lastAds.filter((_, i) => i !== from);
+  const liveRest = now - (from < now ? 1 : 0);
+  const inLive = at < liveRest || (at === liveRest && live);
+  const count = now ? Math.max(1, Math.min(total, liveRest + (inLive ? 1 : 0))) : 0;
+  const next = rest.slice();
+  next.splice(at, 0, lastAds[from]);
+  const same = next.every((a, i) => a === lastAds[i]);
+  if (same && count === now) return;
+  await saveAdOrder(next, now && count !== now ? count : undefined);
 }
 
 // Перетаскивание за ручку: работает мышью и пальцем. Пока тянем, показываем линию вставки, список меняется при отпускании.
@@ -826,9 +845,7 @@ function enableAdDrag(grip, item, list) {
     e.preventDefault();
     const from = Number(item.dataset.i), to = from + step;
     if (to < 0 || to >= lastAds.length) return;
-    const next = lastAds.slice();
-    next.splice(to, 0, next.splice(from, 1)[0]);
-    await saveAdOrder(next);
+    await moveAd(from, to, false);
   });
   grip.addEventListener("pointerdown", (e) => {
     if (e.button) return;
@@ -839,15 +856,19 @@ function enableAdDrag(grip, item, list) {
     item.classList.add("dragging");
     const horizontal = getComputedStyle(list).flexDirection === "row";
     const marker = el("div", { className: "ad-drop" });
-    let before = null;   // перед каким объявлением вставим; null: в конец
+    let at = 0, live = false;   // место среди остальных объявлений и сторона черты, если место на самой черте
     const others = () => [...list.querySelectorAll(".ad-item")].filter((x) => x !== item);
+    const centre = (node, pos) => { const r = node.getBoundingClientRect(); return pos < (horizontal ? r.left + r.width / 2 : r.top + r.height / 2); };
     const move = (ev) => {
-      before = null;
-      for (const o of others()) {
-        const r = o.getBoundingClientRect();
-        if ((horizontal ? ev.clientX : ev.clientY) < (horizontal ? r.left + r.width / 2 : r.top + r.height / 2)) { before = o; break; }
-      }
-      if (before) before.before(marker); else list.append(marker);
+      const pos = horizontal ? ev.clientX : ev.clientY, rest = others();
+      const before = rest.find((o) => centre(o, pos)) || null;
+      at = before ? rest.indexOf(before) : rest.length;
+      const sep = list.querySelector(".ad-sep");
+      const liveRest = Math.min(lastCount, lastAds.length) - (Number(item.dataset.i) < lastCount ? 1 : 0);
+      live = Boolean(sep) && centre(sep, pos);
+      if (sep && at === liveRest && live) sep.before(marker);   // у самой черты: сторону выбирает положение курсора
+      else if (before) before.before(marker);
+      else list.append(marker);
     };
     const done = async (ev) => {
       grip.removeEventListener("pointermove", move);
@@ -857,12 +878,7 @@ function enableAdDrag(grip, item, list) {
       item.classList.remove("dragging");
       adDrag = false;
       if (ev.type === "pointercancel") return;
-      const rest = others().map((o) => lastAds[Number(o.dataset.i)]);
-      const at = before ? others().indexOf(before) : rest.length;
-      const next = rest.slice();
-      next.splice(at, 0, lastAds[Number(item.dataset.i)]);
-      if (next.every((a, i) => a === lastAds[i])) return;
-      await saveAdOrder(next);
+      await moveAd(Number(item.dataset.i), at, live);
     };
     grip.addEventListener("pointermove", move);
     grip.addEventListener("pointerup", done);
