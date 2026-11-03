@@ -511,3 +511,20 @@ def test_when_the_address_gives_no_district_launch_asks_the_owner_to_type_it(iso
         bid = setup(http, FakeDirect(), isolated, districts="", address="где-то за городом")
         refused = http.get(f"/api/businesses/{bid}/launch/preview")
         assert refused.status_code == 400 and "Не удалось определить район по вашему адресу" in refused.json()["detail"]["message"]
+
+
+def test_ads_carry_the_description_for_marking_and_old_ads_get_it_on_sync(isolated):
+    fake = FakeDirect()
+    with TestClient(app) as http:
+        bid = setup(http, fake, isolated)
+        assert http.post(f"/api/businesses/{bid}/launch", json={"marking_confirmed": True}).status_code == 200
+        assert {a["ad"]["ErirAdDescription"] for a in fake.ads.values()} == {"Маникюрный салон «Лотос»"}   # без описания объекта продвижения Директ ограничивает показы по закону «О рекламе»
+        for a in fake.ads.values():                                                                         # объявления, созданные раньше: описания нет
+            a["ad"].pop("ErirAdDescription")
+        conn = connect(isolated)
+        biz = conn.execute("SELECT * FROM businesses WHERE id = ?", (bid,)).fetchone()
+        assert not sync_and_run(conn, biz, transport=fake.transport)["error"]
+        notes = [r["status_note"] for r in conn.execute("SELECT status_note FROM ad_units WHERE business_id = ?", (bid,))]
+        conn.close()
+        assert {a["ad"]["ErirAdDescription"] for a in fake.ads.values()} == {"Маникюрный салон «Лотос»"}   # сервис дописал его сам
+        assert all("описание рекламы для маркировки" in n for n in notes)                                    # и сказал об этом в статусе объявления

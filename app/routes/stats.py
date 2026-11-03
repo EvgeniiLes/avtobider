@@ -53,7 +53,8 @@ def _platform(conn: sqlite3.Connection, biz: sqlite3.Row):
 
 def _fail(e: EngineError | DirectError) -> HTTPException:
     code = getattr(e, "code", None)
-    return HTTPException(STATUS.get(code, 400), detail={"message": e.message, "code": code})
+    message = e.full_message() if isinstance(e, DirectError) else e.message   # ответ Директа показываем целиком
+    return HTTPException(STATUS.get(code, 400), detail={"message": message, "code": code})
 
 
 def _rub(micro: float) -> float:

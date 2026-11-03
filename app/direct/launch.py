@@ -54,6 +54,12 @@ class Plan:
     audience: dict | None = None            # профиль аудитории, по которому всё это собрано
     region_ids: list[int] | None = None     # районы, по которым идёт показ (Директ знает их как отдельные регионы); пусто: показ по region_id
     districts: list[str] | None = None      # районы, названные владельцем
+    ad_description: str = ""                # «описание объекта продвижения» для маркировки: без него Директ ограничивает показы по закону «О рекламе»
+
+
+def ad_description_of(biz) -> str:
+    """Описание объекта продвижения для маркировки: чем занимается рекламодатель, коротко (Директ показывает его в данных об объявлении)."""
+    return f"{biz['kind']} «{biz['name']}»".strip()[:120]
 
 
 UTM = "utm_source=yandex&utm_medium=cpc&utm_campaign={campaign_id}&utm_content={ad_id}&utm_term={keyword}"   # {…} подставляет Директ при каждом клике
@@ -227,7 +233,7 @@ def plan_launch(biz, region_id: int | None, min_weekly_micro: int = MIN_WEEKLY, 
     elif len(keywords) < 5:
         warnings.append("В профиле мало ключевых фраз: большую часть запросов подберёт автотаргетинг Яндекса. Добавьте свои фразы в профиле аудитории.")
     return Plan(
-        count=count, campaign_micro=start_pool, variants=variants, region_id=RUSSIA_REGION_ID if nationwide else region_id,
+        count=count, campaign_micro=start_pool, variants=variants, region_id=RUSSIA_REGION_ID if nationwide else region_id, ad_description=ad_description_of(biz),
         city="вся Россия" if nationwide else biz["city"], href=biz["site_url"], business_id=_maps_id(biz), warnings=warnings, counter_ids=counters,
         own_count=own, negatives=effective_negatives(biz, audience), keywords=keywords, autotargeting=autotargeting_for(audience), audience=audience,
         region_ids=list(district_ids) if by_district and not nationwide else None, districts=districts or None,
@@ -254,7 +260,8 @@ async def create_campaign(client: DirectClient, plan: Plan, name: str, start_dat
             name, plan.campaign_micro, start_date, counter_ids=plan.counter_ids, negative_keywords=plan.negatives)
         group_id = await client.create_ad_group(campaign_id, "Основная", plan.region_ids or [plan.region_id])
         keywords = await client.add_keywords(group_id, plan.keywords or [], plan.autotargeting)
-        ad_ids = [await client.create_text_ad(group_id, v["title"], v["text"], href=tagged_href(plan.href), business_id=plan.business_id)
+        ad_ids = [await client.create_text_ad(group_id, v["title"], v["text"], href=tagged_href(plan.href), business_id=plan.business_id,
+                                                 erir_description=plan.ad_description)
                   for v in plan.variants]
     except DirectError:
         if campaign_id:
@@ -523,6 +530,15 @@ async def sync_units(client: DirectClient, conn: sqlite3.Connection, biz, today:
     })
     by_id = {c["Id"]: c for c in result.get("Campaigns", [])}
     ads = {str(a["Id"]): a for a in await client.list_ads(ids)}
+    # без «описания объекта продвижения» Директ ограничивает показы по закону «О рекламе»: дописываем его объявлениям, где его нет, а ответ Директа показываем в сервисе
+    missing = [a["Id"] for a in ads.values() if not (a.get("TextAd") or {}).get("ErirAdDescription")]
+    marking_note = ""
+    if missing:
+        try:
+            await client.set_ad_descriptions(missing, ad_description_of(biz))
+            marking_note = "Добавили описание рекламы для маркировки: без него Директ ограничивал показы по закону «О рекламе». Статус в Директе обновится в течение часа."
+        except DirectError as e:
+            marking_note = f"Не удалось добавить описание рекламы для маркировки (Директ ограничивает показы по закону «О рекламе»): {e.full_message()}"
     for cid in ids:
         mine = [u for u in units if u["external_campaign_id"] == cid]
         c = by_id.get(cid)
@@ -545,6 +561,8 @@ async def sync_units(client: DirectClient, conn: sqlite3.Connection, biz, today:
             else:
                 state = "paused" if halted else map_ad_state(ad, cstate)
                 note = ad.get("StatusClarification") or c.get("StatusClarification") or ""
+                if marking_note and ad["Id"] in missing:
+                    note = f"{marking_note} {note}".strip()
             conn.execute("UPDATE ad_units SET state = ?, status_note = ? WHERE id = ?", (state, note, u["id"]))
 
     goal = biz["metrika_goal_id"] or None

@@ -24,7 +24,8 @@ router = APIRouter(prefix="/api/businesses/{business_id}", tags=["launch"])
 
 def _fail(e: EngineError | DirectError) -> HTTPException:
     status = 409 if getattr(e, "code", "") in ("expired", "bad_token") else 400
-    return HTTPException(status, detail={"message": e.message, "code": getattr(e, "code", None)})
+    message = e.full_message() if isinstance(e, DirectError) else e.message   # ответ Директа показываем целиком
+    return HTTPException(status, detail={"message": message, "code": getattr(e, "code", None)})
 
 
 def _pick_account(conn: sqlite3.Connection, user, biz, account_id: int | None) -> sqlite3.Row:

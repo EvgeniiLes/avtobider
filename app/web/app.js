@@ -2128,7 +2128,13 @@ async function saveMarking() {
     kind: $("mk-kind").value, tin: $("mk-tin").value, name: $("mk-name").value, phone: $("mk-phone").value });
   btn.disabled = false;
   $("mk-status").textContent = "";
-  if (!r.ok) { say(errorText(r), "err"); return; }
+  if (!r.ok) {   // ошибка Директа остаётся в карточке: так её можно прочитать и показать в поддержке
+    $("mk-state").hidden = false;
+    $("mk-state").className = "notice bad";
+    $("mk-state").textContent = errorText(r);
+    say(errorText(r), "err");
+    return;
+  }
   $("mk-tin").value = "";  // ИНН на странице не оставляем
   say(r.data.message, r.data.filled ? "" : "err");
   $("mk-name").value = "";
@@ -2143,7 +2149,13 @@ async function confirmLaunch() {
   const result = await api("POST", `/api/businesses/${currentBusiness.id}/launch`, { marking_confirmed: $("marking-ok").checked });
   button.disabled = false;
   button.textContent = "Создать и отправить на проверку";
-  if (!result.ok) { say(errorText(result), "err"); return; }
+  $("launch-error").hidden = true;
+  if (!result.ok) {   // ответ Директа остаётся на экране, а не пропадает вместе со всплывающей подсказкой
+    $("launch-error").textContent = errorText(result);
+    $("launch-error").hidden = false;
+    say(errorText(result), "err");
+    return;
+  }
   $("launch-card").hidden = true;
   say(result.data.message);
   await Promise.all([loadStats(), refreshStopbar()]);
