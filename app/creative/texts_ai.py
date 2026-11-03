@@ -138,12 +138,15 @@ LOGO_CHECK_SYSTEM = (
 
 
 async def check_photo(image_data_url: str, fal_key: str, model: str, transport: httpx.AsyncBaseTransport | None = None,
-                      logo: bool = False, synthetic: bool = False) -> dict | None:
-    """Оценка фото (или логотипа) моделью со зрением: тип кадра, пригодность для рекламы, проблемы. None, если оценить не удалось."""
+                      logo: bool = False, synthetic: bool = False, brand: str = "") -> dict | None:
+    """Оценка фото (или логотипа) моделью со зрением: тип кадра, пригодность для рекламы, проблемы. None, если оценить не удалось.
+    brand: название бизнеса владельца. Вывеска или логотип с ним на фото свои, а не чужой бренд."""
+    own = (f" Бизнес владельца называется «{brand}». Вывеска, надпись или логотип с этим названием свои: это не чужой бренд и не проблема."
+           if brand.strip() else "")
     body = {"model": model, "max_tokens": 600, "image_urls": [image_data_url],
             "messages": [{"role": "system", "content": LOGO_CHECK_SYSTEM if logo else PHOTO_CHECK_SYSTEM},
-                         {"role": "user", "content": "Оцени этот логотип." if logo else "Оцени это фото." + (
-                             " Это картинка, нарисованная нейросетью: людей на ней не существует, согласие на показ лиц не нужно." if synthetic else "")}]}
+                         {"role": "user", "content": ("Оцени этот логотип." if logo else "Оцени это фото." + (
+                             " Это картинка, нарисованная нейросетью: людей на ней не существует, согласие на показ лиц не нужно." if synthetic else "")) + own}]}
     try:
         async with httpx.AsyncClient(timeout=90, transport=transport) as http:
             r = await http.post(FAL_CHAT_URL, json=body, headers={"Authorization": f"Key {fal_key}", "Content-Type": "application/json"})

@@ -656,27 +656,29 @@ def _data_url(path) -> str:
 def check_photos(business_id: int, force: bool = False, user: sqlite3.Row = Depends(current_user),
                  conn: sqlite3.Connection = Depends(get_db), transport=Depends(creative_transport)):
     """ИИ смотрит на загруженные фото и логотип: тип кадра, пригодность для рекламы, проблемы (чужие вывески, водяные знаки)."""
-    _own(conn, user, business_id)
+    biz = _own(conn, user, business_id)
     key = _need_fal()
     s = get_settings()
+    # забракованное (1–2) проверяем заново, если название бизнеса с тех пор менялось: причиной могла быть «чужая» вывеска, а она своя
     rows = conn.execute(
         "SELECT * FROM business_assets WHERE business_id = ? AND kind IN ('photo', 'logo', 'generated') AND tag != 'screen' "
         "AND id NOT IN (SELECT asset_id FROM creatives WHERE kind = 'ai_banner' AND asset_id IS NOT NULL) "
-        + ("" if force else "AND (ai_score = 0 OR (kind != 'logo' AND ai_fx IS NULL)) ") + "ORDER BY id LIMIT 10", (business_id,)).fetchall()
+        + ("" if force else "AND (ai_score = 0 OR (kind != 'logo' AND ai_fx IS NULL) OR (ai_score BETWEEN 1 AND 2 AND ai_brand != ?)) ")
+        + "ORDER BY id LIMIT 10", (business_id,) if force else (business_id, biz["name"])).fetchall()
     checked = failed = 0
     for r in rows:
         _charge(conn, business_id, "check")
         try:
             result = asyncio.run(check_photo(_data_url(_asset_path(business_id, r["stored_name"])), key, s.fal_text_model, transport,
-                                             logo=r["kind"] == "logo", synthetic=r["kind"] == "generated"))
+                                             logo=r["kind"] == "logo", synthetic=r["kind"] == "generated", brand=biz["name"]))
         except (OSError, ValueError):
             result = None
         if result is None:
             conn.execute("DELETE FROM generations WHERE id = (SELECT MAX(id) FROM generations WHERE business_id = ? AND kind = 'check')", (business_id,))
             failed += 1
             continue
-        conn.execute("UPDATE business_assets SET ai_type = ?, ai_score = ?, ai_note = ?, ai_fx = ?, ai_fy = ? WHERE id = ?",
-                     (result["type"], result["score"], result["note"], result.get("fx"), result.get("fy"), r["id"]))
+        conn.execute("UPDATE business_assets SET ai_type = ?, ai_score = ?, ai_note = ?, ai_fx = ?, ai_fy = ?, ai_brand = ? WHERE id = ?",
+                     (result["type"], result["score"], result["note"], result.get("fx"), result.get("fy"), biz["name"], r["id"]))
         checked += 1
     conn.commit()
     return {"checked": checked, "failed": failed}

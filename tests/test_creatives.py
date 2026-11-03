@@ -1312,3 +1312,28 @@ def test_approved_texts_go_into_the_launch_plan(isolated):
         titles = [v["title"] for v in plan["variants"]]
         assert titles[:2] == ["Мой первый заголовок", "Мой второй заголовок"] and "Отклонённый вариант" not in titles
         assert plan["own_count"] == 2 and len(titles) == plan["count"] == len(set(titles))
+
+
+def test_a_photo_rejected_for_a_foreign_sign_is_checked_again_once_the_business_name_is_known(monkeypatch):
+    monkeypatch.setenv("FAL_KEY", "fal-test")
+    bad = json.dumps({"type": "interior", "score": 2, "issues": ["чужой бренд eden nails"], "summary": "Витрина салона."}, ensure_ascii=False)
+    fakes = Fakes(claude_text=bad)
+    fakes.keep = 10**8
+    with TestClient(app) as http:
+        bid = setup(http)
+        base = f"/api/businesses/{bid}"
+        http.post(f"{base}/assets", data={"kind": "photo", "tag": ""}, files={"file": ("a.png", png(), "image/png")})
+        photo = lambda: next(a for a in http.get(base).json()["assets"] if a["kind"] == "photo")
+        assert http.post(f"{base}/creatives/photos/check").json() == {"checked": 1, "failed": 0} and photo()["ai_score"] == 2
+        asked = [json.loads(b)["messages"][-1]["content"] for h, p, b in fakes.requests if "chat/completions" in p][-1]
+        assert "Бизнес владельца называется" in asked
+        assert http.post(f"{base}/creatives/photos/check").json() == {"checked": 0, "failed": 0}   # название то же: повторно не платим
+
+        body = http.get(base).json()
+        body["name"] = "Eden Nails"
+        assert http.put(base, json=body).status_code == 200
+        fakes.claude_text = json.dumps({"type": "interior", "score": 4, "issues": [], "summary": "Витрина салона."}, ensure_ascii=False)
+        assert http.post(f"{base}/creatives/photos/check").json() == {"checked": 1, "failed": 0}   # название сменилось: забракованное смотрим заново
+        assert photo()["ai_score"] == 4
+        asked = [json.loads(b)["messages"][-1]["content"] for h, p, b in fakes.requests if "chat/completions" in p][-1]
+        assert "«Eden Nails»" in asked

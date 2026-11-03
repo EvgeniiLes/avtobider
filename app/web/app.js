@@ -425,11 +425,12 @@ async function saveBusiness(event) {
     setStatus("business-status", errorText(result), "err");
     return;
   }
-  const isNew = !currentBusiness;
+  const isNew = !currentBusiness, renamed = !isNew && currentBusiness.name !== result.data.name;
   currentBusiness = result.data;
   await loadBusinesses(currentBusiness.id);
   setStatus("business-status", "");
   say(isNew ? "Бизнес сохранён. Ниже можно загрузить фото и логотип." : "Сохранено.");
+  if (renamed) api("POST", `/api/businesses/${currentBusiness.id}/creatives/photos/check`).then(refreshAssets);   // забракованные фото ИИ посмотрит заново: вывеска с новым названием своя
 }
 
 async function deleteBusiness() {
