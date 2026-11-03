@@ -24,3 +24,12 @@ def test_the_kind_of_business_outweighs_passing_mentions_in_the_description():
 def test_unknown_business_gets_the_universal_references_and_ties_keep_the_old_order():
     assert refs.suggest("Лавка древностей Продаём антиквариат") == list(refs.GENERIC_REFS)
     assert niches(refs.suggest("груминг и маникюр")) == {"pets"}         # поровну: первая в списке ниша, как раньше
+
+
+def test_a_niche_with_few_references_borrows_from_its_neighbours_so_every_ad_gets_one():
+    manicure = "Eden Nails Студия маникюра Маникюр, педикюр, наращивание ногтей"
+    assert niches(refs.suggest(manicure, limit=12, focus="Eden Nails Студия маникюра")) == {"nails"}      # без wide только своя ниша
+    wide = refs.suggest(manicure, limit=12, focus="Eden Nails Студия маникюра", wide=True)
+    assert len(wide) == 12 and len(set(wide)) == 12 and wide[:2] == [17, 18]                                # свои приёмы первыми, потом соседей
+    assert niches(wide) <= {"nails", "cosmetics", "hair"}
+    assert refs.suggest("Лавка древностей Продаём антиквариат", limit=12, wide=True) == list(refs.GENERIC_REFS)

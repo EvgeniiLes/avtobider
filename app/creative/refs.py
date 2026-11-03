@@ -124,11 +124,22 @@ NICHE_WORDS = {
 GENERIC_REFS = (88, 56, 91)   # если нишу определить не удалось: универсальные приёмы
 
 
-def suggest(text: str, limit: int = 5, focus: str = "") -> list[int]:
+# соседние ниши: похожая подача и аудитория. Когда своих приёмов у ниши мало (у маникюра их два), баннеры берут приёмы соседей,
+# иначе все объявления кроме первых двух рисуются без референса
+NEIGHBOR_NICHES = {
+    "nails": ("cosmetics", "hair"), "hair": ("cosmetics", "nails"), "cosmetics": ("nails", "hair"), "fashion": ("cosmetics", "hair", "furniture"),
+    "apps": ("it",), "it": ("apps",), "psy": ("medical", "edu"), "law": ("realty", "edu"), "realty": ("law", "furniture"),
+    "dental": ("medical", "cosmetics"), "medical": ("dental", "cosmetics"), "cleaning": ("repair", "furniture"), "repair": ("furniture", "cleaning"),
+    "furniture": ("repair", "realty"), "auto": ("repair",), "edu": ("psy", "it"), "pets": (),
+}
+
+
+def suggest(text: str, limit: int = 5, focus: str = "", wide: bool = False) -> list[int]:
     """Номера референсов, подходящих по нише бизнеса (по словам в названии, виде деятельности и описании).
 
     Побеждает ниша с наибольшим числом совпадений; совпадения в focus (название и вид деятельности) весят втрое больше, чем в длинном
-    описании: упоминание «обучения команды» не делает агентство по внедрению ИИ школой. При равенстве берётся ниша раньше по списку."""
+    описании: упоминание «обучения команды» не делает агентство по внедрению ИИ школой. При равенстве берётся ниша раньше по списку.
+    wide: после приёмов своей ниши добавить приёмы соседних ниш и универсальные, чтобы хватило на все объявления кампании."""
     import re
     low, head = (text or "").lower(), (focus or "").lower()
     scores = {niche: 3 * len(re.findall(pattern, head)) + len(re.findall(pattern, low)) for niche, pattern in NICHE_WORDS.items()}
@@ -136,7 +147,12 @@ def suggest(text: str, limit: int = 5, focus: str = "") -> list[int]:
     if best == 0:
         return list(GENERIC_REFS)
     niche = next(n for n, score in scores.items() if score == best)
-    return [n for n, (nn, _note) in REFS.items() if nn == niche][:limit]
+    found = [n for n, (nn, _note) in REFS.items() if nn == niche]
+    if wide:
+        for other in NEIGHBOR_NICHES.get(niche, ()):
+            found += [n for n, (nn, _note) in REFS.items() if nn == other]
+        found += [n for n in GENERIC_REFS if n not in found]
+    return found[:limit]
 
 
 def catalog_text() -> str:

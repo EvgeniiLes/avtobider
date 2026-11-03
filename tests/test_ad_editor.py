@@ -158,14 +158,15 @@ def test_first_order_takes_a_different_niche_reference_for_each_ad(monkeypatch):
         assert [a["ref_id"] for a in http.get(f"{base}/ads").json()["ads"]] == shown   # выбранные подачи сохранились на карточках
 
 
-def test_ads_after_the_niche_references_run_out_are_drawn_without_one(monkeypatch):
+def test_a_niche_with_two_references_gives_the_other_ads_references_of_neighbouring_niches(monkeypatch):
     monkeypatch.setenv("FAL_KEY", "fal-test")
     Fakes(fal_done=False)
     with TestClient(app) as http:
-        bid = setup(http)    # маникюр: в каталоге два приёма
+        bid = setup(http)    # маникюр: в каталоге два приёма, остальные берутся у соседних ниш (косметика, парикмахерские)
         base = f"/api/businesses/{bid}/creatives"
         shown = [a["ref_id"] for a in http.get(f"{base}/ads").json()["ads"]]
-        assert all(shown[:2]) and len(set(shown[:2])) == 2 and all(r is None for r in shown[2:])
+        assert all(shown) and len(set(shown)) == 6 and set(shown[:2]) == {17, 18}
+        assert {refs.REFS[r][0] for r in shown[2:]} <= {"cosmetics", "hair"}
         assert http.post(f"{base}/ads/ai-banners").json() == {"started": 3}
         assert [a["ref_id"] for a in http.get(f"{base}/ads").json()["ads"]] == shown
 
@@ -180,6 +181,8 @@ def _draw(http, base, fakes, ad):
 
 def test_redrawing_never_drops_the_reference_when_neighbours_use_all_of_them(monkeypatch):
     monkeypatch.setenv("FAL_KEY", "fal-test")
+    monkeypatch.setattr(refs, "NEIGHBOR_NICHES", {})      # только своя ниша: шесть приёмов барбершопа на шесть объявлений, свободных нет
+    monkeypatch.setattr(refs, "GENERIC_REFS", ())
     fakes = Fakes(fal_done=True)
     with TestClient(app) as http:
         bid = setup(http, kind="Барбершоп", description="Мужские стрижки и оформление бороды. Работаем ежедневно с 10 до 22.")
