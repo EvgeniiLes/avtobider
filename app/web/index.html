@@ -331,6 +331,25 @@
           </details>
           <p id="metrika-status" class="status" role="status"></p>
         </div>
+
+        <div class="card" id="marking-card" hidden>
+          <h2>Данные рекламодателя (маркировка)</h2>
+          <p class="hint">Закон требует маркировать интернет-рекламу. Директ делает это сам, но ему нужны данные того, кто размещает рекламу: вид плательщика, ИНН и имя или название. Внесите их здесь, мы передадим их в ваш кабинет Яндекс Директа. На нашем сервере ИНН не сохраняется. Данные вносятся один раз на кабинет: другим вашим бизнесам на этом кабинете их повторно вносить не нужно.</p>
+          <p id="mk-state" class="notice" hidden></p>
+          <div id="mk-form" class="mk-form">
+            <label for="mk-kind">Кто размещает рекламу</label>
+            <select id="mk-kind"></select>
+            <label for="mk-tin">ИНН</label>
+            <input type="text" id="mk-tin" inputmode="numeric" maxlength="12" autocomplete="off" placeholder="10 или 12 цифр">
+            <label for="mk-name">Имя или название</label>
+            <input type="text" id="mk-name" maxlength="255" placeholder="Например, Иванова Анна Сергеевна или ООО «Мята»">
+            <label for="mk-phone">Телефон <span class="hint">(необязательно)</span></label>
+            <input type="text" id="mk-phone" inputmode="tel" maxlength="30" placeholder="+79001234567">
+            <p></p>
+            <button id="mk-save">Передать в Директ</button>
+            <span id="mk-status" class="hint"></span>
+          </div>
+        </div>
       </div>
 
       <!-- Объявления: тексты, картинки, видео -->
@@ -690,25 +709,6 @@
               <thead><tr><th>Название</th><th>Тип</th><th>Состояние</th><th>Проверка</th></tr></thead>
               <tbody></tbody>
             </table>
-          </div>
-        </div>
-
-        <div class="card" id="marking-card">
-          <h2>Данные рекламодателя (маркировка)</h2>
-          <p class="hint">Закон требует маркировать интернет-рекламу. Директ делает это сам, но ему нужны данные того, кто размещает рекламу: вид плательщика, ИНН и имя или название. Внесите их здесь, мы передадим их в ваш кабинет Яндекс Директа. На нашем сервере ИНН не сохраняется.</p>
-          <p id="mk-state" class="notice" hidden></p>
-          <div id="mk-form" class="mk-form">
-            <label for="mk-kind">Кто размещает рекламу</label>
-            <select id="mk-kind"></select>
-            <label for="mk-tin">ИНН</label>
-            <input type="text" id="mk-tin" inputmode="numeric" maxlength="12" autocomplete="off" placeholder="10 или 12 цифр">
-            <label for="mk-name">Имя или название</label>
-            <input type="text" id="mk-name" maxlength="255" placeholder="Например, Иванова Анна Сергеевна или ООО «Мята»">
-            <label for="mk-phone">Телефон <span class="hint">(необязательно)</span></label>
-            <input type="text" id="mk-phone" inputmode="tel" maxlength="30" placeholder="+79001234567">
-            <p></p>
-            <button id="mk-save">Передать в Директ</button>
-            <span id="mk-status" class="hint"></span>
           </div>
         </div>
 

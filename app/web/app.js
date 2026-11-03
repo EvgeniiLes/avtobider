@@ -166,8 +166,8 @@ function showPage(name, push = true) {
   if (name === "creatives" || name === "media") loadCreatives();
   if (name === "home" || name === "stats") loadStats();
   if (name === "stats") { setStatus("history-status", ""); loadHistory(); }
+  if (name === "business") loadMarking();
   if (name === "accounts") {
-    loadMarking();
     loadTelegram();
     if (accountsList.length) showCampaigns(accountsList[0].id);  // кампании кабинета видны сразу
   }
@@ -373,6 +373,7 @@ async function selectBusiness(id, refreshList = true) {
   renderFiles();
   refreshStopbar();
   loadMetrika();
+  loadMarking();
   if ($("biz-switch").options.length) { $("biz-switch").value = String(currentBusiness.id); syncBizMenu(); }
   if (refreshList) {
     for (const chip of $("business-list").children) {
@@ -2096,12 +2097,13 @@ async function openLaunch() {
 
 async function loadMarking() {
   const state = $("mk-state");
-  if (!currentBusiness || !accountsList.length) {
+  $("marking-card").hidden = !currentBusiness;   // как и Метрика: пока бизнес не сохранён, внести данные некуда
+  if (!currentBusiness) return;
+  if (!accountsList.length) await loadAccounts();   // при первом открытии страницы список кабинетов мог ещё не прийти
+  if (!accountsList.length) {
     state.hidden = false;
     state.className = "notice";
-    state.textContent = !currentBusiness
-      ? "Сначала опишите бизнес на странице «Бизнес»."
-      : "Сначала подключите рекламный кабинет Яндекс Директа (кнопка «Подключить Яндекс Директ» выше): данные рекламодателя вносятся в него.";
+    state.textContent = "Сначала подключите рекламный кабинет Яндекс Директа на странице «Подключения»: данные рекламодателя вносятся в него.";
     $("mk-form").hidden = true;
     return;
   }
@@ -2406,7 +2408,7 @@ async function start() {
   for (const id of ["b-budget", "b-cpa", "b-check", "b-share", "b-description"]) $(id).addEventListener("input", scheduleAdvice);
   $("launch-go").addEventListener("click", confirmLaunch);
   $("mk-save").addEventListener("click", saveMarking);
-  $("mk-open").addEventListener("click", () => showPage("accounts"));
+  $("mk-open").addEventListener("click", async () => { showPage("business"); await loadMarking(); $("marking-card").scrollIntoView({ block: "start" }); });
   $("launch-cancel").addEventListener("click", () => { $("launch-card").hidden = true; });
   $("sync-now").addEventListener("click", syncNow);
   $("clients-save").addEventListener("click", saveClients);

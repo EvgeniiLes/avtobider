@@ -173,6 +173,21 @@ def _own(conn: sqlite3.Connection, user: sqlite3.Row, business_id: int) -> sqlit
     row = conn.execute("SELECT * FROM businesses WHERE id = ? AND user_id = ?", (business_id, user["id"])).fetchone()
     if row is None:
         raise HTTPException(404, detail={"message": "Такой бизнес не найден."})
+    return row if row["marking_confirmed"] else _inherit_marking(conn, row)
+
+
+def _inherit_marking(conn: sqlite3.Connection, row: sqlite3.Row) -> sqlite3.Row:
+    """Данные рекламодателя внесены в кабинет Директа, а не в бизнес: если другой бизнес на том же кабинете уже подтвердил их, новому вносить не нужно."""
+    first = conn.execute("SELECT id FROM ad_accounts WHERE user_id = ? AND platform = 'yandex_direct' ORDER BY id LIMIT 1", (row["user_id"],)).fetchone()
+    first_id = first["id"] if first else None
+    mine = row["account_id"] or first_id
+    if mine is None:
+        return row
+    for other in conn.execute("SELECT account_id FROM businesses WHERE user_id = ? AND marking_confirmed = 1 AND id != ?", (row["user_id"], row["id"])).fetchall():
+        if (other["account_id"] or first_id) == mine:
+            conn.execute("UPDATE businesses SET marking_confirmed = 1 WHERE id = ?", (row["id"],))
+            conn.commit()
+            return conn.execute("SELECT * FROM businesses WHERE id = ?", (row["id"],)).fetchone()
     return row
 
 

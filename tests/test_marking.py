@@ -100,3 +100,15 @@ def test_other_users_cannot_touch_the_data(isolated):
         bob.post("/api/auth/register", json={"email": "b@example.com", "password": "password123"})
         assert bob.get(f"/api/businesses/{bid}/marking").status_code == 404
         assert bob.post(f"/api/businesses/{bid}/marking", json={"kind": "org", "tin": ORG_INN, "name": "ООО"}).status_code == 404
+
+
+def test_a_new_business_on_the_same_cabinet_inherits_the_confirmed_marking(isolated):
+    fake = FakeDirect()
+    with TestClient(app) as http:
+        first = setup(http, fake, isolated)
+        assert http.post(f"/api/businesses/{first}/marking", json={"kind": "org", "tin": ORG_INN, "name": "ООО «Лотос»", "phone": ""}).status_code == 200
+        second = http.post("/api/businesses", json={"name": "Лилия", "kind": "Маникюр", "city": "Москва", "districts": "Тверской", "weekly_budget": 15000,
+                                                    "target_cpa": 600, "description": "Маникюр.", "site_url": "lilia.ru", "mode": "auto"}).json()["id"]
+        step = {s["key"]: s for s in http.get(f"/api/businesses/{second}/overview").json()["checklist"]}["marking"]
+        assert step["done"] is True                                                                       # данные одни на кабинет: второй бизнес их не просит
+        assert http.get(f"/api/businesses/{second}/launch/preview").json()["marking"]["confirmed"] is True
