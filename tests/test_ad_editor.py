@@ -292,3 +292,11 @@ def test_ads_report_which_reference_really_went_to_the_model(monkeypatch):
         _draw(http, base, fakes, ads()[0])
         first = ads()[0]["ai"]
         assert first["ref_sent"] == ads()[0]["ref_id"] and first["ref_note"] == refs.note(first["ref_sent"])   # номер и приём, которые ушли модели
+
+
+def test_a_niche_without_promo_still_has_a_reference_for_every_ad():
+    from app.routes.creatives import _niche_refs
+    biz = {"name": "Лапа", "kind": "груминг", "description": "Стрижка собак и кошек", "allow_promo": 0}
+    biz["id"] = 0
+    found = _niche_refs(type("B", (), {"__getitem__": lambda self, k: biz.get(k, "")})())
+    assert len(found) >= 6 and len(set(found)) == len(found)

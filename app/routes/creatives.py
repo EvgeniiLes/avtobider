@@ -726,6 +726,7 @@ def _apply_style(conn, biz, v: dict, brief, asset_id: int | None, look: int, ref
 
 
 _PROMO_NOTE = re.compile(r"цен|акци|скидк|%|срочн", re.IGNORECASE)
+MIN_NICHE_REFS = 6   # у каждого из шести объявлений должен быть свой приём
 
 
 def _niche_refs(biz, limit: int = 8) -> list[int]:
@@ -733,6 +734,8 @@ def _niche_refs(biz, limit: int = 8) -> list[int]:
     found = refs.suggest(f"{biz['name']} {biz['kind']} {effective_description(biz)}", limit=12, focus=f"{biz['name']} {biz['kind']}", wide=True)
     if not biz["allow_promo"]:
         found = [r for r in found if not _PROMO_NOTE.search(refs.note(r))]
+        if len(found) < MIN_NICHE_REFS:   # у зоотоваров без акций остаётся пять приёмов: добираем любыми приёмами без цен, чтобы хватило на все объявления
+            found += [r for r in refs.REFS if r not in found and not _PROMO_NOTE.search(refs.note(r))][:MIN_NICHE_REFS - len(found)]
     return found[:limit]
 
 
