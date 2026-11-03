@@ -657,8 +657,8 @@ function adPrice(a) {
   return (creativePrices.ai_banner || 0.07) + (a.ref_id ? lastRefExtra : 0);
 }
 
-// «Нарисовать все недостающие» рисует только объявления кампании: запасные заказываются по одному, когда понадобятся
-const missingAds = () => lastAds.filter((a) => !a.reserve && a.ai && a.ai.status !== "ready" && a.ai.status !== "working");
+// «Нарисовать все недостающие» рисует все объявления списка, и кампании, и запасные
+const missingAds = () => lastAds.filter((a) => a.ai && a.ai.status !== "ready" && a.ai.status !== "working");
 
 async function makeAllBanners() {
   const need = missingAds().length;
@@ -671,8 +671,8 @@ async function makeAllBanners() {
   await loadCreatives();
 }
 
-// «Перерисовать все»: заново рисует все объявления кампании, кроме тех, что рисуются прямо сейчас
-const redrawAds = () => lastAds.filter((a) => !a.reserve && !(a.ai && a.ai.status === "working"));
+// «Перерисовать все»: заново рисует все объявления списка, кроме тех, что рисуются прямо сейчас
+const redrawAds = () => lastAds.filter((a) => !(a.ai && a.ai.status === "working"));
 
 async function redrawAllBanners() {
   const list = redrawAds();
@@ -729,11 +729,9 @@ async function loadAds() {
 let caps_text_ai = true;   // можно ли просить ИИ писать тексты и придумывать идеи (приходит вместе со списком материалов)
 
 function renderBannerStep(fromPoll = false) {
-  const active = lastAds.filter((a) => !a.reserve);
-  const ready = active.filter((a) => a.ai && a.ai.status === "ready").length;
+  const ready = lastAds.filter((a) => a.ai && a.ai.status === "ready").length;
   const need = missingAds().length;
-  $("banners-count").textContent = active.length
-    ? `Баннеры готовы у ${ready} из ${active.length} объявлений кампании.` + (active.length < lastAds.length ? " Запасным баннер рисуется по одному, когда понадобится." : "") : "";
+  $("banners-count").textContent = lastAds.length ? `Баннеры готовы у ${ready} из ${lastAds.length} объявлений.` : "";
   const all = $("ads-ai-all");
   all.hidden = need === 0;
   all.textContent = `Нарисовать все недостающие · ${usd(missingAds().reduce((sum, a) => sum + adPrice(a), 0))}`;

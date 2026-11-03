@@ -577,8 +577,7 @@ def rewrite_text(business_id: int, index: int, user: sqlite3.Row = Depends(curre
 @router.post("/ads/ai-banners")
 def make_all_ai_banners(business_id: int, redo: bool = False, user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connection = Depends(get_db),
                         transport=Depends(creative_transport)):
-    """Заказывает ИИ-баннеры для объявлений кампании (идущих в показ), у которых готового баннера ещё нет. Запасные не рисуем: гипотезы проверяют
-    активные объявления, а запасной баннер заказывается по одному, когда он понадобится. Платно: сайт заранее показывает общую цену.
+    """Заказывает ИИ-баннеры для всех объявлений списка (и кампании, и запасных), у которых готового баннера ещё нет. Платно: сайт заранее показывает общую цену.
     redo: нарисовать заново и те, у которых баннер уже есть (каждый берёт следующую подачу, прежние версии остаются в списке версий)."""
     biz = _own(conn, user, business_id)
     key = _need_fal()
@@ -586,8 +585,6 @@ def make_all_ai_banners(business_id: int, redo: bool = False, user: sqlite3.Row 
     others = _other_scenes(conn, business_id, variants, -1)
     started = 0
     for index, v in enumerate(variants):
-        if count and index >= count:   # запасное объявление: баннер ему пока не нужен (если денег не хватает на запуск, count 0 и показаны три)
-            break
         old = _ai_row(conn, business_id, v)
         if old is not None and (old["status"] == "working" or (old["status"] in ("draft", "approved") and not redo)):
             continue
