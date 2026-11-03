@@ -108,6 +108,16 @@ def _bytes_url(data: bytes, side: int = 1024) -> str:
     return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
 
 
+def _reject(conn, business_id: int, creative_id: int, message: str, transport, url: str = "", data: bytes | None = None) -> None:
+    """Баннер не принят проверкой: помечаем неудачным, но саму картинку сохраняем, чтобы владелец видел, что именно не так."""
+    asset_id = None
+    try:
+        asset_id = _save_asset(conn, business_id, "image", data if data is not None else asyncio.run(fal.download(url, transport)), f"creative-{creative_id}-rejected")
+    except (fal.FalError, AssetError, OSError):
+        pass   # не вышло сохранить картинку: сообщение всё равно покажем
+    conn.execute("UPDATE creatives SET status = 'failed', error = ?, asset_id = ? WHERE id = ?", (message, asset_id, creative_id))
+
+
 def _refresh_working(conn, business_id: int, transport) -> None:
     """Забирает готовые картинки и видео у генератора. Вызывается при каждом открытии списка."""
     key = get_settings().fal_key
@@ -128,30 +138,25 @@ def _refresh_working(conn, business_id: int, transport) -> None:
                 read = asyncio.run(read_image_text(value, key, s.fal_text_model, transport))
             wrong = missing_phrases(expected, read) if read is not None else []
             if wrong:
-                conn.execute("UPDATE creatives SET status = 'failed', error = ? WHERE id = ?",
-                             (f"На картинке ошибки в тексте: {', '.join(wrong)}. Нажмите «Нарисовать» ещё раз.", r["id"]))
+                _reject(conn, business_id, r["id"], f"На картинке ошибки в тексте: {', '.join(wrong)}. Нажмите «Нарисовать» ещё раз.", transport, url=value)
                 continue
             links = invented_links(read or [])
             if links:
-                conn.execute("UPDATE creatives SET status = 'failed', error = ? WHERE id = ?",
-                             (f"Нейросеть дописала на картинке адрес сайта: {', '.join(links)}. Нажмите «Другой баннер».", r["id"]))
+                _reject(conn, business_id, r["id"], f"Нейросеть дописала на картинке адрес сайта: {', '.join(links)}. Нажмите «Другой баннер».", transport, url=value)
                 continue
             owner = conn.execute("SELECT * FROM businesses WHERE id = ?", (business_id,)).fetchone()
             extra = extra_words(expected, read or [])
             if len(extra) > EXTRA_WORDS_OK:
-                conn.execute("UPDATE creatives SET status = 'failed', error = ? WHERE id = ?",
-                             (f"Нейросеть дописала на картинке лишний текст: {', '.join(extra[:6])}. Нажмите «Другой баннер».", r["id"]))
+                _reject(conn, business_id, r["id"], f"Нейросеть дописала на картинке лишний текст: {', '.join(extra[:6])}. Нажмите «Другой баннер».", transport, url=value)
                 continue
             foreign = foreign_prices(expected, read or [])
             if foreign:   # сумма, которой нет в объявлении: либо дописала нейросеть, либо взяли не ту цену
-                conn.execute("UPDATE creatives SET status = 'failed', error = ? WHERE id = ?",
-                             (f"На картинке указана цена, которой нет в объявлении: {', '.join(foreign)}. Нажмите «Другой баннер».", r["id"]))
+                _reject(conn, business_id, r["id"], f"На картинке указана цена, которой нет в объявлении: {', '.join(foreign)}. Нажмите «Другой баннер».", transport, url=value)
                 continue
             if read:   # всё написанное на баннере сверяем с тем, что владелец рассказал о бизнесе: цены, сроки, условия не должны ему противоречить
                 wrong = asyncio.run(check_facts(facts_of(owner), r["title"], r["body"], read, key, s.fal_text_model, transport))
                 if wrong:
-                    conn.execute("UPDATE creatives SET status = 'failed', error = ? WHERE id = ?",
-                                 (f"На баннере сведения, которых нет в описании бизнеса или которые ему противоречат: {'; '.join(wrong)}. Нажмите «Другой баннер».", r["id"]))
+                    _reject(conn, business_id, r["id"], f"На баннере сведения, которых нет в описании бизнеса или которые ему противоречат: {'; '.join(wrong)}. Нажмите «Другой баннер».", transport, url=value)
                     continue
         try:
             data = asyncio.run(fal.download(value, transport))
@@ -176,8 +181,7 @@ def _refresh_working(conn, business_id: int, transport) -> None:
             if r["kind"] == "ai_banner" and meta.get("brief"):  # самопроверка итоговой картинки: слабую не принимаем, чтобы не платить за неё рекламой
                 verdict = asyncio.run(review_banner(_bytes_url(data), meta["brief"], key, get_settings().fal_text_model, transport))
                 if verdict is not None and verdict["score"] <= 2:
-                    conn.execute("UPDATE creatives SET status = 'failed', error = ? WHERE id = ?",
-                                 ("Баннер получился слабым" + (": " + "; ".join(verdict["issues"]) if verdict["issues"] else "") + ". Нажмите «Другой баннер».", r["id"]))
+                    _reject(conn, business_id, r["id"], "Баннер получился слабым" + (": " + "; ".join(verdict["issues"]) if verdict["issues"] else "") + ". Нажмите «Другой баннер».", transport, data=data)
                     continue
                 meta["score"] = verdict["score"] if verdict else 0
             asset_id = _save_asset(conn, business_id, "image" if r["kind"] == "ai_banner" else r["kind"], data, f"creative-{r['id']}")
@@ -285,6 +289,8 @@ def ads(business_id: int, user: sqlite3.Row = Depends(current_user), conn: sqlit
         row = _ai_row(conn, business_id, v)
         state = "none" if row is None else "working" if row["status"] == "working" else "failed" if row["status"] == "failed" else "ready"
         ai = {"status": state, "error": row["error"] if row is not None and state == "failed" else ""}
+        if state == "failed" and row["asset_id"]:   # забракованную картинку показываем вместе с причиной
+            ai["rejected_url"] = f"/api/businesses/{business_id}/creatives/ads/{i}/rejected.jpg"
         meta = json.loads(row["prompt"] or "{}") if row is not None and state != "none" else {}
         if state == "ready" and meta.get("concept"):  # сюжет баннера: по нему потом сравниваем, какая сцена и ЦА работают лучше
             photo_type = meta["concept"]
@@ -635,6 +641,18 @@ def ad_banner(business_id: int, index: int, user: sqlite3.Row = Depends(current_
             _BANNERS.pop(next(iter(_BANNERS)))
         _BANNERS[key] = banner
     return Response(banner, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=60"})
+
+
+@router.get("/ads/{index}/rejected.jpg")
+def ad_rejected_banner(business_id: int, index: int, user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connection = Depends(get_db)):
+    """Последний баннер объявления, который не принят проверкой: чтобы владелец видел, что именно не так."""
+    biz = _own(conn, user, business_id)
+    variants, _count, _pool = _ad_variants(conn, biz)
+    row = _ai_row(conn, business_id, variants[index]) if 0 <= index < len(variants) else None
+    asset = conn.execute("SELECT stored_name FROM business_assets WHERE id = ?", (row["asset_id"],)).fetchone() if row is not None and row["status"] == "failed" and row["asset_id"] else None
+    if asset is None:
+        raise HTTPException(404, detail={"message": "Забракованного баннера нет."})
+    return Response(_asset_path(business_id, asset["stored_name"]).read_bytes(), media_type="image/jpeg", headers={"Cache-Control": "private, max-age=60"})
 
 
 def _data_url(path) -> str:

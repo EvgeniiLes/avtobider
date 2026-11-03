@@ -161,6 +161,15 @@ def banner_prompt(biz, title: str, price: str, cta: str, logo_corner: bool = Fal
             + (SCREEN_RULE if screen else ""))
 
 
+def _owner_hint(biz) -> str:
+    """Пожелание владельца к картинкам. Описание бизнеса в промпт по референсу не кладём: модель переписывала его слова на баннер."""
+    try:
+        hint = (biz["visual_hint"] or "").strip()
+    except (KeyError, IndexError):
+        hint = ""
+    return f"The owner's direction for the visuals, follow it strictly: {hint}. " if hint else ""
+
+
 def reference_template_prompt(biz, title: str, price: str, cta: str, note: str) -> str:
     """Баннер без фото по референсу: картинка референса задаёт дизайн целиком, сцену арт-директора не добавляем: она перебивала композицию референса."""
     return ("Purpose: one advertising banner for Yandex Direct, landscape 4:3, for a Russian audience "
@@ -169,8 +178,9 @@ def reference_template_prompt(biz, title: str, price: str, cta: str, note: str) 
             "the same kind of subject and pose, the same type treatment (size, weight, case and position of the headline, including a huge headline that "
             "overlaps the subject), the same color palette and the same overlay, transparency, frame and collage effects. Change only what belongs to another "
             f"business: everything shown must fit a {biz['kind']}. Do NOT reuse the template's brand names, logo, working hours, addresses, small print or people's identities. "
-            + _visual_rules(biz)
+            + _owner_hint(biz)
             + f"Visual direction: {note}. Natural realistic photography with natural skin texture, correct anatomy and hands. "
+            "Never write lists of services, keywords, the business description or any caption: the only text on the banner is the text given below. "
             + _text_block(title, price, cta, by_direction=True) + ONE_BANNER + AVOID)
 
 

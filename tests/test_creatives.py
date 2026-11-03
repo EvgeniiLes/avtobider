@@ -583,6 +583,10 @@ def test_ai_banner_with_extra_small_text_is_rejected_but_a_stray_word_is_not(mon
         assert bad["ai"]["status"] == "failed" and "лишний текст" in bad["ai"]["error"]
         assert "педикюр" in bad["ai"]["error"] and "маникюр" not in bad["ai"]["error"]   # слова из заголовка лишними не считаются
         assert http.get(f"{base}/ads/4/banner.jpg").status_code == 200                    # а прежний принятый баннер остаётся на объявлении
+        assert bad["ai"]["rejected_url"].endswith("/ads/4/rejected.jpg")                  # забракованную картинку тоже можно посмотреть: видно, что не так
+        shown = http.get(f"{base}/ads/4/rejected.jpg")
+        assert shown.status_code == 200 and shown.headers["content-type"] == "image/jpeg" and len(shown.content) > 100
+        assert http.get(f"{base}/ads/3/rejected.jpg").status_code == 404                  # у объявления без забракованного баннера её нет
 
 
 def test_the_caption_says_who_advertises_what_and_skips_what_cannot_be_checked():
@@ -1157,7 +1161,7 @@ def test_visual_hint_reaches_the_banner_prompt_and_is_saved(monkeypatch):
         assert http.get(f"/api/businesses/{bid}").json()["visual_hint"] == "Человек играет в телефоне. Бумажных карт на картинках нет."
         http.post(f"/api/businesses/{bid}/creatives/ads/0/ai-banner")
         prompt = [b for h, _, b in fakes.requests if h == "queue.fal.run"][0].decode()
-        assert "follow it strictly" in prompt and "Бумажных карт на картинках нет" in prompt and "smartphone" in prompt
+        assert "follow it strictly" in prompt and "Бумажных карт на картинках нет" in prompt and "Всё в телефоне" not in prompt   # пожелание владельца идёт в промпт, описание бизнеса нет: модель вписывала его слова на баннер
     row = {"kind": "Игры", "name": "М", "description": "Всё в телефоне.", "visual_hint": "Только смартфон"}
     assert "Только смартфон" in fal.banner_prompt(row, "З", "", "Играть") and "smartphone" in fal.banner_prompt(row, "З", "", "Играть")
     assert "Только смартфон" in fal.image_prompt(row, "", 0) and "смартфон" in fal.image_prompt(row, "", 0)
