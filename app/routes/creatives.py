@@ -481,18 +481,16 @@ def _order_banner(conn, biz, variants: list[dict], index: int, key: str, transpo
     ref_bytes = refs.load(ref_id) if ref_id else None
     if ref_bytes:
         _charge(conn, business_id, "ref_extra")
-        direction = (f"the attached image is ONLY a style inspiration (the idea of its composition, color mood, typography weight and feel: {refs.note(ref_id)}). "
-                     "Recreate its design closely: the same composition, the same size, weight and position of the headline (including a huge headline overlapping the subject), "
-                     "the same color palette and the same overlay, transparency and frame effects; only the scene is new, the scene above. Do not copy or reuse its text, logo, products, people or characters, "
-                     "and do not recreate its small print, captions, lists, badges, footer or contact lines: the only text on the banner is the text given below")
+        direction = ""   # со своим референсом баннер собирается по шаблону (reference_template_prompt): сцена арт-директора композицию референса перебивала
     else:
         direction = (f"{refs.note(ref_id)}. Take this advertising idea only as inspiration for the layout, color mood and type weight; "
                      "make an original design with your own scene and do not reuse any text, logo or character from it") if ref_id else ""
-    prompt = custom_prompt or fal.banner_prompt(biz, v["title"], price, cta, logo_corner=use_logo, index=index + done_before, screen=screen,
-                                                logo_ratio=_logo_ratio(logo), scene=art["scene"], direction=direction)
+    scene = f"по образцу референса: {refs.note(ref_id)}" if ref_bytes else art["scene"]   # сцена арт-директора нужна только без референса
+    prompt = custom_prompt or (fal.reference_template_prompt(biz, v["title"], price, cta, refs.note(ref_id)) if ref_bytes else fal.banner_prompt(
+        biz, v["title"], price, cta, logo_corner=use_logo, index=index + done_before, screen=screen, logo_ratio=_logo_ratio(logo), scene=art["scene"], direction=direction))
     job = (asyncio.run(fal.start_edit(prompt, [_bytes_url(ref_bytes, 900)], key, s.fal_banner_model, transport)) if ref_bytes
            else asyncio.run(fal.start_image(prompt, key, s.fal_banner_model, transport)))
-    meta = {"expect": expected, "caption": fal.caption_for(biz), "logo": use_logo, "screen": screen, "concept": art["concept"], "audience": art["audience"], "scene": art["scene"],
+    meta = {"expect": expected, "caption": fal.caption_for(biz), "logo": use_logo, "screen": screen, "concept": art["concept"], "audience": art["audience"], "scene": scene,
             "mode": "scratch", "ref": ref_id, "ref_img": bool(ref_bytes), "varied": varied,
             "logo_reason": art["logo_reason"], "prompt_text": prompt,
             "brief": ("ВАЖНО: на экране телефона вставлен НАСТОЯЩИЙ скриншот приложения владельца. Это не выдумка нейросети и не недостаток: "
@@ -502,11 +500,11 @@ def _order_banner(conn, biz, variants: list[dict], index: int, key: str, transpo
                      + ("Логотип вставлен позже из файла владельца, это нормально. " if use_logo else "")
                      + (f"Баннер сделан по мотивам приёма «{refs.note(ref_id)}»: подача, цвета и шрифт определяются этим приёмом, крупный заголовок это задумка, а не недостаток. "
                         if ref_id else "")
-                     + f"{biz['kind']} «{biz['name']}». Сюжет: {art['label']}. {art['scene']}"}
+                     + f"{biz['kind']} «{biz['name']}». Сюжет: {art['label']}. {scene}"}
     conn.execute("INSERT INTO creatives (business_id, kind, title, body, prompt, status, source, external_id, created_at) "   # дата с долями секунды: сравнивается с датой возврата версии
                      "VALUES (?, 'ai_banner', ?, ?, ?, 'working', 'fal', ?, strftime('%Y-%m-%d %H:%M:%f', 'now'))",
                  (business_id, v["title"], v["text"], json.dumps(meta, ensure_ascii=False), json.dumps(job)))
-    return art["scene"]
+    return scene
 
 
 class BannerIn(BaseModel):

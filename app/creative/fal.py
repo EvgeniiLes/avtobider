@@ -161,6 +161,19 @@ def banner_prompt(biz, title: str, price: str, cta: str, logo_corner: bool = Fal
             + (SCREEN_RULE if screen else ""))
 
 
+def reference_template_prompt(biz, title: str, price: str, cta: str, note: str) -> str:
+    """Баннер без фото по референсу: картинка референса задаёт дизайн целиком, сцену арт-директора не добавляем: она перебивала композицию референса."""
+    return ("Purpose: one advertising banner for Yandex Direct, landscape 4:3, for a Russian audience "
+            f"(the business is: {biz['kind']}; context only, never write it on the banner). "
+            f"Template: the attached image is the design template for this banner. Recreate it as closely as you can: the same composition and camera framing, "
+            "the same kind of subject and pose, the same type treatment (size, weight, case and position of the headline, including a huge headline that "
+            "overlaps the subject), the same color palette and the same overlay, transparency, frame and collage effects. Change only what belongs to another "
+            f"business: everything shown must fit a {biz['kind']}. Do NOT reuse the template's brand names, logo, working hours, addresses, small print or people's identities. "
+            + _visual_rules(biz)
+            + f"Visual direction: {note}. Natural realistic photography with natural skin texture, correct anatomy and hands. "
+            + _text_block(title, price, cta, by_direction=True) + ONE_BANNER + AVOID)
+
+
 async def _submit(http: httpx.AsyncClient, model: str, key: str, payload: dict) -> dict:
     try:
         r = await http.post(f"{QUEUE}/{model}", json=payload, headers=_headers(key))

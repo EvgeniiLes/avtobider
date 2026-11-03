@@ -535,7 +535,7 @@ def test_all_ai_banners_are_ordered_once_each_with_different_directions(monkeypa
         assert http.post(f"{base}/ads/ai-banners").json() == {"started": 0}        # повторно не платим за то, что уже рисуется
         prompts = [b.decode(errors="ignore") for h, _, b in fakes.requests if h == "queue.fal.run"]
         assert len(prompts) == 6 and len({p.split("Visual direction:")[1][:170] for p in prompts}) == 6   # у каждого баннера своё направление
-        assert sum("ONLY a style inspiration" in p for p in prompts) == 3                                       # у маникюра в каталоге два приёма, ещё берутся приёмы соседних ниш: у каждого объявления свой референс
+        assert sum("design template" in p for p in prompts) == 3                                       # у маникюра в каталоге два приёма, ещё берутся приёмы соседних ниш: у каждого объявления свой референс
         ads = http.get(f"{base}/ads").json()["ads"]
         assert [a["ai"]["status"] for a in ads] == ["working"] * 6 and [a["reserve"] for a in ads] == [False] * 3 + [True] * 3
         assert http.get(base).json()["spend"]["spent_usd"] == 0.48     # шесть баннеров и три референса картинкой
