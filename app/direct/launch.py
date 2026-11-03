@@ -110,7 +110,10 @@ def ads_for_budget(pool_micro: int) -> int:
 def start_split(biz, min_weekly_micro: int = MIN_WEEKLY) -> tuple[int, int]:
     """Недельный лимит кампании и число объявлений в ней (0 объявлений: денег не хватает даже на минимум Директа)."""
     start_pool = int(int(biz["weekly_budget_micro"] * (1 - RESERVE)) * START_SHARE)
-    return start_pool, ads_for_budget(start_pool) if start_pool >= min_weekly_micro else 0
+    if start_pool < min_weekly_micro:
+        return start_pool, 0
+    chosen = biz["ads_live"] if "ads_live" in biz.keys() else None   # владелец сам решил, сколько объявлений пустить в рекламу
+    return start_pool, max(1, min(MAX_VARIANTS, chosen)) if chosen else ads_for_budget(start_pool)
 
 
 def choose_variants(biz, custom: list[dict] | None, count: int) -> tuple[list[dict], int]:
@@ -164,7 +167,11 @@ def plan_launch(biz, region_id: int | None, min_weekly_micro: int = MIN_WEEKLY, 
         warnings += check(v["title"], v["text"])
     if custom and own < min(count, 2):
         warnings.append("Одобрено мало своих вариантов. Для сравнения лучше одобрить хотя бы 2–3 на вкладке «Креативы».")
-    if count < MAX_ADS:
+    advised = ads_for_budget(start_pool)
+    if count > advised:
+        warnings.append(f"Вы выбрали {plural(count, 'объявление', 'объявления', 'объявлений')}, а бюджету подходит {advised}: "
+                        "на каждое придётся меньше кликов, и сравнить варианты будет труднее.")
+    elif count < MAX_ADS:
         warnings.append(f"При таком бюджете в кампанию войдёт {plural(count, 'объявление', 'объявления', 'объявлений')}: "
                         "на каждое придётся мало кликов. Больше бюджет, больше вариантов для сравнения.")
     from app.direct.advice import budget_advice   # здесь, чтобы не было круга

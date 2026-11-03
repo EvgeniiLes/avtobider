@@ -516,6 +516,7 @@ let lastPhotos = [];
 let lastStyles = { looks: [], refs: [] };
 let lastRefExtra = 0.02;
 let lastCount = 0;
+let lastAdvised = 0;   // сколько объявлений подходит бюджету
 const adKey = (a) => `${a.title}\u0000${a.text}`;
 
 function setStep(step) {
@@ -675,12 +676,13 @@ function adStatus(a) {
 async function loadAds() {
   const result = await creativeCall("GET", "/ads");
   if (!result.ok) return;
-  const { ads, count, weekly, site, has_maps, has_images, rejected_photos, photos, styles, ref_extra } = result.data;
+  const { ads, count, advised, weekly, site, has_maps, has_images, rejected_photos, photos, styles, ref_extra } = result.data;
   lastAds = ads;
   lastPhotos = photos || [];
   lastStyles = styles || { looks: [], refs: [] };
   lastRefExtra = ref_extra ?? 0.02;
   lastCount = count;
+  lastAdvised = advised || 0;
   if (!selectedAd || !ads.some((a) => adKey(a) === selectedAd)) selectedAd = ads.length ? adKey(ads[0]) : null;
   if (!stepInit.has(currentBusiness.id)) {   // первый заход: с идей, а если объявления уже выбраны, то сразу к баннерам
     stepInit.add(currentBusiness.id);
@@ -688,10 +690,11 @@ async function loadAds() {
   } else if (!crStep) setStep("ideas");
 
   const target = site || (has_maps ? "вашу страницу в Яндекс Картах" : "");
+  const extra = count > lastAdvised && lastAdvised ? ` Бюджету подходит ${lastAdvised}: чем больше объявлений, тем меньше кликов достанется каждому и тем дольше сравнение.` : "";
   $("ads-summary").textContent = !count
     ? "Бюджет слишком мал для запуска: увеличьте его на странице «Бизнес». Так будут выглядеть объявления."
     : target
-      ? `При запуске будет создана одна кампания: ${adsPhrase(count)} и бюджет ${weekly} ₽ в неделю на все. В показ пойдут первые ${count} из списка, остальные запасные. Объявления ведут на ${target}.`
+      ? `При запуске будет создана одна кампания: ${adsPhrase(count)} и бюджет ${weekly} ₽ в неделю на все. В показ пойдут первые ${count} из списка, остальные запасные.${extra} Объявления ведут на ${target}.`
       : `При запуске будет создана одна кампания: ${adsPhrase(count)} и бюджет ${weekly} ₽ в неделю на все. Чтобы запустить, укажите сайт или ссылку на Яндекс Карты на странице «Бизнес»: объявлению нужно куда вести.`;
   const note = $("ads-note");
   note.hidden = has_images;
@@ -746,7 +749,66 @@ let adDrag = false;   // идёт перетаскивание объявлен�
 function placeAdSeparator(list) {
   list.querySelector(".ad-sep")?.remove();
   const items = list.querySelectorAll(".ad-item");
-  if (lastCount && items.length > lastCount) items[lastCount - 1].after(el("div", { className: "ad-sep", textContent: "Запасные: в показ не идут" }));
+  if (!lastCount || !items.length) return;
+  const grip = el("span", { className: "grip", tabIndex: 0, textContent: "⋮⋮", title: "Потяните, чтобы взять в рекламу больше или меньше объявлений" });
+  grip.setAttribute("role", "button");
+  grip.setAttribute("aria-label", "Сколько объявлений идёт в рекламу");
+  const live = Math.min(lastCount, items.length);
+  const sep = el("div", { className: "ad-sep" }, grip, el("span", { textContent: live < items.length ? `В рекламу: ${live}. Запасные: в показ не идут` : `В рекламу идут все: ${live}` }));
+  items[live - 1].after(sep);
+  enableSepDrag(grip, sep, list);
+}
+
+async function saveLiveCount(count) {
+  const r = await creativeCall("PUT", "/ads/live", { count });
+  if (!r.ok) say(errorText(r), "err");
+  await loadAds();
+}
+
+// Черту можно тянуть вверх и вниз: сколько объявлений над ней, столько идёт в рекламу (хотя бы одно)
+function enableSepDrag(grip, sep, list) {
+  const items = () => [...list.querySelectorAll(".ad-item")];
+  grip.addEventListener("keydown", async (e) => {
+    const step = { ArrowUp: -1, ArrowLeft: -1, ArrowDown: 1, ArrowRight: 1 }[e.key];
+    if (!step) return;
+    e.preventDefault();
+    const to = Math.min(items().length, Math.max(1, lastCount + step));
+    if (to !== lastCount) await saveLiveCount(to);
+  });
+  grip.addEventListener("pointerdown", (e) => {
+    if (e.button) return;
+    e.preventDefault();
+    grip.setPointerCapture(e.pointerId);
+    adDrag = true;
+    sep.classList.add("dragging");
+    const horizontal = getComputedStyle(list).flexDirection === "row";
+    const marker = el("div", { className: "ad-drop" });
+    let count = Math.min(lastCount, items().length);
+    const move = (ev) => {
+      const all = items();
+      count = 0;
+      for (const o of all) {
+        const r = o.getBoundingClientRect();
+        if ((horizontal ? ev.clientX : ev.clientY) > (horizontal ? r.left + r.width / 2 : r.top + r.height / 2)) count += 1;
+      }
+      count = Math.max(1, count);
+      if (all[count]) all[count].before(marker); else list.append(marker);
+    };
+    const done = async (ev) => {
+      grip.removeEventListener("pointermove", move);
+      grip.removeEventListener("pointerup", done);
+      grip.removeEventListener("pointercancel", done);
+      marker.remove();
+      sep.classList.remove("dragging");
+      adDrag = false;
+      if (ev.type === "pointercancel" || count === lastCount) return;
+      await saveLiveCount(count);
+    };
+    grip.addEventListener("pointermove", move);
+    grip.addEventListener("pointerup", done);
+    grip.addEventListener("pointercancel", done);
+    move(e);
+  });
 }
 
 async function saveAdOrder(ads) {

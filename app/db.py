@@ -325,6 +325,7 @@ ADDED_COLUMNS = [
     ("business_assets", "ai_fx", "REAL"),   # где главный объект на фото (доли ширины и высоты), по нему шаблоны обрезают кадр; NULL: ещё не смотрели
     ("business_assets", "ai_fy", "REAL"),
     ("creatives", "angle", "TEXT NOT NULL DEFAULT ''"),
+    ("businesses", "ads_live", "INTEGER"),   # сколько объявлений идёт в рекламу, как выбрал владелец; NULL: столько, сколько позволяет бюджет
     ("creatives", "position", "INTEGER"),   # место текста в списке объявлений, которое владелец выбрал перетаскиванием; NULL: порядок по умолчанию
     ("business_assets", "ai_type", "TEXT NOT NULL DEFAULT ''"),
     ("business_assets", "ai_score", "INTEGER NOT NULL DEFAULT 0"),

@@ -354,6 +354,37 @@ def test_a_template_kept_for_its_place_does_not_push_out_ai_drafts_with_the_same
         assert titles == ["Маникюр в центре Москвы", "Педикюр рядом с метро"]   # черновик с тем же углом остался
 
 
+def test_the_owner_can_take_fewer_or_more_ads_into_the_campaign_than_the_budget_advises(isolated):
+    from app.db import connect
+    from app.direct.launch import choose_variants, plan_launch, start_split, text_candidates
+    with TestClient(app) as http:
+        bid = setup(http)
+        base = f"/api/businesses/{bid}/creatives"
+        data = http.get(f"{base}/ads").json()
+        assert data["count"] == 3 and data["advised"] == 3
+        assert http.put(f"{base}/ads/live", json={"count": 5}).status_code == 200
+        data = http.get(f"{base}/ads").json()
+        assert data["count"] == 5 and data["advised"] == 3 and [a["reserve"] for a in data["ads"]] == [False] * 5 + [True]
+        assert http.put(f"{base}/ads/live", json={"count": 1}).status_code == 200
+        assert [a["reserve"] for a in http.get(f"{base}/ads").json()["ads"]] == [False] + [True] * 5
+        assert http.put(f"{base}/ads/live", json={"count": 0}).status_code == 422 and http.put(f"{base}/ads/live", json={"count": 9}).status_code == 422
+        conn = connect(isolated)
+        biz = conn.execute("SELECT * FROM businesses WHERE id = ?", (bid,)).fetchone()
+        assert start_split(biz)[1] == 1                                       # в кампанию уйдёт столько, сколько выбрано
+        plan = plan_launch(biz, 213, custom=text_candidates(conn, biz))
+        assert plan.count == 1 and len(plan.variants) == 1
+        http.put(f"{base}/ads/live", json={"count": 5})
+        biz = conn.execute("SELECT * FROM businesses WHERE id = ?", (bid,)).fetchone()
+        plan = plan_launch(biz, 213, custom=text_candidates(conn, biz))
+        assert plan.count == 5 and any("бюджету подходит 3" in w for w in plan.warnings)
+        conn.close()
+        http.put(f"{base}/ads/live", json={"count": None})                  # вернуть число по бюджету
+        assert http.get(f"{base}/ads").json()["count"] == 3
+    with TestClient(app) as other:
+        other.post("/api/auth/register", json={"email": "x@example.com", "password": "password123"})
+        assert other.put(f"{base}/ads/live", json={"count": 2}).status_code == 404
+
+
 def test_the_order_of_ads_is_checked_and_private():
     with TestClient(app) as http:
         bid = setup(http)

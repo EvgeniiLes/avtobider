@@ -26,7 +26,7 @@ from app.creative.texts_ai import (EXTRA_WORDS_OK, check_facts, check_photo, ext
                                    missing_phrases, read_image_text)
 from app.db import get_db
 from app.deps import creative_transport, current_user
-from app.direct.launch import MAX_VARIANTS, banner_layout, choose_variants, logo_for, media_typed, photo_for, render_banner, start_split, text_candidates, usable_photos
+from app.direct.launch import MAX_VARIANTS, ads_for_budget, banner_layout, choose_variants, logo_for, media_typed, photo_for, render_banner, start_split, text_candidates, usable_photos
 from app.direct.texts import TEXT_MAX, TITLE_MAX, check, draft_variants
 from app.routes.businesses import _asset_path, _own
 
@@ -316,6 +316,7 @@ def ads(business_id: int, user: sqlite3.Row = Depends(current_user), conn: sqlit
     return {
         "ads": items,
         "count": count,
+        "advised": ads_for_budget(pool) if count else 0,   # сколько объявлений подходит бюджету
         "weekly": round(pool / 1_000_000) if count else 0,
         "site": biz["site_url"] or "",
         "has_maps": bool(biz["maps_url"]),
@@ -877,6 +878,19 @@ def ads_order(business_id: int, data: OrderIn, user: sqlite3.Row = Depends(curre
         else:
             conn.execute("INSERT INTO creatives (business_id, kind, title, body, angle, source, status, position) VALUES (?, 'text', ?, ?, ?, 'template', 'approved', ?)",
                          (business_id, v["title"], v["text"], v.get("angle", ""), place))
+    conn.commit()
+    return {"ok": True}
+
+
+class LiveIn(BaseModel):
+    count: int | None = Field(default=None, ge=1, le=MAX_VARIANTS)   # None: вернуть число, которое подходит бюджету
+
+
+@router.put("/ads/live")
+def ads_live(business_id: int, data: LiveIn, user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connection = Depends(get_db)):
+    """Сколько объявлений из списка идёт в рекламу (остальные запасные). Владелец может взять меньше или больше, чем подходит бюджету."""
+    _own(conn, user, business_id)
+    conn.execute("UPDATE businesses SET ads_live = ? WHERE id = ?", (data.count, business_id))
     conn.commit()
     return {"ok": True}
 
