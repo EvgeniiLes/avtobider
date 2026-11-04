@@ -366,6 +366,31 @@ class DirectClient:
         found = result.get("Campaigns", [])
         return found[0] if found else None
 
+    async def ensure_alerts(self, campaign_id: int) -> list[str]:
+        """Включает в кампании мониторинг сайта (Директ остановит показы, если сайт недоступен) и почтовые предупреждения о проблемах.
+        Что уже включено, не трогает. Адрес почты берёт тот, что уже указан в кабинете. Возвращает ошибки Директа по каждому пункту, а не ломает остальное."""
+        result = await self.call("campaigns", "get", {
+            "SelectionCriteria": {"Ids": [campaign_id]}, "FieldNames": ["Id", "Notification"], "UnifiedCampaignFieldNames": ["Settings"]})
+        found = result.get("Campaigns") or []
+        if not found:
+            return []
+        campaign = found[0]
+        settings = {s.get("Option"): s.get("Value") for s in (campaign.get("UnifiedCampaign") or {}).get("Settings") or []}
+        email = (campaign.get("Notification") or {}).get("EmailSettings") or {}
+        updates: list[tuple[str, dict]] = []
+        if settings.get("ENABLE_SITE_MONITORING") != "YES":
+            updates.append(("Мониторинг сайта", {"UnifiedCampaign": {"Settings": [{"Option": "ENABLE_SITE_MONITORING", "Value": "YES"}]}}))
+        if email.get("Email") and email.get("SendWarnings") != "YES":
+            updates.append(("Предупреждения на почту", {"Notification": {"EmailSettings": {"Email": email["Email"], "SendWarnings": "YES"}}}))
+        errors = []
+        for title, change in updates:
+            try:
+                answer = await self.call("campaigns", "update", {"Campaigns": [{"Id": campaign_id, **change}]})
+                self._result_item(answer, "UpdateResults")
+            except DirectError as e:
+                errors.append(f"{title}: {e.full_message()}")
+        return errors
+
     async def list_ads(self, campaign_ids: list[int]) -> list[dict]:
         """Объявления кампаний с состоянием показа и результатом проверки. State объявления уже учитывает состояние кампании."""
         result = await self.call("ads", "get", {

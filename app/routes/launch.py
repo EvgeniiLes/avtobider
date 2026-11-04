@@ -130,6 +130,11 @@ def start_launch(business_id: int, data: LaunchIn, user: sqlite3.Row = Depends(c
             async with factory(token, api_version=s.direct_api_version, login=login) as client:
                 created = await launch(client, conn, biz, account["id"], plan, today)
                 await ensure_bids(client, conn, biz["id"], today)   # корректировки по полу и возрасту ставятся сразу, без кнопки
+                for row in conn.execute("SELECT DISTINCT external_campaign_id FROM ad_units WHERE business_id = ? AND external_campaign_id IS NOT NULL", (biz["id"],)).fetchall():
+                    try:
+                        await client.ensure_alerts(row["external_campaign_id"])   # мониторинг сайта и почтовые предупреждения; кампания уже создана, поэтому сбой здесь запуск не ломает: следующая синхронизация повторит и покажет ошибку
+                    except DirectError:
+                        pass
                 return created
 
         unit_ids = asyncio.run(go())

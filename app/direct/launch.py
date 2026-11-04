@@ -564,6 +564,8 @@ async def sync_units(client: DirectClient, conn: sqlite3.Connection, biz, today:
             await client.set_campaigns_state([cid], False)
             cstate = "paused"
         conn.execute("UPDATE campaigns SET state = ? WHERE business_id = ? AND external_id = ?", (cstate, biz["id"], cid))
+        alert_errors = await client.ensure_alerts(cid)   # мониторинг сайта и почтовые предупреждения включает сам сервис
+        alerts_note = f"Не удалось включить настройки кампании. {' '.join(alert_errors)}" if alert_errors else ""
         for u in mine:
             ad = ads.get(str(u["external_ad_id"]))
             if ad is None:
@@ -575,6 +577,8 @@ async def sync_units(client: DirectClient, conn: sqlite3.Connection, biz, today:
                     note = f"{marking_note} {note}".strip()
                 elif advertiser_note:
                     note = f"{advertiser_note} {note}".strip()
+                if alerts_note:
+                    note = f"{alerts_note} {note}".strip()
             conn.execute("UPDATE ad_units SET state = ?, status_note = ? WHERE id = ?", (state, note, u["id"]))
     conn.commit()
     await ensure_bids(client, conn, biz["id"], today)   # корректировки по полу и возрасту из профиля аудитории ставит сам сервис

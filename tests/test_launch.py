@@ -530,6 +530,26 @@ def test_ads_carry_the_description_for_marking_and_old_ads_get_it_on_sync(isolat
         assert all("описание рекламы для маркировки" in n for n in notes)                                    # и сказал об этом в статусе объявления
 
 
+def test_site_monitoring_and_email_warnings_are_switched_on_by_the_service(isolated):
+    fake = FakeDirect()
+    with TestClient(app) as http:
+        bid = setup(http, fake, isolated)
+        assert http.post(f"/api/businesses/{bid}/launch", json={"marking_confirmed": True}).status_code == 200
+        campaign = next(iter(fake.campaigns.values()))
+        assert campaign["Monitoring"] == "YES" and campaign["Warnings"] == "YES"                                # включено сразу при запуске
+        campaign["Monitoring"] = campaign["Warnings"] = "NO"                                                   # кто-то выключил в кабинете
+        conn = connect(isolated)
+        biz = conn.execute("SELECT * FROM businesses WHERE id = ?", (bid,)).fetchone()
+        assert not sync_and_run(conn, biz, transport=fake.transport)["error"]
+        assert campaign["Monitoring"] == "YES" and campaign["Warnings"] == "YES"                               # синхронизация вернула
+        fake.settings_error = "Мониторинг недоступен для этой кампании"
+        campaign["Monitoring"] = "NO"
+        assert not sync_and_run(conn, biz, transport=fake.transport)["error"]
+        notes = [r["status_note"] for r in conn.execute("SELECT status_note FROM ad_units WHERE business_id = ?", (bid,))]
+        conn.close()
+        assert all("Мониторинг сайта: Мониторинг недоступен" in n for n in notes)                              # отказ Директа виден в статусе объявления
+
+
 def test_missing_advertiser_data_stays_visible_on_every_sync_until_filled(isolated):
     fake = FakeDirect()
     with TestClient(app) as http:

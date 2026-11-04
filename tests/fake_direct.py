@@ -24,6 +24,7 @@ class FakeDirect:
         self.images: list[str] = []
         self.advertiser = {"tin_type": None, "tin": None, "name": None, "phone": ""}  # данные рекламодателя в «кабинете»
         self.update_error = ""
+        self.settings_error = ""   # Директ отказывает включить мониторинг сайта
         self.bid_modifiers: dict[int, dict] = {}   # корректировки по полу и возрасту: id → кампания, пол, возраст, процент
         self.query_rows: list[tuple] = []          # отчёт по поисковым запросам нашей кампании
         self.query_foreign_rows: list[tuple] = []  # и чужой кампании того же кабинета
@@ -126,7 +127,9 @@ class FakeDirect:
                 return ok({"AddResults": [{"Id": cid}]})
             if method == "get":
                 wanted = ids()
-                return ok({"Campaigns": [{k: v for k, v in c.items() if k != "Limit"} | {"StatusClarification": c.get("Note", "")}
+                return ok({"Campaigns": [{k: v for k, v in c.items() if k not in ("Limit", "Monitoring", "Warnings")} | {"StatusClarification": c.get("Note", "")}
+                                         | {"Notification": {"EmailSettings": {"Email": "owner@example.com", "SendWarnings": c.get("Warnings", "NO")}}}
+                                         | {"UnifiedCampaign": {"Settings": [{"Option": "ENABLE_SITE_MONITORING", "Value": c.get("Monitoring", "NO")}]}}
                                          for c in self.campaigns.values() if not wanted or c["Id"] in wanted]})
             if method in ("suspend", "resume"):
                 for i in ids():
@@ -143,6 +146,13 @@ class FakeDirect:
                                                       GoalId=search.get("WbMaximumConversionRate", {}).get("GoalId"))
                 if "CounterIds" in unified:
                     self.campaigns[item["Id"]]["CounterIds"] = unified["CounterIds"]["Items"]
+                for setting in unified.get("Settings", []):
+                    if setting["Option"] == "ENABLE_SITE_MONITORING":
+                        if self.settings_error:
+                            return ok({"UpdateResults": [{"Id": item["Id"], "Errors": [{"Code": 5005, "Message": self.settings_error}]}]})
+                        self.campaigns[item["Id"]]["Monitoring"] = setting["Value"]
+                if "Notification" in item:
+                    self.campaigns[item["Id"]]["Warnings"] = item["Notification"]["EmailSettings"]["SendWarnings"]
                 return ok({"UpdateResults": [{"Id": item["Id"]}]})
             if method == "delete":
                 for i in ids():
