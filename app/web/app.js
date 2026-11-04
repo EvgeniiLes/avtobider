@@ -29,6 +29,19 @@ function errorText(result) {
   return "Что-то пошло не так. Попробуйте ещё раз.";
 }
 
+const DIRECT_URL = "https://direct.yandex.ru/dna/grid/campaigns/";
+
+// «direct.yandex.ru» в тексте подсказки становится ссылкой на кабинет Директа: оттуда пополняют счёт
+function withLinks(text) {
+  const parts = String(text).split("direct.yandex.ru");
+  const out = [];
+  parts.forEach((part, i) => {
+    if (i) out.push(Object.assign(document.createElement("a"), { href: DIRECT_URL, target: "_blank", rel: "noopener", textContent: "direct.yandex.ru" }));
+    if (part) out.push(document.createTextNode(part));
+  });
+  return out;
+}
+
 function setStatus(id, text, kind) {
   const el = $(id);
   el.textContent = text;
@@ -2019,7 +2032,7 @@ async function loadStats() {
   $("clients-box").hidden = !(data.real && data.conversions);
   if (!$("clients-day").value) $("clients-day").value = new Date().toISOString().slice(0, 10);
   const notices = $("notices");
-  notices.replaceChildren(...(data.notices || []).map((n) => el("li", { textContent: n })));
+  notices.replaceChildren(...(data.notices || []).map((n) => el("li", {}, ...withLinks(n))));
 
   // Блок статистики стоит в сетке главной рядом с «Нашими работами» и «Идеями стратега»; пока рекламы нет, в нём прочерки
   const tiles = $("tiles");
@@ -2107,7 +2120,7 @@ function campaignGroup(g, several) {
   const body = el("tbody");
   for (const u of g.units) {
     const name = el("td", { textContent: u.title });
-    if (u.note) name.append(el("span", { className: "sub", textContent: u.note }));
+    if (u.note) name.append(el("span", { className: "sub" }, ...withLinks(u.note)));
     if (u.in_test) name.append(el("span", { className: "sub", textContent: "Идёт сравнение двух вариантов" }));
     else if (u.variant) name.append(el("span", { className: "sub", textContent: "Второй вариант для сравнения" }));
     const cell = (v) => el("td", { textContent: v });
