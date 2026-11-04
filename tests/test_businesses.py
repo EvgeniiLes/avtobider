@@ -64,6 +64,17 @@ def test_create_update_and_money_in_rubles():
         assert len(http.get("/api/businesses").json()["businesses"]) == 1
 
 
+def test_weekly_budget_can_be_changed_on_its_own():
+    with TestClient(app) as http:
+        register(http)
+        b = make_business(http, weekly_budget=10000, target_cpa=800, avg_check=2500).json()
+        r = http.put(f"/api/businesses/{b['id']}/budget", json={"weekly_budget": 7500.5})
+        assert r.status_code == 200 and r.json()["weekly_budget"] == 7500.5
+        assert r.json()["target_cpa"] == 800 and r.json()["avg_check"] == 2500           # остальное не тронуто
+        assert http.put(f"/api/businesses/{b['id']}/budget", json={"weekly_budget": 0}).status_code == 400
+        assert http.get(f"/api/businesses/{b['id']}").json()["weekly_budget"] == 7500.5
+
+
 def test_validation_messages():
     with TestClient(app) as http:
         register(http)

@@ -697,6 +697,21 @@ function adStatus(a) {
   return AD_STATUS[(a.ai && a.ai.status) || "none"] || AD_STATUS.none;
 }
 
+async function saveBudget() {
+  const value = Number($("budget-input").value);
+  if (!(value > 0)) { setStatus("budget-status", "Укажите бюджет на неделю в рублях.", "err"); return; }
+  const button = $("budget-save");
+  button.disabled = true;
+  const r = await api("PUT", `/api/businesses/${currentBusiness.id}/budget`, { weekly_budget: value });
+  button.disabled = false;
+  if (!r.ok) { setStatus("budget-status", errorText(r), "err"); return; }
+  currentBusiness = r.data;
+  $("b-budget").value = r.data.weekly_budget || "";
+  setStatus("budget-status", "");
+  say("Бюджет сохранён.");
+  await loadAds();   // число объявлений и сумма на кампанию зависят от бюджета
+}
+
 async function loadAds() {
   const result = await creativeCall("GET", "/ads");
   if (!result.ok) return;
@@ -720,6 +735,12 @@ async function loadAds() {
     : target
       ? `При запуске будет создана одна кампания: ${adsPhrase(count)} и бюджет ${weekly} ₽ в неделю на все. В показ пойдут первые ${count} из списка, остальные запасные.${extra} Объявления ведут на ${target}.`
       : `При запуске будет создана одна кампания: ${adsPhrase(count)} и бюджет ${weekly} ₽ в неделю на все. Чтобы запустить, укажите сайт или ссылку на Яндекс Карты на странице «Бизнес»: объявлению нужно куда вести.`;
+  const input = $("budget-input");
+  if (document.activeElement !== input) input.value = result.data.budget || "";   // пока человек печатает, поле не трогаем
+  $("budget-hint").textContent = result.data.launched
+    ? "Больше этой суммы в неделю сервис не потратит. Лимит самой кампании в Директе он подстраивает сам по результатам."
+    : count ? `Часть денег остаётся в запасе для роста: на кампанию уйдёт ${weekly} ₽ в неделю. Изменить можно и после запуска.`
+      : "Этого мало для запуска: Яндекс требует минимум на кампанию. Увеличьте бюджет.";
   const note = $("ads-note");
   note.hidden = has_images;
   note.textContent = rejected_photos
@@ -2437,6 +2458,7 @@ async function start() {
   $("aud-bids-clear").addEventListener("click", () => changeBids("DELETE"));
   $("aud-build").addEventListener("click", buildAudience);
   $("aud-save").addEventListener("click", saveAudience);
+  $("budget-save").addEventListener("click", saveBudget);
   $("ads-launch").addEventListener("click", () => { showPage("home"); openLaunch(); });
   $("ads-ai-all").addEventListener("click", makeAllBanners);
   $("ads-ai-redo").addEventListener("click", redrawAllBanners);

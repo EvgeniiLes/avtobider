@@ -26,7 +26,7 @@ from app.creative.texts_ai import (EXTRA_WORDS_OK, check_facts, check_photo, ext
                                    missing_phrases, read_image_text)
 from app.db import get_db
 from app.deps import creative_transport, current_user
-from app.direct.launch import MAX_VARIANTS, ads_for_budget, banner_layout, choose_variants, logo_for, media_typed, photo_for, render_banner, start_split, text_candidates, usable_photos
+from app.direct.launch import MAX_VARIANTS, ads_for_budget, banner_layout, choose_variants, existing_campaign, logo_for, media_typed, photo_for, render_banner, start_split, text_candidates, usable_photos
 from app.direct.texts import TEXT_MAX, TITLE_MAX, check, draft_variants
 from app.routes.businesses import _asset_path, _own
 
@@ -328,6 +328,8 @@ def ads(business_id: int, user: sqlite3.Row = Depends(current_user), conn: sqlit
         "count": count,
         "advised": ads_for_budget(pool) if count else 0,   # сколько объявлений подходит бюджету
         "weekly": round(pool / 1_000_000) if count else 0,
+        "budget": round(biz["weekly_budget_micro"] / 1_000_000),   # недельный бюджет бизнеса: его владелец меняет на шаге запуска
+        "launched": existing_campaign(conn, business_id) is not None,
         "site": biz["site_url"] or "",
         "has_maps": bool(biz["maps_url"]),
         "has_images": bool(photos),

@@ -410,6 +410,15 @@
           <section class="card" id="step-launch" hidden>
             <h2>Запуск</h2>
             <p class="hint" id="ads-summary"></p>
+            <div class="card-inner" id="budget-box">
+              <h3>Бюджет на неделю</h3>
+              <p class="hint" id="budget-hint"></p>
+              <div class="upload-row">
+                <input type="number" id="budget-input" min="1" step="100" inputmode="numeric" placeholder="₽ в неделю">
+                <button id="budget-save" class="small">Сохранить бюджет</button>
+              </div>
+              <p id="budget-status" class="status" role="status"></p>
+            </div>
             <p id="launch-warn" class="notice" hidden></p>
             <div class="card-inner" id="aud-box">
               <h3>Кому показываем и по каким запросам</h3>

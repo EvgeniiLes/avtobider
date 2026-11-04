@@ -296,6 +296,21 @@ def update_business(
     return _business(_own(conn, user, business_id), _assets_of(conn, business_id))
 
 
+class BudgetIn(BaseModel):
+    weekly_budget: float = Field(ge=0, le=100_000_000)
+
+
+@router.put("/{business_id}/budget")
+def update_budget(business_id: int, data: BudgetIn, user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connection = Depends(get_db)):
+    """Недельный бюджет отдельно от остальной анкеты: его меняют прямо на шаге запуска."""
+    _own(conn, user, business_id)
+    if data.weekly_budget <= 0:
+        raise HTTPException(400, detail={"message": "Укажите бюджет на неделю больше нуля."})
+    conn.execute("UPDATE businesses SET weekly_budget_micro = ? WHERE id = ?", (_micro(data.weekly_budget), business_id))
+    conn.commit()
+    return _business(_own(conn, user, business_id), _assets_of(conn, business_id))
+
+
 @router.delete("/{business_id}")
 def delete_business(business_id: int, user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connection = Depends(get_db)):
     _own(conn, user, business_id)
