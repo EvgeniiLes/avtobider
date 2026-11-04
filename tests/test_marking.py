@@ -87,7 +87,12 @@ def test_bad_inn_phone_and_direct_errors_are_explained(isolated):
         assert r.status_code == 400 and "ИНН указан неверно" in r.json()["detail"]["message"] and fake.advertiser["tin"] is None
         r = http.post(url, json={"kind": "org", "tin": ORG_INN, "name": "ООО", "phone": "не телефон"})
         assert r.status_code == 400 and "Телефон" in r.json()["detail"]["message"]
-        assert http.post(url, json={"kind": "bad", "tin": ORG_INN, "name": "ООО"}).status_code == 422
+        r = http.post(url, json={"kind": "bad", "tin": ORG_INN, "name": "ООО"})
+        assert r.status_code == 400 and "Выберите, кто размещает" in r.json()["detail"]["message"]
+        r = http.post(url, json={"kind": "org", "tin": ORG_INN, "name": " ", "phone": ""})
+        assert r.status_code == 400 and "имя или название" in r.json()["detail"]["message"] and fake.advertiser["tin"] is None
+        r = http.post(url, json={"kind": "org", "tin": ORG_INN})
+        assert r.status_code == 400 and "имя или название" in r.json()["detail"]["message"]
         fake.update_error = "Недостаточно прав для изменения данных"
         r = http.post(url, json={"kind": "org", "tin": ORG_INN, "name": "ООО «Лотос»"})
         assert r.status_code == 400 and "Недостаточно прав" in r.json()["detail"]["message"]

@@ -4,7 +4,7 @@ import re
 import sqlite3
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from app.config import get_settings
 from app.db import get_db
@@ -53,10 +53,15 @@ def read(business_id: int, user: sqlite3.Row = Depends(current_user), conn: sqli
 
 
 class MarkingIn(BaseModel):
-    kind: str = Field(pattern="^(person|ip|org)$")
-    tin: str = Field(max_length=20)
-    name: str = Field(min_length=2, max_length=255)
-    phone: str = Field(default="", max_length=30)
+    # поля проверяем сами ниже: так человек видит, какое именно поле не подошло, а не общее «проверьте поля»
+    kind: str = ""
+    tin: str = ""
+    name: str = ""
+    phone: str = ""
+
+
+def _bad(message: str) -> HTTPException:
+    return HTTPException(400, detail={"message": message, "code": "marking_form"})
 
 
 @router.post("")
@@ -64,20 +69,25 @@ def save(business_id: int, data: MarkingIn, user: sqlite3.Row = Depends(current_
          factory=Depends(client_factory)):
     """Вносит данные рекламодателя в кабинет Директа. ИНН у нас не сохраняется."""
     biz = _own(conn, user, business_id)
+    if data.kind not in KINDS:
+        raise _bad("Выберите, кто размещает рекламу: физическое лицо, ИП или организация.")
     tin_type, length, label = KINDS[data.kind]
     tin = re.sub(r"\s", "", data.tin)
     if not valid_inn(tin, length):
-        raise HTTPException(400, detail={"message": f"ИНН указан неверно. Для вида «{label}» нужно {length} цифр, проверьте, нет ли опечатки."})
+        raise _bad(f"ИНН указан неверно. Для вида «{label}» нужно {length} цифр, проверьте, нет ли опечатки.")
+    name = data.name.strip()
+    if len(name) < 2 or len(name) > 255:
+        raise _bad("Укажите имя или название рекламодателя (от 2 до 255 знаков): для ИП и физлица ФИО, для организации название.")
     phone = re.sub(r"[^\d+]", "", data.phone)
-    if data.phone and not re.fullmatch(r"\+?\d{10,15}", phone):
-        raise HTTPException(400, detail={"message": "Телефон указан неверно. Напишите его в формате +79001234567 или оставьте поле пустым."})
+    if data.phone.strip() and not re.fullmatch(r"\+?\d{10,15}", phone):
+        raise _bad("Телефон указан неверно. Напишите его в формате +79001234567 или оставьте поле пустым.")
     account = _pick_account(conn, user, biz, None)
     token, login = account_token(conn, account["id"])
     s = get_settings()
 
     async def go():
         async with factory(token, api_version=s.direct_api_version, login=login) as client:
-            await client.set_advertiser_data(tin_type, tin, data.name.strip(), phone)
+            await client.set_advertiser_data(tin_type, tin, name, phone)
             return await client.advertiser_data()
 
     try:
