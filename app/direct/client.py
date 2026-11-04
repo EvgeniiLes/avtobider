@@ -392,21 +392,18 @@ class DirectClient:
         return ""
 
     async def ensure_alerts(self, campaign_id: int) -> list[str]:
-        """Включает в кампании мониторинг сайта (Директ остановит показы, если сайт недоступен) и почтовые предупреждения о проблемах.
-        Что уже включено, не трогает. Адрес почты берёт тот, что уже указан в кабинете. Возвращает ошибки Директа по каждому пункту, а не ломает остальное."""
+        """Включает в кампании мониторинг сайта (Директ остановит показы, если сайт недоступен). Что уже включено, не трогает.
+        Возвращает ошибки Директа, а не ломает остальное. Почтовые предупреждения (SendWarnings) Директ через API больше не принимает:
+        на обновление он отвечает «настройка не будет изменена», поэтому их не трогаем."""
         result = await self.call("campaigns", "get", {
-            "SelectionCriteria": {"Ids": [campaign_id]}, "FieldNames": ["Id", "Notification"], "UnifiedCampaignFieldNames": ["Settings"]})
+            "SelectionCriteria": {"Ids": [campaign_id]}, "FieldNames": ["Id"], "UnifiedCampaignFieldNames": ["Settings"]})
         found = result.get("Campaigns") or []
         if not found:
             return []
-        campaign = found[0]
-        settings = {s.get("Option"): s.get("Value") for s in (campaign.get("UnifiedCampaign") or {}).get("Settings") or []}
-        email = (campaign.get("Notification") or {}).get("EmailSettings") or {}
+        settings = {s.get("Option"): s.get("Value") for s in (found[0].get("UnifiedCampaign") or {}).get("Settings") or []}
         updates: list[tuple[str, dict]] = []
         if settings.get("ENABLE_SITE_MONITORING") != "YES":
             updates.append(("Мониторинг сайта", {"UnifiedCampaign": {"Settings": [{"Option": "ENABLE_SITE_MONITORING", "Value": "YES"}]}}))
-        if email.get("Email") and email.get("SendWarnings") != "YES":
-            updates.append(("Предупреждения на почту", {"Notification": {"EmailSettings": {"Email": email["Email"], "SendWarnings": "YES"}}}))
         errors = []
         for title, change in updates:
             try:

@@ -60,6 +60,6 @@ foreach ($relative in $list) {
 # 3. Права, перезапуск, проверка, запись в журнал выкладок.
 $stamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd HH:mm") + " UTC"   # время сервера тоже UTC: в журнале и в именах копий одно и то же время
 $log = "$stamp | $Name | $commit | files: $($list.Count)"
-$check = "chown -R autobider:autobider $remoteRoot/app && systemctl restart autobider autobider-worker && sleep 4 && systemctl is-active autobider autobider-worker && curl -s -o /dev/null -w 'site %{http_code}\n' http://127.0.0.1:8000/ && echo '$log' >> $remoteRoot/backup/releases.log"
+$check = "chown -R autobider:autobider $remoteRoot/app && systemctl restart autobider autobider-worker && for n in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do curl -sf -o /dev/null http://127.0.0.1:8000/ && break; sleep 2; done && systemctl is-active autobider autobider-worker && curl -s -o /dev/null -w 'site %{http_code}\n' http://127.0.0.1:8000/ && echo '$log' >> $remoteRoot/backup/releases.log"
 Invoke-Native "Перезапуск и проверка" { ssh @ssh "root@$Server" $check }
 Write-Host "Готово. Откат: powershell -ExecutionPolicy Bypass -File deploy\rollback.ps1 -Name $Name"
