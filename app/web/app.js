@@ -270,23 +270,44 @@ function fillForm(b) {
   loadAdvice();
 }
 
-// Новый бизнес вносится в три шага: что за бизнес, где показывать, сколько тратить. У существующего форма целиком.
-const WIZARD_LABELS = ["О бизнесе", "Где показывать", "Деньги"];
+// Новый бизнес вносится в четыре шага: что за бизнес, где показывать, сколько тратить, фото и видео. У существующего форма целиком.
+const WIZARD_LABELS = ["О бизнесе", "Где показывать", "Деньги", "Фото и видео"];   // на четвёртом шаге бизнес уже сохранён
 let wizardStep = 1;
 
 function setWizard(on) {
   $("business-form").classList.toggle("wizard", on);
   $("wizard-bar").hidden = $("wizard-nav").hidden = !on;
   $("b-style-box").open = !on;   // стиль картинок необязателен: новичку не мешает
-  if (on) showWizardStep(1); else delete $("business-form").dataset.wstep;
+  $("business-save").textContent = on ? "Сохранить и перейти к фото" : "Сохранить";
+  if (on) showWizardStep(1); else { delete $("business-form").dataset.wstep; moveFilesCard(false); }
+}
+
+// Карточка загрузки фото живёт на странице «Фото и баннеры»; на четвёртом шаге мастера она переезжает под форму и потом возвращается
+function moveFilesCard(toWizard) {
+  const card = $("files-card");
+  if (toWizard) $("wizard-files").append(card); else if (card.parentElement !== $("media-body")) $("media-body").prepend(card);
+}
+
+function openWizardPhotos() {
+  setWizard(true);
+  showWizardStep(4);
+  moveFilesCard(true);
+  renderFiles();
+  window.scrollTo(0, 0);
+}
+
+function finishWizard() {
+  setWizard(false);
+  showPage("home");
 }
 
 function showWizardStep(n) {
   wizardStep = n;
   $("business-form").dataset.wstep = String(n);
   $("wizard-label").textContent = `Шаг ${n} из ${WIZARD_LABELS.length}: ${WIZARD_LABELS[n - 1]}`;
-  $("wizard-back").hidden = n === 1;
-  $("wizard-next").hidden = n === WIZARD_LABELS.length;
+  $("wizard-back").hidden = n === 1 || n === 4;   // бизнес уже сохранён: назад к форме нельзя
+  $("wizard-next").hidden = n >= 3;   // на третьем шаге вместо «Дальше» кнопка сохранения
+  $("wizard-done").hidden = n !== 4;
 }
 
 function wizardNext() {
@@ -500,7 +521,8 @@ async function saveBusiness(event) {
   currentBusiness = result.data;
   await loadBusinesses(currentBusiness.id);
   setStatus("business-status", "");
-  say(isNew ? "Бизнес сохранён. Ниже можно загрузить фото и логотип." : "Сохранено.");
+  say(isNew ? "Бизнес сохранён. Добавьте фото, логотип и видео: по ним сервис делает баннеры. Этот шаг можно пропустить." : "Сохранено.");
+  if (isNew) openWizardPhotos();
   if (guessed) say(`Район определён по адресу: ${result.data.districts}. Проверьте его в поле «Районы».`);
   if (renamed) api("POST", `/api/businesses/${currentBusiness.id}/creatives/photos/check`).then(refreshAssets);   // забракованные фото ИИ посмотрит заново: вывеска с новым названием своя
 }
@@ -2551,6 +2573,7 @@ async function start() {
   for (const btn of document.querySelectorAll("#cr-steps .step")) btn.addEventListener("click", () => setStep(btn.dataset.step));
   $("wizard-next").addEventListener("click", wizardNext);
   $("wizard-back").addEventListener("click", wizardBack);
+  $("wizard-done").addEventListener("click", finishWizard);
   $("ideas-next").addEventListener("click", () => setStep("banners"));
   $("banners-next").addEventListener("click", () => setStep("launch"));
   $("launch-back").addEventListener("click", () => setStep("banners"));

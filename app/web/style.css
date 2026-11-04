@@ -589,3 +589,8 @@ body.no-biz #nav-creatives, body.no-biz #nav-media, body.no-biz #nav-stats, body
 #business-form.wizard[data-wstep="1"] fieldset:not([data-step="1"]), #business-form.wizard[data-wstep="2"] fieldset:not([data-step="2"]), #business-form.wizard[data-wstep="3"] fieldset:not([data-step="3"]) { display: none; }
 #business-form.wizard:not([data-wstep="3"]) .savebar { display: none; }
 summary.legend-like { font-weight: 700; cursor: pointer; margin-bottom: 6px; }
+/* Шаг 4 мастера: карточка загрузки фото и видео временно переезжает под форму */
+#wizard-files { display: none; }
+#business-form[data-wstep="4"] + #wizard-files { display: block; }
+#business-form.wizard[data-wstep="4"] fieldset { display: none; }
+#business-form[data-wstep="4"] .wizard-dots i { background: var(--text); }

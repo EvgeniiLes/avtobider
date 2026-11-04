@@ -211,7 +211,7 @@
         <form id="business-form">
           <div id="wizard-bar" class="wizard-bar" hidden>
             <span id="wizard-label"></span>
-            <div class="wizard-dots" aria-hidden="true"><i></i><i></i><i></i></div>
+            <div class="wizard-dots" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
           </div>
           <fieldset class="card" data-step="1">
             <legend id="business-title">Расскажите о бизнесе</legend>
@@ -313,6 +313,7 @@
           <div id="wizard-nav" class="wizard-nav" hidden>
             <button type="button" id="wizard-back" class="secondary">Назад</button>
             <button type="button" id="wizard-next">Дальше</button>
+            <button type="button" id="wizard-done" hidden>Готово, к следующему шагу</button>
           </div>
 
           <div class="savebar">
@@ -321,6 +322,7 @@
             <span id="business-status" class="status" role="status"></span>
           </div>
         </form>
+        <div id="wizard-files"></div>
 
         <div class="card" id="metrika-card" hidden>
           <h2>Обращения с сайта (Яндекс Метрика)</h2>
