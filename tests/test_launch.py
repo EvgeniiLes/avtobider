@@ -528,3 +528,23 @@ def test_ads_carry_the_description_for_marking_and_old_ads_get_it_on_sync(isolat
         conn.close()
         assert {a["ad"]["ErirAdDescription"] for a in fake.ads.values()} == {"Маникюрный салон «Лотос»"}   # сервис дописал его сам
         assert all("описание рекламы для маркировки" in n for n in notes)                                    # и сказал об этом в статусе объявления
+
+
+def test_missing_advertiser_data_stays_visible_on_every_sync_until_filled(isolated):
+    fake = FakeDirect()
+    with TestClient(app) as http:
+        bid = setup(http, fake, isolated)
+        assert http.post(f"/api/businesses/{bid}/launch", json={"marking_confirmed": True}).status_code == 200   # в кабинете данных рекламодателя нет
+        conn = connect(isolated)
+        biz = conn.execute("SELECT * FROM businesses WHERE id = ?", (bid,)).fetchone()
+
+        def notes():
+            return [r["status_note"] for r in conn.execute("SELECT status_note FROM ad_units WHERE business_id = ?", (bid,))]
+
+        for _ in range(2):                                                                                       # не только в первую синхронизацию
+            assert not sync_and_run(conn, biz, transport=fake.transport)["error"]
+            assert all("не внесены данные рекламодателя" in n and "закону «О рекламе»" in n for n in notes())
+        fake.advertiser = {"tin_type": "LEGAL", "tin": "7707083893", "name": "ООО «Лотос»", "phone": ""}
+        assert not sync_and_run(conn, biz, transport=fake.transport)["error"]
+        assert all("рекламодателя" not in n for n in notes())
+        conn.close()

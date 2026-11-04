@@ -16,6 +16,7 @@ from app.creative.compose import style_for
 from app.creative.angles import districts_of, is_nationwide, needs_districts
 from app.direct.client import RUSSIA_REGION_ID, DirectClient, DirectError
 from app.direct.goals import goal_ids_for_report
+from app.direct.marking import is_filled
 from app.direct.audience import autotargeting_for, effective_negatives
 from app.direct.texts import check, draft_variants, mentions_district, near_variants
 from app.engine.util import EngineError, MICRO, day_add, plural, rub
@@ -539,6 +540,14 @@ async def sync_units(client: DirectClient, conn: sqlite3.Connection, biz, today:
             marking_note = "Добавили описание рекламы для маркировки: без него Директ ограничивал показы по закону «О рекламе». Статус в Директе обновится в течение часа."
         except DirectError as e:
             marking_note = f"Не удалось добавить описание рекламы для маркировки (Директ ограничивает показы по закону «О рекламе»): {e.full_message()}"
+    # Директ не отдаёт через API причину «Показы ограничены из-за отсутствия данных для закона «О рекламе»»: определяем её сами и держим пометку, пока данные не внесены
+    try:
+        advertiser_filled = is_filled(await client.advertiser_data())
+    except DirectError:
+        advertiser_filled = True   # не удалось прочитать данные: ложную тревогу не поднимаем
+    advertiser_note = "" if advertiser_filled else (
+        "Директ ограничивает показы по закону «О рекламе»: в кабинете не внесены данные рекламодателя (вид плательщика, ИНН, имя). "
+        "Внесите их на странице «Бизнес», в карточке «Данные рекламодателя».")
     for cid in ids:
         mine = [u for u in units if u["external_campaign_id"] == cid]
         c = by_id.get(cid)
@@ -563,6 +572,8 @@ async def sync_units(client: DirectClient, conn: sqlite3.Connection, biz, today:
                 note = ad.get("StatusClarification") or c.get("StatusClarification") or ""
                 if marking_note and ad["Id"] in missing:
                     note = f"{marking_note} {note}".strip()
+                elif advertiser_note:
+                    note = f"{advertiser_note} {note}".strip()
             conn.execute("UPDATE ad_units SET state = ?, status_note = ? WHERE id = ?", (state, note, u["id"]))
 
     goal = biz["metrika_goal_id"] or None
