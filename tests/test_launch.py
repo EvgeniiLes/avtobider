@@ -172,7 +172,11 @@ def test_a_new_ad_can_be_added_to_the_running_campaign(isolated):
         r = http.post(f"/api/businesses/{bid}/launch", json={"marking_confirmed": True})
         assert r.status_code == 200 and r.json()["created"] == 1 and "Добавили" in r.json()["message"]
         assert len(fake.campaigns) == 1 and campaign["Limit"] == limit                # кампания и её лимит те же
-        assert len(fake.ads) == 4 and {a["group"] for a in fake.ads.values()} == {group} and {a["campaign"] for a in fake.ads.values()} == {cid}
+        assert len(fake.ads) == 4 and {a["campaign"] for a in fake.ads.values()} == {cid}
+        assert sum(1 for a in fake.ads.values() if a["group"] == group) == 3 and len({a["group"] for a in fake.ads.values()}) == 2   # в группе больше трёх нельзя: четвёртое в новой группе
+        second = next(g for g in {a["group"] for a in fake.ads.values()} if g != group)
+        assert fake.group_regions[second] == fake.group_regions[group]
+        assert {k["keyword"] for k in fake.keywords if k["group"] == second} == {k["keyword"] for k in fake.keywords if k["group"] == group}   # те же запросы и автотаргетинг
         units = rows(isolated, "SELECT title, state, external_ad_id FROM ad_units ORDER BY id")
         assert len(units) == 4 and units[3]["state"] == "moderation" and int(units[3]["external_ad_id"]) in fake.ads
         assert len({u["title"] for u in units}) == 4
@@ -190,6 +194,21 @@ def test_a_new_ad_that_direct_refuses_is_not_left_in_the_cabinet(isolated):
         r = http.post(f"/api/businesses/{bid}/launch", json={"marking_confirmed": True})
         assert r.status_code == 400 and len(fake.ads) == 3                            # новые, которые успели создаться, убраны
         assert len(rows(isolated, "SELECT id FROM ad_units")) == 3
+        assert len(fake.groups) == 1                                                  # и новая группа тоже
+
+
+def test_more_than_three_ads_at_launch_go_into_several_groups_with_the_same_queries(isolated):
+    fake = FakeDirect()
+    with TestClient(app) as http:
+        bid = setup(http, fake, isolated)
+        assert http.put(f"/api/businesses/{bid}/creatives/ads/live", json={"count": 5}).status_code == 200
+        r = http.post(f"/api/businesses/{bid}/launch", json={"marking_confirmed": True})
+        assert r.status_code == 200 and r.json()["created"] == 5 and len(fake.ads) == 5
+        sizes = sorted(sum(1 for a in fake.ads.values() if a["group"] == g) for g in fake.groups)
+        assert sizes == [2, 3]
+        first, second = list(fake.groups)
+        assert {k["keyword"] for k in fake.keywords if k["group"] == first} == {k["keyword"] for k in fake.keywords if k["group"] == second}
+        assert len({row["external_group_id"] for row in rows(isolated, "SELECT external_group_id FROM ad_units")}) == 2
 
 
 def test_launch_adds_banners_from_uploaded_photos_and_logo(isolated):

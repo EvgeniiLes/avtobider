@@ -209,6 +209,10 @@ class FakeDirect:
             self.images.append(item["Name"])
             return ok({"AddResults": [{"AdImageHash": f"hash{len(self.images)}"}]})
         if service == "adgroups":
+            if method == "delete":
+                for i in ids():
+                    self.groups.pop(i, None)
+                return ok({"DeleteResults": [{"Id": i} for i in ids()]})
             gid = self._next()
             self.groups[gid] = params["AdGroups"][0]["CampaignId"]
             self.group_regions[gid] = params["AdGroups"][0]["RegionIds"]
@@ -218,6 +222,9 @@ class FakeDirect:
                 item = params["Ads"][0]
                 if self.fail_ads_after is not None and len(self.ads) >= self.fail_ads_after:
                     return ok({"AddResults": [{"Errors": [{"Code": 9001, "Message": "Не удалось создать объявление"}]}]})
+                if sum(1 for a in self.ads.values() if a["group"] == item["AdGroupId"]) >= 3:   # как в Директе: в группе не больше трёх объявлений
+                    return ok({"AddResults": [{"Errors": [{"Code": 7001, "Message": "Достигнуто максимальное количество объектов",
+                                                           "Details": "Достигнуто максимальное количество комбинаторных объявлений в группе - 3"}]}]})
                 aid = self._next()
                 self.ads[aid] = {"group": item["AdGroupId"], "campaign": self.groups[item["AdGroupId"]], "ad": item["TextAd"], "suspended": False}
                 return ok({"AddResults": [{"Id": aid}]})

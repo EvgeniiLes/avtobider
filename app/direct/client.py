@@ -434,6 +434,11 @@ class DirectClient:
         for i in range(len(ad_ids)):
             self._result_item(result, "DeleteResults", i)
 
+    async def delete_ad_groups(self, group_ids: list[int]) -> None:
+        result = await self.call("adgroups", "delete", {"SelectionCriteria": {"Ids": group_ids}})
+        for i in range(len(group_ids)):
+            self._result_item(result, "DeleteResults", i)
+
     async def delete_campaigns(self, campaign_ids: list[int]) -> None:
         result = await self.call("campaigns", "delete", {"SelectionCriteria": {"Ids": campaign_ids}})
         for i in range(len(campaign_ids)):

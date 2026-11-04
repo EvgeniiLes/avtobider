@@ -191,6 +191,8 @@ async def apply_changes(client: DirectClient, conn: sqlite3.Connection, biz, pro
             done["minus"] = new_minus
         if new_keys:
             result = await client.add_keywords(group_id, new_keys, None)
+            for other in sorted({u["external_group_id"] for u in units if u["external_group_id"] and u["external_group_id"] != group_id}):
+                await client.add_keywords(other, new_keys, None)   # объявлений больше трёх: они в нескольких группах, и запросы у групп одни
             refused = {r["phrase"]: r["reason"] for r in result["rejected"]}
             done["keywords"] = [k for k in new_keys if k not in refused]
             skipped += [{"item": p, "reason": reason} for p, reason in refused.items()]
