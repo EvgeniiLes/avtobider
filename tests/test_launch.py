@@ -146,13 +146,50 @@ def test_launch_creates_one_campaign_with_several_ads_and_sends_to_moderation(is
         assert ("ads", "moderate") in fake.calls
         assert "обучение" in fake.negatives[cid] and "бесплатно" in fake.negatives[cid] and "лампа" in fake.negatives[cid]   # минус-слова ниши «маникюр»
         again = http.post(f"/api/businesses/{bid}/launch", json={"marking_confirmed": True})
-        assert again.status_code == 400 and "уже создана" in again.json()["detail"]["message"]
+        assert again.status_code == 400 and "уже есть в рекламе" in again.json()["detail"]["message"]   # новых объявлений нет: ничего не дублируем
+        assert len(fake.ads) == 3
         ov = http.get(f"/api/businesses/{bid}/overview").json()
         assert ov["real"] and not ov["example"] and len(ov["units"]) == 3
         assert all(u["weekly_budget"] is None for u in ov["units"])               # у объявления своего бюджета нет, он общий
         assert ov["campaign"]["strategy"] == "clicks" and ov["campaign"]["weekly"] == campaign["Limit"] // MICRO and ov["campaign"]["switch_at"] == 10
         assert {u["verdict"] for u in ov["units"]} == {"На проверке в Яндексе"}
         assert any("проверяет" in n for n in ov["notices"]) and any("Метрика" in n for n in ov["notices"])
+
+
+def test_a_new_ad_can_be_added_to_the_running_campaign(isolated):
+    fake = FakeDirect()
+    with TestClient(app) as http:
+        bid = setup(http, fake, isolated)
+        assert http.post(f"/api/businesses/{bid}/launch", json={"marking_confirmed": True}).status_code == 200
+        (cid, campaign), = fake.campaigns.items()
+        limit = campaign["Limit"]
+        group = next(iter(fake.ads.values()))["group"]
+        before = http.get(f"/api/businesses/{bid}/launch/preview").json()
+        assert before["adding"] and before["variants"] == []                          # всё из списка уже в рекламе
+        assert http.put(f"/api/businesses/{bid}/creatives/ads/live", json={"count": 4}).status_code == 200
+        plan = http.get(f"/api/businesses/{bid}/launch/preview").json()
+        assert plan["adding"] and len(plan["variants"]) == 1
+        r = http.post(f"/api/businesses/{bid}/launch", json={"marking_confirmed": True})
+        assert r.status_code == 200 and r.json()["created"] == 1 and "Добавили" in r.json()["message"]
+        assert len(fake.campaigns) == 1 and campaign["Limit"] == limit                # кампания и её лимит те же
+        assert len(fake.ads) == 4 and {a["group"] for a in fake.ads.values()} == {group} and {a["campaign"] for a in fake.ads.values()} == {cid}
+        units = rows(isolated, "SELECT title, state, external_ad_id FROM ad_units ORDER BY id")
+        assert len(units) == 4 and units[3]["state"] == "moderation" and int(units[3]["external_ad_id"]) in fake.ads
+        assert len({u["title"] for u in units}) == 4
+        assert http.get(f"/api/businesses/{bid}/launch/preview").json()["variants"] == []
+        assert http.post(f"/api/businesses/{bid}/launch", json={"marking_confirmed": True}).status_code == 400
+
+
+def test_a_new_ad_that_direct_refuses_is_not_left_in_the_cabinet(isolated):
+    fake = FakeDirect()
+    with TestClient(app) as http:
+        bid = setup(http, fake, isolated)
+        http.post(f"/api/businesses/{bid}/launch", json={"marking_confirmed": True})
+        http.put(f"/api/businesses/{bid}/creatives/ads/live", json={"count": 5}).status_code
+        fake.fail_ads_after = 4                                                       # четвёртое объявление принял, пятое нет
+        r = http.post(f"/api/businesses/{bid}/launch", json={"marking_confirmed": True})
+        assert r.status_code == 400 and len(fake.ads) == 3                            # новые, которые успели создаться, убраны
+        assert len(rows(isolated, "SELECT id FROM ad_units")) == 3
 
 
 def test_launch_adds_banners_from_uploaded_photos_and_logo(isolated):

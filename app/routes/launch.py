@@ -13,9 +13,9 @@ from app.deps import client_factory, creative_transport, current_user
 from app.direct import audience as aud
 from app.direct.bids import ensure_bids
 from app.direct.client import DirectError
-from app.direct.launch import STATE_LABELS, launch, plan_launch, tagged_href, text_candidates
+from app.direct.launch import STATE_LABELS, add_ads, existing_campaign, launch, new_variants, plan_launch, tagged_href, text_candidates
 from app.direct.runner import account_token, sync_and_run
-from app.engine.util import EngineError, MICRO
+from app.engine.util import EngineError, MICRO, plural
 from app.platforms.simulator import reset_demo
 from app.routes.audience import make_profile
 from app.routes.businesses import _own, fill_districts
@@ -61,8 +61,11 @@ def _plan_for(conn, user, biz, account_id, factory):
     return account, token, login, plan_launch(biz, region, custom=custom, audience=aud.load(biz), district_ids=district_ids, **kwargs)
 
 
-def _plan_json(plan, account, marking_confirmed: bool = False) -> dict:
+def _plan_json(plan, account, marking_confirmed: bool = False, fresh: list[dict] | None = None) -> dict:
+    """fresh: реклама уже идёт, и показываем только объявления, которых в ней ещё нет (их и добавит запуск)."""
     return {
+        "adding": fresh is not None,
+        "existing": 0 if fresh is None else plan.count - len(fresh),
         "marking": {"confirmed": marking_confirmed, "help": MARKING_HELP},
         "account": account["title"],
         "count": plan.count,
@@ -73,7 +76,7 @@ def _plan_json(plan, account, marking_confirmed: bool = False) -> dict:
         "by_district": bool(plan.region_ids),   # показ ограничен районами (иначе весь город)
         "link": plan.href or "Профиль организации в Яндекс Картах",
         "tagged": bool(plan.href) and tagged_href(plan.href) != plan.href,   # ссылка получит utm-метки (откуда пришёл человек)
-        "variants": plan.variants,
+        "variants": plan.variants if fresh is None else fresh,
         "own_count": plan.own_count,
         "negatives": plan.negatives or [],
         "keywords": plan.keywords or [],
@@ -94,7 +97,8 @@ def preview(business_id: int, account_id: int | None = None, user: sqlite3.Row =
         account, _, _, plan = _plan_for(conn, user, biz, account_id, factory)
     except (EngineError, DirectError) as e:
         raise _fail(e)
-    return _plan_json(plan, account, bool(biz["marking_confirmed"]))
+    fresh = [v for _, v in new_variants(conn, biz, plan)] if existing_campaign(conn, business_id) else None
+    return _plan_json(plan, account, bool(biz["marking_confirmed"]), fresh)
 
 
 MARKING_HELP = (
@@ -113,18 +117,23 @@ class LaunchIn(BaseModel):
 def start_launch(business_id: int, data: LaunchIn, user: sqlite3.Row = Depends(current_user),
                  conn: sqlite3.Connection = Depends(get_db), factory=Depends(client_factory), transport=Depends(creative_transport)):
     biz = _own(conn, user, business_id)
-    if conn.execute("SELECT 1 FROM campaigns WHERE business_id = ? AND source = 'direct'", (business_id,)).fetchone():
+    target = existing_campaign(conn, business_id)
+    if target is None and conn.execute("SELECT 1 FROM campaigns WHERE business_id = ? AND source = 'direct'", (business_id,)).fetchone():
         raise HTTPException(400, detail={"message": "Реклама для этого бизнеса уже создана. Её состояние видно на вкладке «Статистика».", "code": "already"})
     if not (data.marking_confirmed or biz["marking_confirmed"]):
         raise HTTPException(400, detail={"message": "Сначала заполните «Данные рекламодателя» в Яндекс Директе: без них рекламу нельзя маркировать. " + MARKING_HELP, "code": "marking"})
     fill_districts(conn, business_id, transport)
     biz = _own(conn, user, business_id)
-    if aud.load(biz) is None and make_profile(conn, biz, transport):   # профиль ещё не составлен: делаем его сами, чтобы запуск шёл с фразами и минус-словами
+    if target is None and aud.load(biz) is None and make_profile(conn, biz, transport):   # профиль ещё не составлен: делаем его сами, чтобы запуск шёл с фразами и минус-словами
         biz = _own(conn, user, business_id)
     try:
         account, token, login, plan = _plan_for(conn, user, biz, data.account_id, factory)
         s = get_settings()
         today = date.today().isoformat()
+
+        async def add():   # реклама уже идёт: новые объявления встают в ту же кампанию и группу, бюджет и запросы не меняются
+            async with factory(token, api_version=s.direct_api_version, login=login) as client:
+                return await add_ads(client, conn, biz, target, plan, today)
 
         async def go():
             async with factory(token, api_version=s.direct_api_version, login=login) as client:
@@ -137,6 +146,9 @@ def start_launch(business_id: int, data: LaunchIn, user: sqlite3.Row = Depends(c
                         pass
                 return created
 
+        if target is not None:
+            unit_ids = asyncio.run(add())
+            return {"created": len(unit_ids), "message": f"Добавили в рекламу {plural(len(unit_ids), 'объявление', 'объявления', 'объявлений')}: они отправлены на проверку в Яндекс."}
         unit_ids = asyncio.run(go())
         conn.execute("UPDATE businesses SET marking_confirmed = 1 WHERE id = ?", (business_id,))
         reset_demo(conn, business_id)  # примерные данные заменяются настоящей рекламой

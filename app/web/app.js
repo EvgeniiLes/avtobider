@@ -2098,13 +2098,18 @@ function campaignGroup(g, several) {
   return group;
 }
 
+let launchAdding = false;   // реклама уже идёт: кнопка запуска добавляет в неё новые объявления, а не создаёт кампанию
+
 async function openLaunch() {
   if (!currentBusiness) return;
   const result = await api("GET", `/api/businesses/${currentBusiness.id}/launch/preview`);
   if (!result.ok) { say(errorText(result), "err"); $("launch-card").hidden = true; return; }
   const p = result.data;
-  $("launch-summary").textContent =
-    `Кабинет: ${p.account}. Где показывать: ${p.city}${p.districts.length ? (p.by_district ? `, только районы: ${p.districts.join(", ")}` : `, районы в текстах и фразах: ${p.districts.join(", ")}`) : ""}. Одна кампания: ${adsPhrase(p.count)} с общим бюджетом ${p.weekly} ₽ в неделю. Ведёт на: ${p.link}${p.tagged ? " (к ссылке добавятся метки utm: в Метрике будет видно, с какого объявления пришёл человек)" : ""}.`;
+  launchAdding = p.adding;
+  $("launch-go").textContent = launchAdding ? "Добавить в рекламу и отправить на проверку" : "Создать и отправить на проверку";
+  $("launch-summary").textContent = launchAdding
+    ? `Реклама уже идёт, новые объявления встанут в ту же кампанию: бюджет (${p.weekly} ₽ в неделю), запросы и районы не меняются. ${p.variants.length ? `Будет добавлено: ${adsPhrase(p.variants.length)}.` : "Новых объявлений нет: все объявления из списка «Пойдут в рекламу» уже в кампании. Добавьте новый вариант на вкладке «Креативы» или увеличьте число объявлений в показе."}`
+    : `Кабинет: ${p.account}. Где показывать: ${p.city}${p.districts.length ? (p.by_district ? `, только районы: ${p.districts.join(", ")}` : `, районы в текстах и фразах: ${p.districts.join(", ")}`) : ""}. Одна кампания: ${adsPhrase(p.count)} с общим бюджетом ${p.weekly} ₽ в неделю. Ведёт на: ${p.link}${p.tagged ? " (к ссылке добавятся метки utm: в Метрике будет видно, с какого объявления пришёл человек)" : ""}.`;
   $("launch-variants").replaceChildren(...p.variants.map((v) =>
     el("li", {}, el("div", { className: "t", textContent: v.title }), el("div", { className: "hint", textContent: v.text }))));
   $("launch-warnings").replaceChildren(...p.warnings.map((w) => el("li", { textContent: w })));
@@ -2125,7 +2130,7 @@ async function openLaunch() {
   }
   $("marking-ok").checked = confirmed;
   $("marking-box").hidden = confirmed;
-  $("launch-go").disabled = !confirmed;
+  $("launch-go").disabled = !confirmed || (launchAdding && !p.variants.length);
   $("launch-card").hidden = false;
   $("launch-card").scrollIntoView({ block: "nearest" });
 }
@@ -2180,10 +2185,10 @@ async function saveMarking() {
 async function confirmLaunch() {
   const button = $("launch-go");
   button.disabled = true;
-  button.textContent = "Создаём рекламу…";
+  button.textContent = launchAdding ? "Добавляем…" : "Создаём рекламу…";
   const result = await api("POST", `/api/businesses/${currentBusiness.id}/launch`, { marking_confirmed: $("marking-ok").checked });
   button.disabled = false;
-  button.textContent = "Создать и отправить на проверку";
+  button.textContent = launchAdding ? "Добавить в рекламу и отправить на проверку" : "Создать и отправить на проверку";
   $("launch-error").hidden = true;
   if (!result.ok) {   // ответ Директа остаётся на экране, а не пропадает вместе со всплывающей подсказкой
     $("launch-error").textContent = errorText(result);

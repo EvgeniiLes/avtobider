@@ -240,6 +240,10 @@ class FakeDirect:
                 for item in params["Ads"]:
                     self.ads[item["Id"]]["ad"].update(item["TextAd"])
                 return ok({"UpdateResults": [{"Id": item["Id"]} for item in params["Ads"]]})
+            if method == "delete":
+                for i in ids():
+                    self.ads.pop(i, None)
+                return ok({"DeleteResults": [{"Id": i} for i in ids()]})
             if method == "moderate":
                 for c in self.campaigns.values():
                     if c["Status"] == "DRAFT":

@@ -417,14 +417,15 @@ async def attach_banners(client: DirectClient, biz, created: list[dict], photos:
     problems = []
     for i, c in enumerate(created):
         try:
+            place = c.get("index", i)   # номер в списке объявлений: от него зависят шаблон и фото баннера
             ready = (ai or {}).get((c["variant"]["title"], c["variant"]["text"]))
             if ready is not None:
                 banner = ready  # ИИ-баннер целиком
             elif photos:
-                banner = render_banner(biz, c["variant"], photo_for(photos, i)[1], logo, i)
+                banner = render_banner(biz, c["variant"], photo_for(photos, place)[1], logo, place)
             else:
                 continue
-            image_hash = await client.upload_image(banner, f"autobider-{biz['id']}-{i + 1}.jpg")
+            image_hash = await client.upload_image(banner, f"autobider-{biz['id']}-{place + 1}-{c['ad_id']}.jpg")
             await client.attach_image(c["ad_id"], image_hash)
             c["image_hash"] = image_hash
         except DirectError as e:
@@ -470,6 +471,57 @@ async def launch(client: DirectClient, conn: sqlite3.Connection, biz, account_id
     conn.execute("UPDATE businesses SET account_id = ?, status = 'running' WHERE id = ?", (account_id, biz["id"]))
     conn.commit()
     _remember_keywords(conn, biz, ids["keywords"])
+    return unit_ids
+
+
+def existing_campaign(conn: sqlite3.Connection, business_id: int) -> sqlite3.Row | None:
+    """Кампания бизнеса в Директе вместе с её группой: куда добавлять новые объявления. None, если рекламы ещё нет."""
+    return conn.execute(
+        "SELECT c.id AS row_id, c.account_id, u.external_campaign_id, u.external_group_id FROM campaigns c "
+        "JOIN ad_units u ON u.campaign_id = c.id WHERE c.business_id = ? AND c.source = 'direct' AND u.external_group_id IS NOT NULL "
+        "ORDER BY c.id DESC, u.id LIMIT 1", (business_id,)).fetchone()
+
+
+def new_variants(conn: sqlite3.Connection, biz, plan: Plan) -> list[tuple[int, dict]]:
+    """Объявления из списка «пойдут в рекламу», которых в кампании ещё нет (по заголовку), вместе с их номером в списке."""
+    have = {r["title"].lower() for r in conn.execute("SELECT title FROM ad_units WHERE business_id = ?", (biz["id"],)).fetchall()}
+    return [(i, v) for i, v in enumerate(plan.variants[:plan.count]) if v["title"].lower() not in have]
+
+
+async def add_ads(client: DirectClient, conn: sqlite3.Connection, biz, target: sqlite3.Row, plan: Plan, today: str) -> list[int]:
+    """Добавляет в уже идущую кампанию новые объявления из списка: тексты, баннеры, отправка на проверку. Бюджет и запросы кампании не меняются."""
+    fresh = new_variants(conn, biz, plan)
+    if not fresh:
+        raise EngineError("Все объявления из списка уже есть в рекламе. Добавьте на вкладке «Креативы» новый вариант или увеличьте число объявлений в показе.", "nothing_new")
+    photos, logo = media_typed(conn, biz)
+    ai_banners = ai_banners_for(conn, biz)
+    ai_scenes = ai_scenes_for(conn, biz)
+    created = []
+    try:
+        for index, v in fresh:
+            ad_id = await client.create_text_ad(target["external_group_id"], v["title"], v["text"], href=tagged_href(plan.href),
+                                                business_id=plan.business_id, erir_description=plan.ad_description)
+            created.append({"ad_id": ad_id, "variant": v, "index": index})
+        banner_problems = await attach_banners(client, biz, created, photos, logo, ai_banners) if (photos or ai_banners) else []
+        await client.moderate_ads([c["ad_id"] for c in created])
+    except DirectError:
+        if created:   # откат: не оставляем в кабинете объявления, которые не дошли до проверки
+            try:
+                await client.delete_ads([c["ad_id"] for c in created])
+            except DirectError:
+                pass
+        raise
+    unit_ids = [
+        save_unit(conn, biz, target["account_id"], target["row_id"], c["variant"],
+                  {"campaign_id": target["external_campaign_id"], "group_id": target["external_group_id"], "ad_id": c["ad_id"]}, 0, today,
+                  style=style_for(c["index"]),
+                  photo_type=ai_scenes.get((c["variant"]["title"], c["variant"]["text"])) or (photo_for(photos, c["index"])[0] if photos else ""),
+                  angle=c["variant"].get("angle", ""))
+        for c in created
+    ]
+    if banner_problems:
+        conn.execute("UPDATE ad_units SET status_note = ? WHERE id = ?", ("Картинка добавлена не ко всем объявлениям", unit_ids[0]))
+    conn.commit()
     return unit_ids
 
 
