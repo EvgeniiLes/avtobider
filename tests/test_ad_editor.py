@@ -235,6 +235,26 @@ def test_renaming_the_text_keeps_the_photo_and_style_with_the_ad(monkeypatch):
         assert "Маникюр рядом с метро" in ad["ai"]["prompt"] and "Маникюр в центре города" not in ad["ai"]["prompt"]
 
 
+def test_a_drawn_banner_is_redrawn_with_the_renamed_title_not_the_old_one(monkeypatch):
+    monkeypatch.setenv("FAL_KEY", "fal-test")
+    fakes = Fakes(fal_done=True)
+    with TestClient(app) as http:
+        bid = setup(http)
+        base = f"/api/businesses/{bid}"
+        upload(http, base, "work")
+        added = http.post(f"{base}/creatives/texts", json={"title": "Маникюр в центре города", "body": "Запишитесь онлайн"}).json()
+        http.put(f"{base}/creatives/{added['id']}", json={"status": "approved"})
+        ads = lambda: http.get(f"{base}/creatives/ads").json()["ads"]
+        first = next(a for a in ads() if a["title"] == "Маникюр в центре города")
+        _draw(http, f"{base}/creatives", fakes, first)                                                 # баннер со старым заголовком уже нарисован
+        assert http.put(f"{base}/creatives/{added['id']}", json={"title": "Маникюр рядом с метро", "body": "Запишитесь онлайн"}).status_code == 200
+        renamed = next(a for a in ads() if a["title"] == "Маникюр рядом с метро")                      # номер объявления мог сдвинуться: рисуем по новому
+        before = len(fakes.requests)
+        _draw(http, f"{base}/creatives", fakes, renamed)
+        sent = [b.decode(errors="ignore") for h, _, b in fakes.requests[before:] if h == "queue.fal.run"]
+        assert sent and all("Маникюр рядом с метро" in p and "Маникюр в центре города" not in p for p in sent)
+
+
 def test_idea_can_be_taken_off_the_ads(monkeypatch):
     monkeypatch.setenv("FAL_KEY", "fal-test")
     fakes = Fakes(fal_done=True)

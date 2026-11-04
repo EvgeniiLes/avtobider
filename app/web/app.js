@@ -954,17 +954,26 @@ function adEditor(a) {
   const changed = () => { saveBtn.hidden = titleIn.value === a.title && textIn.value === a.text; };
   titleIn.addEventListener("input", changed);
   textIn.addEventListener("input", changed);
-  saveBtn.addEventListener("click", async () => {
+  // Сохраняет правку заголовка и текста. Возвращает номер объявления после сохранения (он может сдвинуться), null при ошибке.
+  // Все кнопки редактора (нарисовать, другая подача, другой текст) вызывают это первым делом: иначе несохранённая правка теряется, и рисуется прежний текст.
+  const commitText = async () => {
+    if (titleIn.value === a.title && textIn.value === a.text) return a.index;
     saveBtn.disabled = true;
     let id = a.creative_id;
     if (!id) {   // шаблонный текст сначала сохраняем как свой
       const added = await creativeCall("POST", "/texts", { title: a.title, body: a.text });
-      if (!added.ok) { say(errorText(added), "err"); saveBtn.disabled = false; return; }
+      if (!added.ok) { say(errorText(added), "err"); saveBtn.disabled = false; return null; }
       id = added.data.id;
     }
     const r = await creativeCall("PUT", `/${id}`, { title: titleIn.value, body: textIn.value, status: "approved" });
-    if (!r.ok) { say(errorText(r), "err"); saveBtn.disabled = false; return; }
+    if (!r.ok) { say(errorText(r), "err"); saveBtn.disabled = false; return null; }
     selectedAd = `${r.data.title}\u0000${r.data.body}`;
+    await loadAds();
+    const saved = lastAds.find((x) => adKey(x) === selectedAd);
+    return saved ? saved.index : null;
+  };
+  saveBtn.addEventListener("click", async () => {
+    if (await commitText() === null) return;
     say("Текст сохранён. Баннер к новому тексту нужно нарисовать заново.");
     await loadCreatives();
   });
@@ -976,7 +985,9 @@ function adEditor(a) {
     const b = el("button", { type: "button", className: "photo-pick-item" + (p.id === a.photo_id && !a.no_photo ? " sel" : ""), title: p.label }, el("img", { src: p.url, alt: p.label }));
     b.addEventListener("click", async () => {
       if (p.id === a.photo_id) return;
-      const r = await creativeCall("PUT", `/ads/${a.index}/settings`, { asset_id: p.id });
+      const index = await commitText();
+      if (index === null) return;
+      const r = await creativeCall("PUT", `/ads/${index}/settings`, { asset_id: p.id });
       if (!r.ok) { say(errorText(r), "err"); return; }
       await reload();
     });
@@ -986,7 +997,9 @@ function adEditor(a) {
     const none = el("button", { type: "button", className: "photo-pick-item none" + (a.no_photo ? " sel" : ""), title: "Без фото: нарисовать с нуля" }, el("span", { textContent: "Без фото" }));
     none.addEventListener("click", async () => {
       if (a.no_photo) return;
-      const r = await creativeCall("PUT", `/ads/${a.index}/settings`, { no_photo: true });
+      const index = await commitText();
+      if (index === null) return;
+      const r = await creativeCall("PUT", `/ads/${index}/settings`, { no_photo: true });
       if (!r.ok) { say(errorText(r), "err"); return; }
       await reload();
     });
@@ -1002,7 +1015,9 @@ function adEditor(a) {
     const c = el("button", { type: "button", className: "chip" + (selected ? " sel" : ""), textContent: label, title: label });
     c.addEventListener("click", async () => {
       if (selected) return;
-      const r = await creativeCall("PUT", `/ads/${a.index}/settings`, payload);
+      const index = await commitText();   // несохранённая правка текста не должна пропасть при смене подачи
+      if (index === null) return;
+      const r = await creativeCall("PUT", `/ads/${index}/settings`, payload);
       if (!r.ok) { say(errorText(r), "err"); return; }
       await reload();
     });
@@ -1020,15 +1035,20 @@ function adEditor(a) {
   const draw = el("button", { textContent: `${ready ? "Нарисовать заново" : "Нарисовать баннер"} · ${usd(price)}` });
   draw.disabled = working;
   draw.addEventListener("click", async () => {
-    const r = await creativeCall("POST", `/ads/${a.index}/ai-banner`);
-    if (!r.ok) { say(errorText(r), "err"); return; }
+    draw.disabled = true;
+    const index = await commitText();   // правка заголовка, которую не успели сохранить, попадает на баннер
+    if (index === null) { draw.disabled = false; return; }
+    const r = await creativeCall("POST", `/ads/${index}/ai-banner`);
+    if (!r.ok) { draw.disabled = false; say(errorText(r), "err"); return; }
     if (r.data.varied) say(`Пробуем другую подачу: ${r.data.varied}.`);   // повтор без правок берёт следующую подачу
     await loadCreatives();
   });
   const again = el("button", { className: "secondary", textContent: "Другой текст" });
   again.addEventListener("click", async () => {
     again.disabled = true; again.textContent = "Пишем…";
-    const r = await creativeCall("POST", `/ads/${a.index}/rewrite`);
+    const index = await commitText();
+    if (index === null) { again.disabled = false; again.textContent = "Другой текст"; return; }
+    const r = await creativeCall("POST", `/ads/${index}/rewrite`);
     if (!r.ok) { say(errorText(r), "err"); again.disabled = false; again.textContent = "Другой текст"; return; }
     selectedAd = `${r.data.title}\u0000${r.data.text}`;
     say(`Новый текст: «${r.data.title}». Баннер к нему нужно нарисовать заново.`);
@@ -1063,7 +1083,10 @@ function adEditor(a) {
     const go = el("button", { className: "small", textContent: "Нарисовать по этому промпту" });
     go.disabled = working;
     go.addEventListener("click", async () => {
-      const r = await creativeCall("POST", `/ads/${a.index}/ai-banner`, { prompt: area.value });
+      const prompt = titleIn.value !== a.title ? area.value.split(a.title).join(titleIn.value) : area.value;   // промпт ещё со старым заголовком: подставляем новый
+      const index = await commitText();
+      if (index === null) return;
+      const r = await creativeCall("POST", `/ads/${index}/ai-banner`, { prompt });
       if (!r.ok) { say(errorText(r), "err"); return; }
       await loadCreatives();
     });
