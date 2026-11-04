@@ -590,6 +590,10 @@ def map_ad_state(ad: dict, campaign_state: str) -> str:
     return campaign_state if campaign_state != "active" else "paused"   # выключено сайтом-монитором или похожей причиной
 
 
+FUNDS_NOTE = ("Объявления одобрены, но показ выключен: скорее всего, на счёте в Директе нет денег. Пополните счёт в кабинете "
+              "(direct.yandex.ru, кнопка «Пополнить» слева): сервис сам не принимает платежи.")
+
+
 async def sync_units(client: DirectClient, conn: sqlite3.Connection, biz, today: str, days: int = 30) -> dict:
     """Подтягивает из Директа состояния кампании и объявлений и статистику по объявлениям."""
     units = conn.execute(
@@ -630,6 +634,13 @@ async def sync_units(client: DirectClient, conn: sqlite3.Connection, biz, today:
             conn.execute("UPDATE campaigns SET state = 'paused' WHERE business_id = ? AND external_id = ?", (biz["id"], cid))
             continue
         cstate = map_state(c.get("State", ""), c.get("Status", ""), c.get("StatusPayment", ""))
+        started = conn.execute("SELECT created_day FROM campaigns WHERE business_id = ? AND external_id = ?", (biz["id"], cid)).fetchone()
+        # Директ не отдаёт через API баланс и не пишет «Средства на счёте закончились». Но кампания, которую одобрили, у которой наступила дата старта,
+        # а владелец её не останавливал (тогда было бы SUSPENDED), выключена почти всегда из-за пустого счёта
+        no_funds = (cstate == "paused" and c.get("State") == "OFF" and c.get("Status") == "ACCEPTED" and biz["status"] != "stopped"
+                    and started is not None and started["created_day"] < today)
+        if no_funds:
+            cstate = "unpaid"
         halted = cstate == "active" and biz["status"] == "stopped"
         if halted:
             # стоп-кран нажат: кампанию, которую Яндекс только что одобрил или владелец оплатил, не пускаем в показ
@@ -647,6 +658,8 @@ async def sync_units(client: DirectClient, conn: sqlite3.Connection, biz, today:
             else:
                 state = "paused" if halted else map_ad_state(ad, cstate)
                 note = ad.get("StatusClarification") or c.get("StatusClarification") or ""
+                if state == "unpaid" and c.get("StatusPayment") != "DISALLOWED":
+                    note = f"{FUNDS_NOTE} {note}".strip()
                 if marking_note and ad["Id"] in missing:
                     note = f"{marking_note} {note}".strip()
                 elif advertiser_note:

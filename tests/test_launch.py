@@ -318,6 +318,27 @@ def test_sync_follows_moderation_payment_and_loads_stats(isolated):
         assert ov["totals"]["spend"] == 600.0 and ov["sync"]["at"] and ov["sync"]["error"] == ""
 
 
+def test_an_approved_campaign_that_is_off_after_its_start_is_shown_as_waiting_for_money(isolated):
+    """Директ не отдаёт баланс: одобренная кампания, выключенная после даты старта, значит пустой счёт, и сервис говорит об этом."""
+    fake = FakeDirect()
+    with TestClient(app) as http:
+        bid = launched(http, fake, isolated)
+        conn = connect(isolated)
+        biz = lambda: conn.execute("SELECT * FROM businesses WHERE id = ?", (bid,)).fetchone()
+        today = date.today().isoformat()
+        fake.accept_all(state="OFF", payment="ALLOWED")                      # одобрена и оплата разрешена, но не включена
+        sync_and_run(conn, biz(), today, transport=fake.transport)
+        assert {r["state"] for r in conn.execute("SELECT state FROM ad_units")} == {"paused"}   # день старта ещё не наступил: выключена по плану
+        sync_and_run(conn, biz(), day_add(today, 1), transport=fake.transport)
+        states = conn.execute("SELECT state, status_note FROM ad_units").fetchall()
+        assert {r["state"] for r in states} == {"unpaid"} and all("нет денег" in r["status_note"] and "Пополните" in r["status_note"] for r in states)
+        for c in fake.campaigns.values():
+            c["State"] = "ON"
+        sync_and_run(conn, biz(), day_add(today, 1), transport=fake.transport)
+        assert {r["state"] for r in conn.execute("SELECT state FROM ad_units")} == {"active"}
+        conn.close()
+
+
 def test_without_metrika_engine_only_guards_the_budget(isolated):
     """Обращений нет: тратить деньги слепо нельзя, но и останавливать хорошее по ошибке тоже."""
     fake = FakeDirect()
