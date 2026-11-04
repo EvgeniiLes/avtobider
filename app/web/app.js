@@ -728,7 +728,7 @@ async function saveBudget() {
 async function loadAds() {
   const result = await creativeCall("GET", "/ads");
   if (!result.ok) return;
-  const { ads, count, advised, weekly, site, has_maps, has_images, rejected_photos, photos, styles, ref_extra } = result.data;
+  const { ads, count, advised, per_group, groups, weekly, site, has_maps, has_images, rejected_photos, photos, styles, ref_extra } = result.data;
   lastAds = ads;
   lastPhotos = photos || [];
   lastStyles = styles || { looks: [], refs: [] };
@@ -742,17 +742,20 @@ async function loadAds() {
   } else if (!crStep) setStep("ideas");
 
   const target = site || (has_maps ? "вашу страницу в Яндекс Картах" : "");
-  const extra = count > lastAdvised && lastAdvised ? ` Бюджету подходит ${lastAdvised}: чем больше объявлений, тем меньше кликов достанется каждому и тем дольше сравнение.` : "";
+  const extra = per_group > lastAdvised && lastAdvised ? ` Бюджету группы подходит ${lastAdvised}: чем больше объявлений в группе, тем меньше кликов достанется каждому и тем дольше сравнение.` : "";
+  const plan = groups > 1
+    ? `будет создано ${groups} кампании, по одной на группу объявлений (в группе до трёх): ${adsPhrase(count)}, бюджет ${weekly} ₽ в неделю на каждую группу, всего ${weekly * groups} ₽`
+    : `будет создана одна кампания: ${adsPhrase(count)} и бюджет ${weekly} ₽ в неделю`;
   $("ads-summary").textContent = !count
     ? "Бюджет слишком мал для запуска: увеличьте его на странице «Бизнес». Так будут выглядеть объявления."
     : target
-      ? `При запуске будет создана одна кампания: ${adsPhrase(count)} и бюджет ${weekly} ₽ в неделю на все. В показ пойдут первые ${count} из списка, остальные запасные.${extra} Объявления ведут на ${target}.`
-      : `При запуске будет создана одна кампания: ${adsPhrase(count)} и бюджет ${weekly} ₽ в неделю на все. Чтобы запустить, укажите сайт или ссылку на Яндекс Карты на странице «Бизнес»: объявлению нужно куда вести.`;
+      ? `При запуске ${plan}. В показ пойдут первые ${count} из списка, остальные запасные.${extra} Объявления ведут на ${target}.`
+      : `При запуске ${plan}. Чтобы запустить, укажите сайт или ссылку на Яндекс Карты на странице «Бизнес»: объявлению нужно куда вести.`;
   const input = $("budget-input");
   if (document.activeElement !== input) input.value = result.data.budget || "";   // пока человек печатает, поле не трогаем
   $("budget-hint").textContent = result.data.launched
-    ? "Больше этой суммы в неделю сервис не потратит. Лимит самой кампании в Директе он подстраивает сам по результатам."
-    : count ? `Часть денег остаётся в запасе для роста: на кампанию уйдёт ${weekly} ₽ в неделю. Изменить можно и после запуска.`
+    ? `Это бюджет одной группы объявлений (до трёх объявлений): у каждой группы своя кампания и свой лимит, больше сервис в неделю на неё не потратит. Новая группа получит ${weekly} ₽ в неделю. Лимит уже идущей кампании меняется на странице «Статистика», кнопкой «Изменить бюджет».`
+    : count ? `Часть денег остаётся в запасе для роста: на группу уйдёт ${weekly} ₽ в неделю. Изменить можно и после запуска.`
       : "Этого мало для запуска: Яндекс требует минимум на кампанию. Увеличьте бюджет.";
   const note = $("ads-note");
   note.hidden = has_images;
@@ -2063,7 +2066,7 @@ async function loadStats() {
   }
 
   $("units-hint").hidden = data.units.length === 0;
-  $("campaign-groups").replaceChildren(...(data.campaigns || []).map((g) => campaignGroup(g, (data.campaigns || []).length > 1)));
+  $("campaign-groups").replaceChildren(...(data.campaigns || []).map((g, i) => campaignGroup(g, (data.campaigns || []).length > 1, i + 1)));
 }
 
 // Один запуск рекламы = одна кампания в Директе: у неё общий бюджет, стратегия и свои объявления
@@ -2076,9 +2079,10 @@ function campaignHint(g) {
   return parts.join(" ");
 }
 
-function campaignGroup(g, several) {
+function campaignGroup(g, several, number) {
   const started = g.created_day ? new Date(g.created_day).toLocaleDateString("ru-RU") : "";
-  const title = el("h3", { textContent: started ? `Запуск от ${started}` : "Кампания" });
+  const what = started ? `Запуск от ${started}` : "Кампания";
+  const title = el("h3", { textContent: several ? `Группа ${number}: ${what.toLowerCase()}` : what });
   const head = el("div", { className: "camp-head" }, title, el("span", { className: `badge ${g.state}`, textContent: g.state_label }));
   const group = el("section", { className: "camp-group" }, head);
   if (several) head.append(el("span", { className: "camp-total", textContent: `Расход ${money(g.spend)} · обращений ${g.leads}` }));
@@ -2116,7 +2120,7 @@ function campaignGroup(g, several) {
 
   const shared = g.editable;   // в общей кампании у объявления своего бюджета нет
   const cells = (names) => names.map((n) => el("th", { textContent: n }));
-  const head2 = el("tr", {}, ...cells(["Объявление", "Оценка", ...(shared ? [] : ["Бюджет в неделю"]), "Расход", "Обращения", "Клиенты", "Цена клиента"]));
+  const head2 = el("tr", {}, ...cells(["Объявление", "", "Оценка", ...(shared ? [] : ["Бюджет в неделю"]), "Расход", "Переходы", "Цена клика", "Обращения", "Клиенты", "Цена клиента"]));
   const body = el("tbody");
   for (const u of g.units) {
     const name = el("td", { textContent: u.title });
@@ -2125,8 +2129,21 @@ function campaignGroup(g, several) {
     else if (u.variant) name.append(el("span", { className: "sub", textContent: "Второй вариант для сравнения" }));
     const cell = (v) => el("td", { textContent: v });
     const badge = el("span", { className: `badge ${u.verdict_code}`, textContent: u.verdict });
-    body.append(el("tr", { className: u.active ? "" : "off" }, name, el("td", {}, badge), ...(shared ? [] : [cell(money(u.weekly_budget))]),
-      cell(money(u.spend)), cell(String(u.leads)), cell(String(u.clients)), cell(money(u.cost_per_client))));
+    const pauseCell = el("td");
+    if (u.can_pause || u.can_resume) {
+      const button = el("button", { type: "button", className: "small secondary", textContent: u.can_resume ? "Включить" : "Пауза" });
+      button.addEventListener("click", async () => {
+        button.disabled = true;
+        const result = await api("PUT", `/api/businesses/${currentBusiness.id}/units/${u.id}/pause`, { paused: !u.can_resume });
+        button.disabled = false;
+        if (!result.ok) { say(errorText(result), "err"); return; }
+        say(u.can_resume ? `«${u.title}» включено.` : `«${u.title}» на паузе.`);
+        await loadStats();
+      });
+      pauseCell.append(button);
+    }
+    body.append(el("tr", { className: u.active ? "" : "off" }, name, pauseCell, el("td", {}, badge), ...(shared ? [] : [cell(money(u.weekly_budget))]),
+      cell(money(u.spend)), cell(String(u.clicks)), cell(money(u.cost_per_click)), cell(String(u.leads)), cell(String(u.clients)), cell(money(u.cost_per_client))));
   }
   group.append(el("div", { className: "table-wrap" }, el("table", {}, el("thead", {}, head2), body)));
   return group;
@@ -2142,8 +2159,8 @@ async function openLaunch() {
   launchAdding = p.adding;
   $("launch-go").textContent = launchAdding ? "Добавить в рекламу и отправить на проверку" : "Создать и отправить на проверку";
   $("launch-summary").textContent = launchAdding
-    ? `Реклама уже идёт, новые объявления встанут в ту же кампанию: бюджет (${p.weekly} ₽ в неделю), запросы и районы не меняются. ${p.variants.length ? `Будет добавлено: ${adsPhrase(p.variants.length)}.` : "Новых объявлений нет: все объявления из списка «Пойдут в рекламу» уже в кампании. Добавьте новый вариант на вкладке «Креативы» или увеличьте число объявлений в показе."}`
-    : `Кабинет: ${p.account}. Где показывать: ${p.city}${p.districts.length ? (p.by_district ? `, только районы: ${p.districts.join(", ")}` : `, районы в текстах и фразах: ${p.districts.join(", ")}`) : ""}. Одна кампания: ${adsPhrase(p.count)} с общим бюджетом ${p.weekly} ₽ в неделю. Ведёт на: ${p.link}${p.tagged ? " (к ссылке добавятся метки utm: в Метрике будет видно, с какого объявления пришёл человек)" : ""}.`;
+    ? `Реклама уже идёт. Новые объявления встанут в последнюю группу, пока в ней есть место (до трёх), остальные пойдут в новую кампанию: бюджет на неё ${p.weekly} ₽ в неделю${p.groups ? `, новых кампаний ${p.groups}, всего ${p.total} ₽ в неделю` : ""}. Запросы и районы те же. ${p.variants.length ? `Будет добавлено: ${adsPhrase(p.variants.length)}.` : "Новых объявлений нет: все объявления из списка «Пойдут в рекламу» уже в рекламе. Добавьте новый вариант на вкладке «Креативы» или увеличьте число объявлений в показе."}`
+    : `Кабинет: ${p.account}. Где показывать: ${p.city}${p.districts.length ? (p.by_district ? `, только районы: ${p.districts.join(", ")}` : `, районы в текстах и фразах: ${p.districts.join(", ")}`) : ""}. ${p.groups === 1 ? `Одна кампания: ${adsPhrase(p.count)} с бюджетом ${p.weekly} ₽ в неделю` : `Кампаний ${p.groups} (по группам объявлений, в группе до трёх), бюджет у каждой свой, ${p.weekly} ₽ в неделю, всего ${p.total} ₽ в неделю: ${adsPhrase(p.count)}`}. Ведёт на: ${p.link}${p.tagged ? " (к ссылке добавятся метки utm: в Метрике будет видно, с какого объявления пришёл человек)" : ""}.`;
   $("launch-variants").replaceChildren(...p.variants.map((v) =>
     el("li", {}, el("div", { className: "t", textContent: v.title }), el("div", { className: "hint", textContent: v.text }))));
   $("launch-warnings").replaceChildren(...p.warnings.map((w) => el("li", { textContent: w })));

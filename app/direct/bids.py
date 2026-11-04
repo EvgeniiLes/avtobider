@@ -62,9 +62,30 @@ async def apply_bids(client: DirectClient, conn: sqlite3.Connection, biz, profil
     await client.delete_adjustments([e["id"] for e in existing])   # набор пересекающихся срезов Директ не примет, поэтому сначала убираем старые
     await client.add_demographic_adjustments(campaign_id, plan)
     updated = {k: v for k, v in profile.items() if k not in ("bids_off", "bids_error")}
-    updated["bids"] = {"day": today or date.today().isoformat(), "slices": [{"label": label(s), "percent": s["percent"]} for s in plan]}
+    shown = [{"label": label(s), "percent": s["percent"]} for s in plan]
+    before = profile.get("bids")
+    campaigns = set(before.get("campaigns", [])) if before and before["slices"] == shown else set()   # те же срезы уже стоят на других кампаниях бизнеса
+    updated["bids"] = {"day": today or date.today().isoformat(), "slices": shown, "campaigns": sorted(campaigns | {campaign_id})}
     aud.save(conn, biz["id"], updated)
     return updated
+
+
+def campaign_ids(conn: sqlite3.Connection, business_id: int) -> list[int]:
+    """Кампании бизнеса в Директе: у каждой группы объявлений своя кампания, и корректировки нужны на каждой."""
+    return [r["external_campaign_id"] for r in conn.execute(
+        "SELECT DISTINCT external_campaign_id FROM ad_units WHERE business_id = ? AND external_campaign_id IS NOT NULL ORDER BY external_campaign_id", (business_id,))]
+
+
+async def apply_bids_all(client: DirectClient, conn: sqlite3.Connection, biz, profile: dict, today: str | None = None) -> dict:
+    for campaign_id in campaign_ids(conn, biz["id"]):
+        profile = await apply_bids(client, conn, biz, profile, campaign_id, today)
+    return profile
+
+
+async def clear_bids_all(client: DirectClient, conn: sqlite3.Connection, biz, profile: dict) -> dict:
+    for campaign_id in campaign_ids(conn, biz["id"]):
+        profile = await clear_bids(client, conn, biz, profile, campaign_id)
+    return profile
 
 
 async def clear_bids(client: DirectClient, conn: sqlite3.Connection, biz, profile: dict, campaign_id: int) -> dict:
@@ -83,12 +104,15 @@ async def ensure_bids(client: DirectClient, conn: sqlite3.Connection, business_i
     profile = aud.load(biz)
     if profile is None or profile.get("bids_off"):
         return
-    row = conn.execute("SELECT external_campaign_id FROM ad_units WHERE business_id = ? AND external_campaign_id IS NOT NULL LIMIT 1", (business_id,)).fetchone()
+    ids = campaign_ids(conn, business_id)
     plan = slices(profile)
     applied = profile.get("bids")
-    if row is None or not plan or (applied and applied["slices"] == [{"label": label(s), "percent": s["percent"]} for s in plan]):
+    same = bool(applied) and applied["slices"] == [{"label": label(s), "percent": s["percent"]} for s in plan]
+    todo = [c for c in ids if c not in set(applied.get("campaigns", []))] if same else ids   # срезы не менялись: ставим только на кампании, где их ещё нет
+    if not ids or not plan or not todo:
         return
     try:
-        await apply_bids(client, conn, biz, profile, row["external_campaign_id"], today)
+        for campaign_id in todo:
+            profile = await apply_bids(client, conn, biz, profile, campaign_id, today)
     except DirectError as e:
         aud.save(conn, business_id, {**profile, "bids_error": e.full_message()})

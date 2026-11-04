@@ -129,7 +129,7 @@ def put_bids(business_id: int, user: sqlite3.Row = Depends(current_user), conn: 
         raise HTTPException(400, detail={"message": "Сначала составьте профиль аудитории."})
     if not bids.slices(profile):
         raise HTTPException(400, detail={"message": "В профиле не выбраны ни пол, ни возраст: корректировать ставки не к чему."})
-    updated = _with_client(conn, biz, factory, lambda client, campaign_id: bids.apply_bids(client, conn, biz, profile, campaign_id))
+    updated = _with_client(conn, biz, factory, lambda client, _campaign_id: bids.apply_bids_all(client, conn, biz, profile))
     return _full(conn, biz, updated)
 
 
@@ -139,5 +139,5 @@ def remove_bids(business_id: int, user: sqlite3.Row = Depends(current_user), con
     profile = aud.load(biz)
     if profile is None:
         raise HTTPException(400, detail={"message": "Профиля пока нет."})
-    updated = _with_client(conn, biz, factory, lambda client, campaign_id: bids.clear_bids(client, conn, biz, profile, campaign_id))
+    updated = _with_client(conn, biz, factory, lambda client, _campaign_id: bids.clear_bids_all(client, conn, biz, profile))
     return _full(conn, biz, updated)

@@ -301,6 +301,18 @@ def launched_with_profile(http, fake, db_path, monkeypatch):
     return bid
 
 
+def test_a_new_campaign_for_a_new_group_gets_the_same_bids(isolated, monkeypatch):
+    fake = FakeDirect()
+    with TestClient(app) as http:
+        bid = launched_with_profile(http, fake, isolated, monkeypatch)
+        assert len(fake.campaigns) == 1 and len(fake.bid_modifiers) == 12
+        assert http.put(f"/api/businesses/{bid}/creatives/ads/live", json={"count": 4}).status_code == 200
+        assert http.post(f"/api/businesses/{bid}/launch", json={"marking_confirmed": True}).status_code == 200   # четвёртое объявление: новая группа, своя кампания
+        assert len(fake.campaigns) == 2
+        assert {m["campaign"] for m in fake.bid_modifiers.values()} == set(fake.campaigns) and len(fake.bid_modifiers) == 24   # корректировки стоят на обеих кампаниях
+        assert http.get(f"/api/businesses/{bid}/audience").json()["bids"]["stale"] is False
+
+
 def test_bids_are_put_replaced_and_removed_in_the_cabinet(isolated, monkeypatch):
     fake = FakeDirect()
     with TestClient(app) as http:

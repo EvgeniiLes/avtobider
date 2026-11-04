@@ -376,7 +376,9 @@ def test_the_owner_can_take_fewer_or_more_ads_into_the_campaign_than_the_budget_
         http.put(f"{base}/ads/live", json={"count": 5})
         biz = conn.execute("SELECT * FROM businesses WHERE id = ?", (bid,)).fetchone()
         plan = plan_launch(biz, 213, custom=text_candidates(conn, biz))
-        assert plan.count == 5 and any("бюджету подходит 3" in w for w in plan.warnings)
+        from app.direct.launch import group_sizes
+        assert plan.count == 5 and group_sizes(5) == [3, 2]
+        assert not any("подходит" in w for w in plan.warnings)                  # бюджет задан на группу, а в каждой группе не больше трёх
         conn.close()
         http.put(f"{base}/ads/live", json={"count": None})                  # вернуть число по бюджету
         assert http.get(f"{base}/ads").json()["count"] == 3

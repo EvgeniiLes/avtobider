@@ -165,6 +165,10 @@ class FakeDirect:
             if method == "delete":
                 for i in ids():
                     self.campaigns.pop(i, None)
+                    for gid in [g for g, c in self.groups.items() if c == i]:   # как в Директе: вместе с кампанией уходят её группы и объявления
+                        self.groups.pop(gid)
+                    for aid in [a for a, ad in self.ads.items() if ad["campaign"] == i]:
+                        self.ads.pop(aid)
                 return ok({"DeleteResults": [{"Id": i} for i in ids()]})
         if service == "bidmodifiers":
             if method == "get":

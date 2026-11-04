@@ -165,7 +165,8 @@ async def apply_changes(client: DirectClient, conn: sqlite3.Connection, biz, pro
     units = conn.execute("SELECT DISTINCT external_campaign_id, external_group_id FROM ad_units WHERE business_id = ? AND external_campaign_id IS NOT NULL", (biz["id"],)).fetchall()
     if not units:
         raise QueriesError("Реклама для этого бизнеса ещё не создана, менять пока нечего.")
-    campaign_id, group_id = units[0]["external_campaign_id"], units[0]["external_group_id"]
+    group_id = units[0]["external_group_id"]
+    campaign_ids = sorted({u["external_campaign_id"] for u in units})   # у каждой группы объявлений своя кампания: минус-слова ставим на все
     skipped = []
     have_minus = set(profile.get("negatives", []))
     new_minus = []
@@ -187,12 +188,13 @@ async def apply_changes(client: DirectClient, conn: sqlite3.Connection, biz, pro
     try:
         if new_minus:
             updated["negatives"] = (list(profile.get("negatives", [])) + new_minus)[:aud.MAX_NEGATIVES]
-            await client.set_negative_keywords(campaign_id, aud.effective_negatives(biz, updated))
+            for campaign_id in campaign_ids:
+                await client.set_negative_keywords(campaign_id, aud.effective_negatives(biz, updated))
             done["minus"] = new_minus
         if new_keys:
             result = await client.add_keywords(group_id, new_keys, None)
             for other in sorted({u["external_group_id"] for u in units if u["external_group_id"] and u["external_group_id"] != group_id}):
-                await client.add_keywords(other, new_keys, None)   # объявлений больше трёх: они в нескольких группах, и запросы у групп одни
+                await client.add_keywords(other, new_keys, None)   # объявлений больше трёх: они в нескольких группах и кампаниях, и запросы у них одни
             refused = {r["phrase"]: r["reason"] for r in result["rejected"]}
             done["keywords"] = [k for k in new_keys if k not in refused]
             skipped += [{"item": p, "reason": reason} for p, reason in refused.items()]

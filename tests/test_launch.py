@@ -171,15 +171,18 @@ def test_a_new_ad_can_be_added_to_the_running_campaign(isolated):
         assert plan["adding"] and len(plan["variants"]) == 1
         r = http.post(f"/api/businesses/{bid}/launch", json={"marking_confirmed": True})
         assert r.status_code == 200 and r.json()["created"] == 1 and "Добавили" in r.json()["message"]
-        assert len(fake.campaigns) == 1 and campaign["Limit"] == limit                # кампания и её лимит те же
-        assert len(fake.ads) == 4 and {a["campaign"] for a in fake.ads.values()} == {cid}
-        assert sum(1 for a in fake.ads.values() if a["group"] == group) == 3 and len({a["group"] for a in fake.ads.values()}) == 2   # в группе больше трёх нельзя: четвёртое в новой группе
+        assert campaign["Limit"] == limit and len(fake.campaigns) == 2                # первая кампания и её лимит те же; на новую группу своя кампания
+        second_cid = next(c for c in fake.campaigns if c != cid)
+        assert fake.campaigns[second_cid]["Limit"] == limit                           # и бюджет у неё такой же: он задан на группу
+        assert len(fake.ads) == 4 and sum(1 for a in fake.ads.values() if a["group"] == group) == 3   # в группе больше трёх нельзя: четвёртое в новой кампании
         second = next(g for g in {a["group"] for a in fake.ads.values()} if g != group)
-        assert fake.group_regions[second] == fake.group_regions[group]
+        assert fake.groups[second] == second_cid and fake.group_regions[second] == fake.group_regions[group]
         assert {k["keyword"] for k in fake.keywords if k["group"] == second} == {k["keyword"] for k in fake.keywords if k["group"] == group}   # те же запросы и автотаргетинг
-        units = rows(isolated, "SELECT title, state, external_ad_id FROM ad_units ORDER BY id")
+        assert fake.negatives[second_cid] == fake.negatives[cid]
+        units = rows(isolated, "SELECT title, state, external_ad_id, campaign_id FROM ad_units ORDER BY id")
         assert len(units) == 4 and units[3]["state"] == "moderation" and int(units[3]["external_ad_id"]) in fake.ads
         assert len({u["title"] for u in units}) == 4
+        assert len(rows(isolated, "SELECT id FROM campaigns")) == 2 and units[3]["campaign_id"] != units[0]["campaign_id"]
         assert http.get(f"/api/businesses/{bid}/launch/preview").json()["variants"] == []
         assert http.post(f"/api/businesses/{bid}/launch", json={"marking_confirmed": True}).status_code == 400
 
@@ -194,21 +197,30 @@ def test_a_new_ad_that_direct_refuses_is_not_left_in_the_cabinet(isolated):
         r = http.post(f"/api/businesses/{bid}/launch", json={"marking_confirmed": True})
         assert r.status_code == 400 and len(fake.ads) == 3                            # новые, которые успели создаться, убраны
         assert len(rows(isolated, "SELECT id FROM ad_units")) == 3
-        assert len(fake.groups) == 1                                                  # и новая группа тоже
+        assert len(fake.groups) == 1 and len(fake.campaigns) == 1                     # и новая кампания с группой тоже
+        assert len(rows(isolated, "SELECT id FROM campaigns")) == 1
 
 
-def test_more_than_three_ads_at_launch_go_into_several_groups_with_the_same_queries(isolated):
+def test_more_than_three_ads_at_launch_go_into_several_campaigns_each_with_its_own_budget(isolated):
     fake = FakeDirect()
     with TestClient(app) as http:
         bid = setup(http, fake, isolated)
         assert http.put(f"/api/businesses/{bid}/creatives/ads/live", json={"count": 5}).status_code == 200
+        preview = http.get(f"/api/businesses/{bid}/launch/preview").json()
+        assert preview["groups"] == 2 and preview["total"] == preview["weekly"] * 2   # бюджет на каждую группу, всего вдвое больше
         r = http.post(f"/api/businesses/{bid}/launch", json={"marking_confirmed": True})
         assert r.status_code == 200 and r.json()["created"] == 5 and len(fake.ads) == 5
+        assert len(fake.campaigns) == 2 and len({c["Limit"] for c in fake.campaigns.values()}) == 1   # две кампании, у каждой свой лимит
         sizes = sorted(sum(1 for a in fake.ads.values() if a["group"] == g) for g in fake.groups)
         assert sizes == [2, 3]
         first, second = list(fake.groups)
         assert {k["keyword"] for k in fake.keywords if k["group"] == first} == {k["keyword"] for k in fake.keywords if k["group"] == second}
         assert len({row["external_group_id"] for row in rows(isolated, "SELECT external_group_id FROM ad_units")}) == 2
+        assert len(rows(isolated, "SELECT id FROM campaigns")) == 2
+        ov = http.get(f"/api/businesses/{bid}/overview").json()
+        assert len(ov["campaigns"]) == 2 and all(c["editable"] for c in ov["campaigns"])
+        biz_budget = rows(isolated, "SELECT weekly_budget_micro FROM businesses")[0]["weekly_budget_micro"]
+        assert ov["budget"]["weekly"] == biz_budget * 2 // MICRO                       # на счётчике бюджет всей рекламы: группа × число групп
 
 
 def test_launch_adds_banners_from_uploaded_photos_and_logo(isolated):
@@ -385,6 +397,38 @@ def test_stop_all_on_real_ads_works_in_direct_and_holds_for_later_approvals(isol
         assert http.post(f"/api/businesses/{bid}/resume-all").json()["resumed"] == 3
         assert {c["State"] for c in fake.campaigns.values()} == {"ON"} and not any(a["suspended"] for a in fake.ads.values())
         assert biz()["status"] == "running"
+        conn.close()
+
+
+def test_the_owner_can_pause_and_resume_one_ad(isolated, monkeypatch):
+    import app.direct.client as client_module
+    fake = FakeDirect()
+    monkeypatch.setattr(client_module, "DEFAULT_TRANSPORT", fake.transport)
+    with TestClient(app) as http:
+        bid = launched(http, fake, isolated)
+        fake.accept_all(state="ON", payment="ALLOWED")
+        conn = connect(isolated)
+        sync_and_run(conn, conn.execute("SELECT * FROM businesses WHERE id = ?", (bid,)).fetchone(), transport=fake.transport)
+        first = http.get(f"/api/businesses/{bid}/overview").json()["units"][0]
+        assert first["can_pause"] and not first["can_resume"] and "cost_per_click" in first and "clicks" in first
+        ad_id = int(conn.execute("SELECT external_ad_id FROM ad_units WHERE id = ?", (first["id"],)).fetchone()[0])
+
+        assert http.put(f"/api/businesses/{bid}/units/{first['id']}/pause", json={"paused": True}).status_code == 200
+        assert fake.ads[ad_id]["suspended"] and {c["State"] for c in fake.campaigns.values()} == {"ON"}   # остальные два объявления продолжают показ
+        paused = http.get(f"/api/businesses/{bid}/overview").json()["units"][0]
+        assert paused["state"] == "paused" and paused["can_resume"] and not paused["can_pause"]
+        assert http.put(f"/api/businesses/{bid}/units/{first['id']}/pause", json={"paused": True}).status_code == 400   # уже на паузе
+        assert http.put(f"/api/businesses/{bid}/units/9999/pause", json={"paused": True}).status_code == 404
+
+        assert http.put(f"/api/businesses/{bid}/units/{first['id']}/pause", json={"paused": False}).status_code == 200
+        assert not fake.ads[ad_id]["suspended"]
+        assert http.put(f"/api/businesses/{bid}/units/{first['id']}/pause", json={"paused": False}).status_code == 400   # не на паузе
+        actions = [r["action"] for r in conn.execute("SELECT action FROM changes WHERE unit_id = ? ORDER BY id", (first["id"],))]
+        assert actions == ["pause", "resume"]                                         # обе правки в истории
+
+        http.post(f"/api/businesses/{bid}/stop-all")                                  # при стоп-кране по одному включать нельзя
+        stopped = http.put(f"/api/businesses/{bid}/units/{first['id']}/pause", json={"paused": False})
+        assert stopped.status_code == 400 and "стоп-кран" in stopped.json()["detail"]["message"]
         conn.close()
 
 

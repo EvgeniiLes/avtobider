@@ -1,7 +1,8 @@
 """Запуск рекламы бизнеса в Яндекс Директе: план, создание кампаний, отправка на проверку, синхронизация.
 
-Устройство: одна кампания с одним недельным лимитом, внутри одна группа с явными запросами (ключевые фразы из профиля
-аудитории и автотаргетинг с выбранными категориями, см. app/direct/audience.py) и 2-3 объявления-варианта. Варианты показываются в одних и тех же аукционах, так что сравнение честное, а ставки
+Устройство: каждая группа объявлений (до трёх) живёт в своей кампании со своим недельным лимитом: бюджет задаётся на группу, а не на всё сразу.
+Внутри кампании одна группа с явными запросами (ключевые фразы из профиля
+аудитории и автотаргетинг с выбранными категориями, см. app/direct/audience.py) и 1-3 объявления-варианта. Варианты одной группы показываются в одних и тех же аукционах, так что сравнение честное, а ставки
 подбирает сам Яндекс: сначала по кликам, а когда набирается 10 обращений в неделю, по обращениям (см. app/engine/cycle.py).
 Раньше на каждый вариант была своя кампания; на малом бюджете у такой кампании не набиралось данных ни для сравнения,
 ни для обучения стратегии Яндекса (ему нужно не меньше 10 конверсий в неделю на кампанию).
@@ -41,7 +42,7 @@ STATE_LABELS = {
 @dataclass
 class Plan:
     count: int            # сколько объявлений войдёт в кампанию
-    campaign_micro: int   # недельный лимит единственной кампании
+    campaign_micro: int   # недельный лимит одной кампании: он же бюджет одной группы объявлений (в каждой не больше трёх)
     variants: list[dict]
     region_id: int
     city: str
@@ -211,9 +212,10 @@ def plan_launch(biz, region_id: int | None, min_weekly_micro: int = MIN_WEEKLY, 
     if custom and own < min(count, 2):
         warnings.append("Одобрено мало своих вариантов. Для сравнения лучше одобрить хотя бы 2–3 на вкладке «Креативы».")
     advised = ads_for_budget(start_pool)
-    if count > advised:
-        warnings.append(f"Вы выбрали {plural(count, 'объявление', 'объявления', 'объявлений')}, а бюджету подходит {advised}: "
-                        "на каждое придётся меньше кликов, и сравнить варианты будет труднее.")
+    per_group = max(group_sizes(count))   # бюджет у каждой группы свой, поэтому и достаточность считаем на группу
+    if per_group > advised:
+        warnings.append(f"Вы выбрали {plural(count, 'объявление', 'объявления', 'объявлений')}: в группе их до {per_group}, а бюджету на группу подходит {advised}. "
+                        "На каждое придётся меньше кликов, и сравнить варианты будет труднее.")
     elif count < MAX_ADS:
         warnings.append(f"При таком бюджете в кампанию войдёт {plural(count, 'объявление', 'объявления', 'объявлений')}: "
                         "на каждое придётся мало кликов. Больше бюджет, больше вариантов для сравнения.")
@@ -257,25 +259,30 @@ def _district_phrases(keywords: list[str], districts: list[str], limit: int = 12
 GROUP_LIMIT = 3   # больше трёх объявлений в группе Директ не принимает (ошибка 7001 «комбинаторных объявлений в группе»)
 
 
-def group_name(number: int) -> str:
-    return "Основная" if number == 0 else f"Основная {number + 1}"
+def group_sizes(count: int) -> list[int]:
+    """Как раскладываем объявления по группам: в каждой не больше трёх и поровну (4 → 2+2, 5 → 3+2)."""
+    groups = max(1, -(-count // GROUP_LIMIT))
+    return [count // groups + (1 if i < count % groups else 0) for i in range(groups)]
 
 
-async def create_campaign(client: DirectClient, plan: Plan, name: str, start_date: str) -> dict:
-    """Создаёт кампанию, группу и в ней все объявления плана. Если что-то не вышло, удаляет созданное и пробрасывает ошибку."""
+def campaign_name(biz, number: int) -> str:
+    """Каждая группа объявлений живёт в своей кампании со своим бюджетом: у первой имя бизнеса, у следующих номер."""
+    base = f"Автобидер: {biz['name']}"
+    return base if number == 0 else f"{base} {number + 1}"
+
+
+async def create_campaign(client: DirectClient, plan: Plan, name: str, start_date: str, variants: list[dict]) -> dict:
+    """Создаёт кампанию со своим недельным бюджетом, одну группу и в ней объявления (не больше трёх). Если что-то не вышло, удаляет созданное и пробрасывает ошибку."""
     campaign_id = None
     try:
         campaign_id = await client.create_text_campaign(
             name, plan.campaign_micro, start_date, counter_ids=plan.counter_ids, negative_keywords=plan.negatives)
-        keywords, ad_ids, group_ids = None, [], []
-        for start in range(0, len(plan.variants), GROUP_LIMIT):   # Директ пускает в группу не больше трёх объявлений: остальные идут в такие же группы
-            group_id = await client.create_ad_group(campaign_id, group_name(start // GROUP_LIMIT), plan.region_ids or [plan.region_id])
-            found = await client.add_keywords(group_id, plan.keywords or [], plan.autotargeting)
-            keywords = keywords or found
-            for v in plan.variants[start:start + GROUP_LIMIT]:
-                ad_ids.append(await client.create_text_ad(group_id, v["title"], v["text"], href=tagged_href(plan.href), business_id=plan.business_id,
-                                                          erir_description=plan.ad_description))
-                group_ids.append(group_id)
+        group_id = await client.create_ad_group(campaign_id, "Основная", plan.region_ids or [plan.region_id])
+        keywords = await client.add_keywords(group_id, plan.keywords or [], plan.autotargeting)
+        ad_ids = []
+        for v in variants:
+            ad_ids.append(await client.create_text_ad(group_id, v["title"], v["text"], href=tagged_href(plan.href), business_id=plan.business_id,
+                                                      erir_description=plan.ad_description))
     except DirectError:
         if campaign_id:
             try:
@@ -283,7 +290,7 @@ async def create_campaign(client: DirectClient, plan: Plan, name: str, start_dat
             except DirectError:
                 pass
         raise
-    return {"campaign_id": campaign_id, "group_ids": group_ids, "ad_ids": ad_ids, "keywords": keywords}
+    return {"campaign_id": campaign_id, "group_id": group_id, "ad_ids": ad_ids, "keywords": keywords}
 
 
 def save_unit(conn: sqlite3.Connection, biz, account_id: int, campaign_row_id: int, variant: dict, ids: dict,
@@ -452,36 +459,47 @@ async def launch(client: DirectClient, conn: sqlite3.Connection, biz, account_id
     photos, logo = media_typed(conn, biz)
     ai_banners = ai_banners_for(conn, biz)
     ai_scenes = ai_scenes_for(conn, biz)
-    ids = await create_campaign(client, plan, f"Автобидер: {biz['name']}", start_date)
-    created = [{"ad_id": ad_id, "variant": v} for ad_id, v in zip(ids["ad_ids"], plan.variants)]
+    made = []   # (кампания в Директе, её объявления): каждая группа объявлений идёт в своей кампании со своим бюджетом
+    banner_problems = []
     try:
-        banner_problems = await attach_banners(client, biz, created, photos, logo, ai_banners) if (photos or ai_banners) else []
-        await client.moderate_ads(ids["ad_ids"])
+        position = 0
+        for number, size in enumerate(group_sizes(len(plan.variants))):
+            ids = await create_campaign(client, plan, campaign_name(biz, number), start_date, plan.variants[position:position + size])
+            created = [{"ad_id": ad_id, "variant": v, "index": position + i}
+                       for i, (ad_id, v) in enumerate(zip(ids["ad_ids"], plan.variants[position:position + size]))]
+            made.append((ids, created))
+            position += size
+            if photos or ai_banners:
+                banner_problems += await attach_banners(client, biz, created, photos, logo, ai_banners)
+        await client.moderate_ads([ad_id for ids, _ in made for ad_id in ids["ad_ids"]])
     except DirectError:
-        try:  # откат: не оставляем в кабинете недоделанную кампанию
-            await client.delete_campaigns([ids["campaign_id"]])
+        try:  # откат: не оставляем в кабинете недоделанные кампании
+            if made:
+                await client.delete_campaigns([ids["campaign_id"] for ids, _ in made])
         except DirectError:
             pass
         raise
 
-    row = conn.execute(
-        "INSERT INTO campaigns (business_id, account_id, name, source, external_id, weekly_micro, strategy, state, created_day, last_changed_day) "
-        "VALUES (?,?,?, 'direct', ?,?, 'clicks', 'moderation', ?,?)",
-        (biz["id"], account_id, f"Реклама: {biz['name']}", ids["campaign_id"], plan.campaign_micro, today, today),
-    )
-    unit_ids = [
-        # бюджет у объявлений общий (недельный лимит кампании), поэтому budget_micro у них 0
-        save_unit(conn, biz, account_id, row.lastrowid, c["variant"], {"campaign_id": ids["campaign_id"], "group_id": ids["group_ids"][i], "ad_id": c["ad_id"]},
-                  0, today, style=style_for(i),
-                  photo_type=ai_scenes.get((c["variant"]["title"], c["variant"]["text"])) or (photo_for(photos, i)[0] if photos else ""),
-                  angle=c["variant"].get("angle", ""))
-        for i, c in enumerate(created)
-    ]
+    unit_ids = []
+    for number, (ids, created) in enumerate(made):
+        row = conn.execute(
+            "INSERT INTO campaigns (business_id, account_id, name, source, external_id, weekly_micro, strategy, state, created_day, last_changed_day) "
+            "VALUES (?,?,?, 'direct', ?,?, 'clicks', 'moderation', ?,?)",
+            (biz["id"], account_id, campaign_name(biz, number).replace("Автобидер", "Реклама", 1), ids["campaign_id"], plan.campaign_micro, today, today),
+        )
+        unit_ids += [
+            # бюджет у объявлений общий (недельный лимит их кампании), поэтому budget_micro у них 0
+            save_unit(conn, biz, account_id, row.lastrowid, c["variant"], {"campaign_id": ids["campaign_id"], "group_id": ids["group_id"], "ad_id": c["ad_id"]},
+                      0, today, style=style_for(c["index"]),
+                      photo_type=ai_scenes.get((c["variant"]["title"], c["variant"]["text"])) or (photo_for(photos, c["index"])[0] if photos else ""),
+                      angle=c["variant"].get("angle", ""))
+            for c in created
+        ]
     if banner_problems:
         conn.execute("UPDATE ad_units SET status_note = ? WHERE id = ?", ("Картинки добавлены не ко всем объявлениям", unit_ids[0]))
     conn.execute("UPDATE businesses SET account_id = ?, status = 'running' WHERE id = ?", (account_id, biz["id"]))
     conn.commit()
-    _remember_keywords(conn, biz, ids["keywords"])
+    _remember_keywords(conn, biz, made[0][0]["keywords"])
     return unit_ids
 
 
@@ -493,6 +511,13 @@ def existing_campaign(conn: sqlite3.Connection, business_id: int) -> sqlite3.Row
         "ORDER BY c.id DESC, u.id DESC LIMIT 1", (business_id,)).fetchone()   # группа самого нового объявления: в неё добавляем, пока есть место
 
 
+def new_campaigns_for(conn: sqlite3.Connection, target: sqlite3.Row, count: int) -> int:
+    """Сколько новых кампаний понадобится, чтобы добавить count объявлений: в последнюю группу влезает до трёх, остальные идут в новые."""
+    used = conn.execute("SELECT COUNT(*) FROM ad_units WHERE external_group_id = ?", (target["external_group_id"],)).fetchone()[0]
+    rest = count - max(0, GROUP_LIMIT - used)
+    return len(group_sizes(rest)) if rest > 0 else 0
+
+
 def new_variants(conn: sqlite3.Connection, biz, plan: Plan) -> list[tuple[int, dict]]:
     """Объявления из списка «пойдут в рекламу», которых в кампании ещё нет (по заголовку), вместе с их номером в списке."""
     have = {r["title"].lower() for r in conn.execute("SELECT title FROM ad_units WHERE business_id = ?", (biz["id"],)).fetchall()}
@@ -500,7 +525,8 @@ def new_variants(conn: sqlite3.Connection, biz, plan: Plan) -> list[tuple[int, d
 
 
 async def add_ads(client: DirectClient, conn: sqlite3.Connection, biz, target: sqlite3.Row, plan: Plan, today: str) -> list[int]:
-    """Добавляет в уже идущую кампанию новые объявления из списка: тексты, баннеры, отправка на проверку. Бюджет и запросы кампании не меняются."""
+    """Добавляет новые объявления из списка: пока в последней группе есть место (до трёх), они встают в неё и делят бюджет её кампании,
+    остальные идут в новую кампанию со своим бюджетом (на каждую группу объявлений бюджет свой). Тексты, баннеры, отправка на проверку."""
     fresh = new_variants(conn, biz, plan)
     if not fresh:
         raise EngineError("Все объявления из списка уже есть в рекламе. Добавьте на вкладке «Креативы» новый вариант или увеличьте число объявлений в показе.", "nothing_new")
@@ -509,31 +535,42 @@ async def add_ads(client: DirectClient, conn: sqlite3.Connection, biz, target: s
     ai_scenes = ai_scenes_for(conn, biz)
     group_id = target["external_group_id"]
     room = max(0, GROUP_LIMIT - conn.execute("SELECT COUNT(*) FROM ad_units WHERE external_group_id = ?", (group_id,)).fetchone()[0])
-    groups = conn.execute("SELECT COUNT(DISTINCT external_group_id) FROM ad_units WHERE campaign_id = ?", (target["row_id"],)).fetchone()[0]
-    created, new_groups = [], []
+    have = conn.execute("SELECT COUNT(*) FROM campaigns WHERE business_id = ? AND source = 'direct'", (biz["id"],)).fetchone()[0]
+    created, new_campaigns = [], []   # объявления в старой группе; кампании, созданные для остальных
     try:
-        for n, (index, v) in enumerate(fresh):
-            if n >= room and (n - room) % GROUP_LIMIT == 0:   # в группе больше нет места: заводим такую же (те же районы, запросы и автотаргетинг)
-                group_id = await client.create_ad_group(target["external_campaign_id"], group_name(groups + len(new_groups)), plan.region_ids or [plan.region_id])
-                new_groups.append(group_id)
-                await client.add_keywords(group_id, plan.keywords or [], plan.autotargeting)
+        for index, v in fresh[:room]:
             ad_id = await client.create_text_ad(group_id, v["title"], v["text"], href=tagged_href(plan.href),
                                                 business_id=plan.business_id, erir_description=plan.ad_description)
-            created.append({"ad_id": ad_id, "variant": v, "index": index, "group_id": group_id})
+            created.append({"ad_id": ad_id, "variant": v, "index": index, "campaign": None, "ids": {"campaign_id": target["external_campaign_id"], "group_id": group_id}})
+        rest, position = fresh[room:], 0
+        for size in (group_sizes(len(rest)) if rest else []):
+            part = rest[position:position + size]
+            position += size
+            ids = await create_campaign(client, plan, campaign_name(biz, have + len(new_campaigns)), day_add(today, 1), [v for _, v in part])
+            new_campaigns.append(ids)
+            created += [{"ad_id": ad_id, "variant": v, "index": index, "campaign": len(new_campaigns) - 1, "ids": ids}
+                        for ad_id, (index, v) in zip(ids["ad_ids"], part)]
         banner_problems = await attach_banners(client, biz, created, photos, logo, ai_banners) if (photos or ai_banners) else []
         await client.moderate_ads([c["ad_id"] for c in created])
     except DirectError:
-        try:   # откат: не оставляем в кабинете объявления и группы, которые не дошли до проверки
-            if created:
-                await client.delete_ads([c["ad_id"] for c in created])
-            if new_groups:
-                await client.delete_ad_groups(new_groups)
+        try:   # откат: не оставляем в кабинете объявления и кампании, которые не дошли до проверки
+            old = [c["ad_id"] for c in created if c["campaign"] is None]
+            if old:
+                await client.delete_ads(old)
+            if new_campaigns:
+                await client.delete_campaigns([ids["campaign_id"] for ids in new_campaigns])
         except DirectError:
             pass
         raise
+    rows = []
+    for n, ids in enumerate(new_campaigns):
+        rows.append(conn.execute(
+            "INSERT INTO campaigns (business_id, account_id, name, source, external_id, weekly_micro, strategy, state, created_day, last_changed_day) "
+            "VALUES (?,?,?, 'direct', ?,?, 'clicks', 'moderation', ?,?)",
+            (biz["id"], target["account_id"], campaign_name(biz, have + n).replace("Автобидер", "Реклама", 1), ids["campaign_id"], plan.campaign_micro, today, today)).lastrowid)
     unit_ids = [
-        save_unit(conn, biz, target["account_id"], target["row_id"], c["variant"],
-                  {"campaign_id": target["external_campaign_id"], "group_id": c["group_id"], "ad_id": c["ad_id"]}, 0, today,
+        save_unit(conn, biz, target["account_id"], target["row_id"] if c["campaign"] is None else rows[c["campaign"]], c["variant"],
+                  {"campaign_id": c["ids"]["campaign_id"], "group_id": c["ids"]["group_id"], "ad_id": c["ad_id"]}, 0, today,
                   style=style_for(c["index"]),
                   photo_type=ai_scenes.get((c["variant"]["title"], c["variant"]["text"])) or (photo_for(photos, c["index"])[0] if photos else ""),
                   angle=c["variant"].get("angle", ""))

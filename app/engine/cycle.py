@@ -21,6 +21,13 @@ CLASS_LABELS = {
 }
 
 
+def total_budget(conn: sqlite3.Connection, biz: sqlite3.Row) -> int:
+    """Недельный бюджет всей рекламы бизнеса. В Директе бюджет задан на каждую группу объявлений (у каждой своя кампания),
+    поэтому всего это бюджет группы, умноженный на число кампаний. Для примера и других площадок кампания одна."""
+    campaigns = conn.execute("SELECT COUNT(*) FROM campaigns WHERE business_id = ? AND external_id IS NOT NULL", (biz["id"],)).fetchone()[0]
+    return biz["weekly_budget_micro"] * max(1, campaigns)
+
+
 def target_cpa_micro(biz: sqlite3.Row) -> int:
     """Цена клиента, которую готов платить владелец. Нет её, считаем от среднего чека."""
     if biz["target_cpa_micro"] > 0:
@@ -187,7 +194,7 @@ def run_cycle(
 
     as_of = day_add(today, -cfg.lag_days)
     start = day_add(as_of, -(cfg.window_days - 1))
-    budget_total = biz["weekly_budget_micro"]
+    budget_total = total_budget(conn, biz)
     made: list[int] = []
 
     def active_units():
@@ -258,11 +265,13 @@ def run_cycle(
                 "p_ok": round(e["p"], 3), "target_lead": lead_target}
 
     # 4. Слабые отключаем: освободившийся бюджет возвращается в общий запас.
-    working = len(units)   # сколько объявлений ещё работает (в общей кампании последнее не останавливаем никогда)
+    working: dict = {}   # сколько объявлений ещё работает в каждой кампании (в общей кампании последнее не останавливаем никогда)
+    for u in units:
+        working[u["campaign_id"]] = working.get(u["campaign_id"], 0) + 1
     for e in evals:
         u = e["unit"]
         if e["cls"] == "bad" and e["prev"] == "bad" and not cooling(u) and u["id"] not in in_test:
-            if shared and working <= 1:
+            if shared and working[u["campaign_id"]] <= 1:
                 continue
             s = e["stats"]
             change_id = _pause(
@@ -273,14 +282,15 @@ def run_cycle(
             )
             if change_id is not None:
                 made.append(change_id)
-                working -= 1   # и предложенную остановку считаем: подтвердят все, последнее объявление останется
+                working[u["campaign_id"]] -= 1   # и предложенную остановку считаем: подтвердят все, последнее объявление кампании останется
             if not propose:
                 free += u["budget_micro"]  # бюджет освободится, только когда остановка состоится
 
     if shared:
         # 5-6. В общей кампании бюджет и стратегия общие: решаем про кампанию целиком. Отдельных сравнений не запускаем:
         # варианты и так показываются в одних аукционах, и слабый уходит по правилу выше.
-        made += _campaign_step(conn, platform, biz, today, as_of, cfg, lead_target, cpa, propose, block_growth)
+        for camp in conn.execute("SELECT * FROM campaigns WHERE business_id = ? AND external_id IS NOT NULL ORDER BY id", (biz["id"],)).fetchall():
+            made += _campaign_step(conn, platform, biz, today, as_of, cfg, lead_target, cpa, propose, block_growth, camp)
     # 5. Хорошим добавляем бюджет, начиная с самых надёжных.
     elif not block_growth:
         good = sorted((e for e in evals if e["cls"] == "good" and e["prev"] == "good"), key=lambda e: -e["p"])
@@ -348,13 +358,13 @@ def _window(conn, unit_ids: list[int], start: str, end: str) -> dict:
     return total
 
 
-def _campaign_step(conn, platform, biz, today, as_of, cfg, lead_target, cpa, propose, block_growth) -> list[int]:
-    """Решения про всю общую кампанию: перевести на «Максимум конверсий», когда обращений достаточно, и осторожно добавить бюджет.
+def _campaign_step(conn, platform, biz, today, as_of, cfg, lead_target, cpa, propose, block_growth, camp) -> list[int]:
+    """Решения про одну кампанию (группу объявлений): перевести на «Максимум конверсий», когда обращений достаточно, и осторожно добавить бюджет.
+    Потолок бюджета у каждой кампании свой: бюджет группы за вычетом запаса.
 
     Яндекс учится на данных кампании и сбивается от частых правок, поэтому после запуска её неделю не трогаем
     (warmup_days), а дальше правим не чаще раза в неделю (cooldown_days) и не больше чем на raise_step."""
-    camp = conn.execute("SELECT * FROM campaigns WHERE business_id = ? AND external_id IS NOT NULL ORDER BY id LIMIT 1", (biz["id"],)).fetchone()
-    if camp is None or camp["state"] != "active":
+    if camp["state"] != "active":
         return []
     if camp["created_day"] and days_between(camp["created_day"], today) < cfg.warmup_days:
         return []
@@ -515,6 +525,29 @@ def set_budget_by_owner(conn: sqlite3.Connection, platform: Platform, biz: sqlit
     return change_id
 
 
+def set_unit_paused_by_owner(conn: sqlite3.Connection, platform: Platform, biz: sqlite3.Row, unit_id: int, pause: bool, today: str) -> int:
+    """Владелец сам ставит объявление на паузу или включает обратно. Записывается в историю (можно отменить). Возвращает номер записи."""
+    unit = conn.execute("SELECT * FROM ad_units WHERE id = ? AND business_id = ?", (unit_id, biz["id"])).fetchone()
+    if unit is None:
+        raise EngineError("Такого объявления нет.", "not_found")
+    if pause:
+        if unit["state"] == "paused":
+            raise EngineError("Объявление уже на паузе.", "already")
+        if unit["state"] in ("draft", "rejected"):
+            raise EngineError("Это объявление и так не показывается: оно не прошло проверку или ещё не отправлено.", "not_allowed")
+    else:
+        if unit["state"] != "paused":
+            raise EngineError("Объявление не на паузе.", "already")
+        if biz["status"] == "stopped":
+            raise EngineError("Сейчас нажат стоп-кран. Сначала верните рекламу кнопкой «Включить обратно», тогда объявления можно включать по одному.", "not_allowed")
+    platform.set_state(unit_id, "paused" if pause else "active", today)
+    text = f"Вы поставили на паузу «{unit['title']}»: оно больше не показывается." if pause else f"Вы снова включили «{unit['title']}»."
+    before, after = {"state": unit["state"]}, {"state": "paused" if pause else "active"}
+    change_id = log_change(conn, biz["id"], unit_id, today, "user", "pause" if pause else "resume", "user_pause" if pause else "user_resume", text, before, after)
+    conn.commit()
+    return change_id
+
+
 def _open_proposal(conn: sqlite3.Connection, biz: sqlite3.Row, change_id: int) -> sqlite3.Row:
     ch = conn.execute("SELECT * FROM changes WHERE id = ? AND business_id = ?", (change_id, biz["id"])).fetchone()
     if ch is None:
@@ -557,6 +590,7 @@ def approve(conn: sqlite3.Connection, platform: Platform, biz: sqlite3.Row, chan
         conn.commit()
         return change_id
 
+    cap = int((1 - cfg.reserve) * total_budget(conn, biz))   # у объявления потолок общий на всю рекламу, у кампании выше был свой
     unit = conn.execute("SELECT * FROM ad_units WHERE id = ?", (ch["unit_id"],)).fetchone()
     if unit is None or unit["state"] != "active":
         stale("Объявление уже остановлено или удалено.")

@@ -17,7 +17,8 @@ from app.db import get_db
 from app.deps import creative_transport, current_user
 from app.engine.config import DIRECT_CONFIG as cfg_direct, EngineConfig
 from app.engine.cycle import (
-    CLASS_LABELS, approve, reject, resume_all, rollback, run_cycle, set_budget_by_owner, stop_all, target_cpa_micro, target_lead_micro, unit_stats,
+    CLASS_LABELS, approve, reject, resume_all, rollback, run_cycle, set_budget_by_owner, set_unit_paused_by_owner, stop_all, target_cpa_micro,
+    target_lead_micro, total_budget, unit_stats,
 )
 from app.config import get_settings
 from app.direct.client import DirectError
@@ -34,6 +35,7 @@ router = APIRouter(prefix="/api/businesses/{business_id}", tags=["stats"])
 
 ACTION_LABELS = {
     "pause": "Остановка",
+    "resume": "Включение",
     "set_budget": "Изменение бюджета",
     "set_strategy": "Смена стратегии",
     "start_test": "Сравнение двух вариантов",
@@ -182,6 +184,9 @@ def overview(business_id: int, user: sqlite3.Row = Depends(current_user), conn: 
             "weekly_budget": None if camp is not None else _rub(u["budget_micro"]),   # в общей кампании у объявления своего бюджета нет
             "spend": _rub(s["spend"]),
             "clicks": s["clicks"],
+            "cost_per_click": _ratio(s["spend"], s["clicks"]),
+            "can_pause": u["state"] in ("active", "moderation", "unpaid"),
+            "can_resume": u["state"] == "paused",
             "leads": s["leads"],
             "clients": s["clients"],
             "cost_per_lead": _ratio(s["spend"], s["leads"]),
@@ -227,7 +232,7 @@ def overview(business_id: int, user: sqlite3.Row = Depends(current_user), conn: 
         if biz["last_sync_error"]:
             result["notices"].append(f"Последнее обновление данных не удалось: {biz['last_sync_error']}")
     week_spend = sum(unit_stats(conn, u["id"], day_add(today, -6), today)["spend"] for u in units)
-    budget = biz["weekly_budget_micro"]
+    budget = total_budget(conn, biz)   # бюджет задан на каждую группу объявлений, а счётчик показывает всю рекламу
     result["budget"] = {
         "weekly": _rub(budget),
         "spent_week": _rub(week_spend),
@@ -375,7 +380,7 @@ def analyze(business_id: int, user: sqlite3.Row = Depends(current_user), conn: s
     rows = conn.execute("SELECT * FROM ad_units WHERE business_id = ? ORDER BY id", (business_id,)).fetchall()
     if not rows:
         raise HTTPException(400, detail={"message": "Пока нечего разбирать: объявлений ещё нет."})
-    lines = [f"Бизнес: {biz['kind']}, {'вся Россия, онлайн' if biz['nationwide'] else biz['city']}. Недельный бюджет {_rub(biz['weekly_budget_micro'])} ₽, "
+    lines = [f"Бизнес: {biz['kind']}, {'вся Россия, онлайн' if biz['nationwide'] else biz['city']}. Недельный бюджет всей рекламы {_rub(total_budget(conn, biz))} ₽, "
              f"цель по цене клиента {_rub(biz['target_cpa_micro'])} ₽."]
     total_imp = 0
     for u in rows:
@@ -529,6 +534,23 @@ def resume_everything(business_id: int, user: sqlite3.Row = Depends(current_user
         return {"resumed": resume_all(conn, _platform(conn, biz), biz, today)}
     except (EngineError, DirectError) as e:
         raise _fail(e)
+
+
+class PauseIn(BaseModel):
+    paused: bool
+
+
+@router.put("/units/{unit_id}/pause")
+def change_unit_pause(business_id: int, unit_id: int, data: PauseIn, user: sqlite3.Row = Depends(current_user),
+                      conn: sqlite3.Connection = Depends(get_db)):
+    """Владелец ставит объявление на паузу или включает обратно: правка уходит в Директ и записывается в историю."""
+    biz = _own(conn, user, business_id)
+    today = get_today(conn, business_id) or date.today().isoformat()
+    try:
+        set_unit_paused_by_owner(conn, _platform(conn, biz), biz, unit_id, data.paused, today)
+    except (EngineError, DirectError) as e:
+        raise _fail(e)
+    return {"ok": True}
 
 
 class BudgetIn(BaseModel):
