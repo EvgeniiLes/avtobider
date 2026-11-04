@@ -11,6 +11,7 @@ from app.db import get_db
 from app.creative.angles import districts_of, is_nationwide
 from app.deps import client_factory, creative_transport, current_user
 from app.direct import audience as aud
+from app.direct.bids import ensure_bids
 from app.direct.client import DirectError
 from app.direct.launch import STATE_LABELS, launch, plan_launch, tagged_href, text_candidates
 from app.direct.runner import account_token, sync_and_run
@@ -127,7 +128,9 @@ def start_launch(business_id: int, data: LaunchIn, user: sqlite3.Row = Depends(c
 
         async def go():
             async with factory(token, api_version=s.direct_api_version, login=login) as client:
-                return await launch(client, conn, biz, account["id"], plan, today)
+                created = await launch(client, conn, biz, account["id"], plan, today)
+                await ensure_bids(client, conn, biz["id"], today)   # корректировки по полу и возрасту ставятся сразу, без кнопки
+                return created
 
         unit_ids = asyncio.run(go())
         conn.execute("UPDATE businesses SET marking_confirmed = 1 WHERE id = ?", (business_id,))

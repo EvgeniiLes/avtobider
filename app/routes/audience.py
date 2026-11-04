@@ -18,7 +18,7 @@ from app.routes.businesses import _own
 
 router = APIRouter(prefix="/api/businesses/{business_id}/audience", tags=["audience"])
 
-KEEP = ("launched", "history", "bids")   # что уже случилось в кабинете: новый профиль это не стирает
+KEEP = ("launched", "history", "bids", "bids_off", "bids_error")   # что уже случилось в кабинете: новый профиль это не стирает
 
 
 def _campaign_id(conn: sqlite3.Connection, business_id: int) -> int | None:

@@ -12,6 +12,7 @@ from app.db import connect
 from app.deps import client_factory, creative_transport
 from app.direct import audience as aud
 from app.direct.client import DirectError
+from app.direct.runner import sync_and_run
 from app.main import app
 from app.routes import auth
 from app.security import encrypt_token
@@ -304,25 +305,37 @@ def test_bids_are_put_replaced_and_removed_in_the_cabinet(isolated, monkeypatch)
     fake = FakeDirect()
     with TestClient(app) as http:
         bid = launched_with_profile(http, fake, isolated, monkeypatch)
-        info = http.get(f"/api/businesses/{bid}/audience").json()["bids"]
-        assert info["needed"] and info["launched"] and info["applied"] is None and info["up"] == 15 and info["down"] == 25
-        assert len(info["plan"]) == 12 and fake.bid_modifiers == {}
-
-        data = http.post(f"/api/businesses/{bid}/audience/bids").json()
-        assert len(fake.bid_modifiers) == 12 and data["bids"]["applied"]["slices"] == data["bids"]["plan"] and data["bids"]["stale"] is False
+        # сервис ставит корректировки сам при запуске, без кнопки
+        data = http.get(f"/api/businesses/{bid}/audience").json()
+        info = data["bids"]
+        assert info["needed"] and info["launched"] and info["applied"] is not None and info["up"] == 15 and info["down"] == 25
+        assert len(info["plan"]) == 12 and len(fake.bid_modifiers) == 12 and info["applied"]["slices"] == info["plan"] and info["stale"] is False
         assert {m["campaign"] for m in fake.bid_modifiers.values()} == {next(iter(fake.campaigns))}
-        assert {"label": "женщины 25–34", "percent": 132} in data["bids"]["applied"]["slices"]
+        assert {"label": "женщины 25–34", "percent": 132} in info["applied"]["slices"]
 
-        # владелец поправил возраст: применённое устарело, повторное применение заменяет набор целиком (пересечений нет)
+        # владелец поправил возраст: применённое устарело, а при ближайшей синхронизации сервис заменяет набор целиком (пересечений нет)
         edited = http.put(f"/api/businesses/{bid}/audience", json={"ages": ["45-54"], "gender": "any"}).json()
         assert edited["bids"]["stale"] is True and len(edited["bids"]["plan"]) == 6
-        assert len(http.post(f"/api/businesses/{bid}/audience/bids").json()["bids"]["plan"]) == 6
+        conn = connect(isolated)
+        biz = conn.execute("SELECT * FROM businesses WHERE id = ?", (bid,)).fetchone()
+        assert not sync_and_run(conn, biz, transport=fake.transport)["error"]
+        conn.close()
         assert len(fake.bid_modifiers) == 6 and {m["gender"] for m in fake.bid_modifiers.values()} == {None}
+        assert http.get(f"/api/businesses/{bid}/audience").json()["bids"]["stale"] is False
 
         # новый профиль не стирает то, что уже стоит в кабинете
         assert http.post(f"/api/businesses/{bid}/audience").json()["bids"]["applied"] is not None
         removed = http.delete(f"/api/businesses/{bid}/audience/bids").json()
-        assert fake.bid_modifiers == {} and removed["bids"]["applied"] is None
+        assert fake.bid_modifiers == {} and removed["bids"]["applied"] is None and removed["bids"]["off"] is True
+
+        # владелец убрал сам: синхронизация их не возвращает; кнопка включает снова
+        conn = connect(isolated)
+        biz = conn.execute("SELECT * FROM businesses WHERE id = ?", (bid,)).fetchone()
+        assert not sync_and_run(conn, biz, transport=fake.transport)["error"]
+        conn.close()
+        assert fake.bid_modifiers == {}
+        back = http.post(f"/api/businesses/{bid}/audience/bids").json()["bids"]
+        assert back["off"] is False and len(fake.bid_modifiers) == len(back["plan"]) == 12   # профиль пересоздан выше: снова 12 срезов
 
 
 def test_bids_need_a_launch_a_profile_that_names_someone_and_a_cabinet_that_agrees(isolated, monkeypatch):

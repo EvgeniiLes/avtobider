@@ -9,7 +9,7 @@ import sqlite3
 from datetime import date
 
 from app.direct import audience as aud
-from app.direct.client import DirectClient
+from app.direct.client import DirectClient, DirectError
 
 UP = 1.15
 DOWN = 0.75
@@ -51,7 +51,8 @@ def describe(profile: dict | None, launched: bool) -> dict:
     plan = [{"label": label(s), "percent": s["percent"]} for s in slices(profile)]
     applied = (profile or {}).get("bids")
     return {"plan": plan, "up": round((UP - 1) * 100), "down": round((1 - DOWN) * 100), "launched": launched, "needed": bool(plan),
-            "applied": applied, "stale": bool(applied) and applied["slices"] != plan}
+            "applied": applied, "stale": bool(applied) and applied["slices"] != plan,
+            "off": bool((profile or {}).get("bids_off")), "error": (profile or {}).get("bids_error", "")}
 
 
 async def apply_bids(client: DirectClient, conn: sqlite3.Connection, biz, profile: dict, campaign_id: int, today: str | None = None) -> dict:
@@ -60,7 +61,7 @@ async def apply_bids(client: DirectClient, conn: sqlite3.Connection, biz, profil
     existing = await client.demographic_adjustments(campaign_id)
     await client.delete_adjustments([e["id"] for e in existing])   # набор пересекающихся срезов Директ не примет, поэтому сначала убираем старые
     await client.add_demographic_adjustments(campaign_id, plan)
-    updated = dict(profile)
+    updated = {k: v for k, v in profile.items() if k not in ("bids_off", "bids_error")}
     updated["bids"] = {"day": today or date.today().isoformat(), "slices": [{"label": label(s), "percent": s["percent"]} for s in plan]}
     aud.save(conn, biz["id"], updated)
     return updated
@@ -69,6 +70,25 @@ async def apply_bids(client: DirectClient, conn: sqlite3.Connection, biz, profil
 async def clear_bids(client: DirectClient, conn: sqlite3.Connection, biz, profile: dict, campaign_id: int) -> dict:
     existing = await client.demographic_adjustments(campaign_id)
     await client.delete_adjustments([e["id"] for e in existing])
-    updated = {k: v for k, v in profile.items() if k != "bids"}
+    updated = {k: v for k, v in profile.items() if k not in ("bids", "bids_error")}
+    updated["bids_off"] = True   # владелец убрал корректировки сам: автоматически их больше не возвращаем
     aud.save(conn, biz["id"], updated)
     return updated
+
+
+async def ensure_bids(client: DirectClient, conn: sqlite3.Connection, business_id: int, today: str | None = None) -> None:
+    """Сервис сам держит корректировки по полу и возрасту в кабинете в соответствии с профилем: ставит после запуска и обновляет, если профиль изменился.
+    Не трогает, если владелец убрал их сам. Ошибка Директа не ломает синхронизацию: она запоминается в профиле и видна на экране, а попытка повторится."""
+    biz = conn.execute("SELECT * FROM businesses WHERE id = ?", (business_id,)).fetchone()
+    profile = aud.load(biz)
+    if profile is None or profile.get("bids_off"):
+        return
+    row = conn.execute("SELECT external_campaign_id FROM ad_units WHERE business_id = ? AND external_campaign_id IS NOT NULL LIMIT 1", (business_id,)).fetchone()
+    plan = slices(profile)
+    applied = profile.get("bids")
+    if row is None or not plan or (applied and applied["slices"] == [{"label": label(s), "percent": s["percent"]} for s in plan]):
+        return
+    try:
+        await apply_bids(client, conn, biz, profile, row["external_campaign_id"], today)
+    except DirectError as e:
+        aud.save(conn, business_id, {**profile, "bids_error": e.full_message()})
