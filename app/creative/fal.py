@@ -117,8 +117,15 @@ def caption_parts(biz) -> list[str]:
     for value, limit in ((biz["name"], 28), (biz["kind"], 52)):
         value = re.sub(r"\s+", " ", value or "").strip()
         if value and len(value) <= limit and not _URLISH.search(value) and value.lower() not in {p.lower() for p in parts}:
+            if parts and _stems(value) and _stems(value) <= _stems(parts[0]):   # вид деятельности уже сказан в названии («Студия маникюра «Лилия»» и «Маникюрная студия»): повтор путает
+                continue
             parts.append(value)
     return parts
+
+
+def _stems(text: str) -> set[str]:
+    """Основы слов (первые пять букв): по ним видно, что «маникюра» и «маникюрная» говорят об одном."""
+    return {w[:5] for w in re.findall(r"[а-яёa-z]{4,}", text.lower())}
 
 
 def caption_for(biz) -> str:

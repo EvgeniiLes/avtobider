@@ -927,10 +927,19 @@ function adEditor(a) {
   else if (a.ai && a.ai.status === "failed") preview.append(el("div", { textContent: a.ai.error || "Не получилось. Нарисуйте заново." }));
   else if (!working) preview.append(el("i", { className: "hint", textContent: "Баннера пока нет" }), el("div", { textContent: "Выберите фото и подачу справа, затем нажмите «Нарисовать баннер»." }));
   if (working) preview.append(el("div", { className: "busy-layer" }, el("div", { className: "spinner" }), el("div", { textContent: "Рисуем баннер… около минуты" })));
+  const why = (a.ai && a.ai.error || "").replace(/[.\s]+$/, "");   // причина уже заканчивается точкой: двойную не ставим
+  const acceptBtn = el("button", { type: "button", className: "small", textContent: "Всё равно использовать этот баннер" });
+  acceptBtn.addEventListener("click", async () => {   // проверка бывает придирчивой: владелец сам решает, годится ли картинка
+    acceptBtn.disabled = true;
+    const r = await creativeCall("POST", `/ads/${a.index}/accept-rejected`);
+    if (!r.ok) { acceptBtn.disabled = false; say(errorText(r), "err"); return; }
+    say("Баннер принят на объявление.", "ok");
+    await loadCreatives();
+  });
   const failedNote = a.ai && a.ai.status === "failed" && (a.banner_url || rejected)
-    ? [el("p", { className: "notice", textContent: rejected
-      ? `Сервис не принял этот баннер: ${a.ai.error || "не прошёл проверку"}. Он показан, чтобы вы видели, что не так. На объявлении остаётся прежний, если он был.`
-      : `Новый баннер не вышел: ${a.ai.error || "попробуйте ещё раз"}. Пока показан прежний.` })] : [];
+    ? [el("div", { className: "notice" }, el("p", { textContent: rejected
+      ? `Сервис не принял этот баннер: ${why || "не прошёл проверку"}. Он показан, чтобы вы видели, что не так. На объявлении остаётся прежний, если он был.`
+      : `Новый баннер не вышел: ${why || "попробуйте ещё раз"}. Пока показан прежний.` }), ...(rejected ? [acceptBtn] : []))] : [];
   const versions = lastCreatives.filter((c) => c.kind === "ai_banner" && c.title === a.title && c.body === a.text && (c.status === "draft" || c.status === "approved") && c.url)
     .sort((x, y) => y.id - x.id).slice(0, 8);
   const strip = el("div", { className: "versions" });

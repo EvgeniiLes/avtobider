@@ -643,6 +643,19 @@ def ad_banner(business_id: int, index: int, user: sqlite3.Row = Depends(current_
     return Response(banner, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=60"})
 
 
+@router.post("/ads/{index}/accept-rejected")
+def accept_rejected_banner(business_id: int, index: int, user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connection = Depends(get_db)):
+    """Владелец видит забракованный проверкой баннер и считает его хорошим: принимаем его на объявление без новой оплаты."""
+    biz = _own(conn, user, business_id)
+    variants, _count, _pool = _ad_variants(conn, biz)
+    row = _ai_row(conn, business_id, variants[index]) if 0 <= index < len(variants) else None
+    if row is None or row["status"] != "failed" or not row["asset_id"]:
+        raise HTTPException(400, detail={"message": "Забракованного баннера у этого объявления нет."})
+    conn.execute("UPDATE creatives SET status = 'draft', error = '', picked_at = strftime('%Y-%m-%d %H:%M:%f', 'now') WHERE id = ?", (row["id"],))
+    conn.commit()
+    return {"accepted": True}
+
+
 @router.get("/ads/{index}/rejected.jpg")
 def ad_rejected_banner(business_id: int, index: int, user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connection = Depends(get_db)):
     """Последний баннер объявления, который не принят проверкой: чтобы владелец видел, что именно не так."""

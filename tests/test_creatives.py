@@ -587,13 +587,22 @@ def test_ai_banner_with_extra_small_text_is_rejected_but_a_stray_word_is_not(mon
         shown = http.get(f"{base}/ads/4/rejected.jpg")
         assert shown.status_code == 200 and shown.headers["content-type"] == "image/jpeg" and len(shown.content) > 100
         assert http.get(f"{base}/ads/3/rejected.jpg").status_code == 404                  # у объявления без забракованного баннера её нет
+        assert http.post(f"{base}/ads/3/accept-rejected").status_code == 400              # принять нечего: забракованного баннера нет
+
+        assert http.post(f"{base}/ads/4/accept-rejected").json() == {"accepted": True}    # владелец считает баннер хорошим: он встаёт на объявление
+        ok = _ai_ad(http, bid)
+        assert ok["ai"]["status"] == "ready" and not ok["ai"]["error"] and "rejected_url" not in ok["ai"]
+        assert http.post(f"{base}/ads/4/accept-rejected").status_code == 400              # повторно принимать нечего
 
 
 def test_the_caption_says_who_advertises_what_and_skips_what_cannot_be_checked():
     from app.creative import fal
     shop = {"name": "Лотос", "kind": "Маникюрный салон", "description": "Маникюр и педикюр.", "allow_promo": 0, "color_main": "", "color_extra": "", "visual_hint": ""}
     assert fal.caption_parts(shop) == ["Лотос", "Маникюрный салон"] and fal.caption_for(shop) == "Лотос · Маникюрный салон"
-    assert fal.caption_parts({**shop, "name": "burocart.ru"}) == ["Маникюрный салон"]                    # адрес сайта в подпись нельзя: проверка такие надписи бракует
+    assert fal.caption_parts({**shop, "name": "Студия маникюра «Лилия»", "kind": "Маникюрная студия"}) == ["Студия маникюра «Лилия»"]   # вид уже сказан в названии: не повторяем
+    assert fal.caption_parts({**shop, "name": "Бар", "kind": "Бар"}) == ["Бар"]                                                          # короткие слова основы не дают, дубль убирает прежняя проверка
+    assert fal.caption_parts({**shop, "name": "Лилия", "kind": "Студия маникюра"}) == ["Лилия", "Студия маникюра"]                      # названия вида в названии нет: подпись полная
+    assert fal.caption_parts({**shop, "name": "burocart.ru"}) == ["Маникюрный салон"]                   # адрес сайта в подпись нельзя: проверка такие надписи бракует
     assert fal.caption_parts({**shop, "kind": "Карточные игры с ИИ ведущим: мафия, бункер, шпион и другие игры"}) == ["Лотос"]   # длинное не берём
     assert fal.caption_parts({**shop, "name": "burocart.ru", "kind": "x" * 60}) == []
 
