@@ -122,14 +122,21 @@ class FakeDirect:
                     return ok({"AddResults": [{"Errors": [{"Code": 4000, "Message": "Недельный бюджет меньше минимума"}]}]})
                 cid = self._next()
                 self.campaigns[cid] = {"Id": cid, "Name": item["Name"], "Limit": limit, "Strategy": search["BiddingStrategyType"], "Status": "DRAFT",
-                                       "State": "OFF", "StatusPayment": "ALLOWED"}
+                                       "State": "OFF", "StatusPayment": "ALLOWED",
+                                       "Network": item["TextCampaign"]["BiddingStrategy"]["Network"]["BiddingStrategyType"]}
                 self.negatives[cid] = (item.get("NegativeKeywords") or {}).get("Items", [])
                 return ok({"AddResults": [{"Id": cid}]})
             if method == "get":
                 wanted = ids()
-                return ok({"Campaigns": [{k: v for k, v in c.items() if k not in ("Limit", "Monitoring", "Warnings")} | {"StatusClarification": c.get("Note", "")}
+                def search_of(c):
+                    if c["Strategy"] == "WB_MAXIMUM_CONVERSION_RATE":
+                        return {"BiddingStrategyType": c["Strategy"], "WbMaximumConversionRate": {"WeeklySpendLimit": c["Limit"], "GoalId": c.get("GoalId")}}
+                    return {"BiddingStrategyType": c["Strategy"], "WbMaximumClicks": {"WeeklySpendLimit": c["Limit"]}}
+
+                return ok({"Campaigns": [{k: v for k, v in c.items() if k not in ("Limit", "Monitoring", "Warnings", "Network")} | {"StatusClarification": c.get("Note", "")}
                                          | {"Notification": {"EmailSettings": {"Email": "owner@example.com", "SendWarnings": c.get("Warnings", "NO")}}}
-                                         | {"UnifiedCampaign": {"Settings": [{"Option": "ENABLE_SITE_MONITORING", "Value": c.get("Monitoring", "NO")}]}}
+                                         | {"UnifiedCampaign": {"Settings": [{"Option": "ENABLE_SITE_MONITORING", "Value": c.get("Monitoring", "NO")}],
+                                                                "BiddingStrategy": {"Search": search_of(c), "Network": {"BiddingStrategyType": c.get("Network", "SERVING_OFF")}}}}
                                          for c in self.campaigns.values() if not wanted or c["Id"] in wanted]})
             if method in ("suspend", "resume"):
                 for i in ids():
@@ -143,7 +150,8 @@ class FakeDirect:
                 if "BiddingStrategy" in unified:
                     search = unified["BiddingStrategy"]["Search"]
                     self.campaigns[item["Id"]].update(Limit=self._limit(search), Strategy=search["BiddingStrategyType"],
-                                                      GoalId=search.get("WbMaximumConversionRate", {}).get("GoalId"))
+                                                      GoalId=search.get("WbMaximumConversionRate", {}).get("GoalId"),
+                                                      Network=unified["BiddingStrategy"]["Network"]["BiddingStrategyType"])
                 if "CounterIds" in unified:
                     self.campaigns[item["Id"]]["CounterIds"] = unified["CounterIds"]["Items"]
                 for setting in unified.get("Settings", []):

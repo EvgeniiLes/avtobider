@@ -550,6 +550,22 @@ def test_site_monitoring_and_email_warnings_are_switched_on_by_the_service(isola
         assert all("Мониторинг сайта: Мониторинг недоступен" in n for n in notes)                              # отказ Директа виден в статусе объявления
 
 
+def test_campaigns_show_on_search_maps_and_partner_sites_and_old_ones_get_the_networks(isolated):
+    fake = FakeDirect()
+    with TestClient(app) as http:
+        bid = setup(http, fake, isolated)
+        assert http.post(f"/api/businesses/{bid}/launch", json={"marking_confirmed": True}).status_code == 200
+        campaign = next(iter(fake.campaigns.values()))
+        assert campaign["Network"] == "NETWORK_DEFAULT"                                                        # новая кампания: сети включены сразу
+        campaign["Network"] = "SERVING_OFF"                                                                    # кампания, созданная раньше, когда сети были выключены
+        limit = campaign["Limit"]
+        conn = connect(isolated)
+        biz = conn.execute("SELECT * FROM businesses WHERE id = ?", (bid,)).fetchone()
+        assert not sync_and_run(conn, biz, transport=fake.transport)["error"]
+        conn.close()
+        assert campaign["Network"] == "NETWORK_DEFAULT" and campaign["Limit"] == limit and campaign["Strategy"] == "WB_MAXIMUM_CLICKS"   # лимит и стратегия поиска прежние
+
+
 def test_missing_advertiser_data_stays_visible_on_every_sync_until_filled(isolated):
     fake = FakeDirect()
     with TestClient(app) as http:

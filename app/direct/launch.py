@@ -565,6 +565,8 @@ async def sync_units(client: DirectClient, conn: sqlite3.Connection, biz, today:
             cstate = "paused"
         conn.execute("UPDATE campaigns SET state = ? WHERE business_id = ? AND external_id = ?", (cstate, biz["id"], cid))
         alert_errors = await client.ensure_alerts(cid)   # мониторинг сайта и почтовые предупреждения включает сам сервис
+        network_error = await client.ensure_network(cid)   # поиск, Карты и сайты-партнёры: кампании, созданные раньше с выключенными сетями, получают их
+        alert_errors = [*alert_errors, *([network_error] if network_error else [])]
         alerts_note = f"Не удалось включить настройки кампании. {' '.join(alert_errors)}" if alert_errors else ""
         for u in mine:
             ad = ads.get(str(u["external_ad_id"]))

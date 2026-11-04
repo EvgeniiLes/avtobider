@@ -175,7 +175,7 @@ def test_create_campaign_group_ad_payloads():
     campaign = seen[0][2]["Campaigns"][0]
     strategy = campaign["TextCampaign"]["BiddingStrategy"]
     assert strategy["Search"]["WbMaximumClicks"]["WeeklySpendLimit"] == 600_000_000
-    assert strategy["Network"]["BiddingStrategyType"] == "SERVING_OFF"
+    assert strategy["Network"]["BiddingStrategyType"] == "NETWORK_DEFAULT"      # поиск, Карты и сайты-партнёры: сети идут следом за поиском
     assert seen[1][2]["AdGroups"][0]["RegionIds"] == [213]
     ad = seen[2][2]["Ads"][0]["TextAd"]
     assert ad["BusinessId"] == 555 and ad["Mobile"] == "NO" and ad["Href"] == "https://x.ru"
@@ -239,7 +239,7 @@ def test_strategy_switch_to_max_conversions_keeps_the_limit_and_names_the_goal()
     strategy = conversions["UnifiedCampaign"]["BiddingStrategy"]
     assert strategy["Search"] == {"BiddingStrategyType": "WB_MAXIMUM_CONVERSION_RATE",
                                   "WbMaximumConversionRate": {"WeeklySpendLimit": 900_000_000, "GoalId": 12345}}
-    assert strategy["Network"]["BiddingStrategyType"] == "SERVING_OFF"          # сети остаются выключены
+    assert strategy["Network"]["BiddingStrategyType"] == "NETWORK_DEFAULT"      # сети остаются включёнными при смене стратегии
     assert seen[1][2]["Campaigns"][0]["UnifiedCampaign"]["BiddingStrategy"]["Search"]["BiddingStrategyType"] == "WB_MAXIMUM_CLICKS"
 
 
