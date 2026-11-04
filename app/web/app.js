@@ -123,6 +123,7 @@ async function logout() {
 }
 
 function showAuth() {
+  $("boot").hidden = true;
   currentBusiness = null;
   document.body.classList.add("guest");   // гость видит главную с примером без бокового меню
   $("view-auth").hidden = false;
@@ -142,6 +143,7 @@ function goToAuth(mode) {
 }
 
 async function showApp(email) {
+  $("boot").hidden = true;
   currentBusiness = null; // не тащим бизнес предыдущего пользователя
   document.body.classList.remove("guest");
   $("view-auth").hidden = true;
@@ -264,9 +266,40 @@ function fillForm(b) {
   $("business-delete").hidden = !b;
   setStatus("business-status", "");
   setStatus("files-status", "");
+  setWizard(!b);
   loadAdvice();
 }
 
+// Новый бизнес вносится в три шага: что за бизнес, где показывать, сколько тратить. У существующего форма целиком.
+const WIZARD_LABELS = ["О бизнесе", "Где показывать", "Деньги"];
+let wizardStep = 1;
+
+function setWizard(on) {
+  $("business-form").classList.toggle("wizard", on);
+  $("wizard-bar").hidden = $("wizard-nav").hidden = !on;
+  $("b-style-box").open = !on;   // стиль картинок необязателен: новичку не мешает
+  if (on) showWizardStep(1); else delete $("business-form").dataset.wstep;
+}
+
+function showWizardStep(n) {
+  wizardStep = n;
+  $("business-form").dataset.wstep = String(n);
+  $("wizard-label").textContent = `Шаг ${n} из ${WIZARD_LABELS.length}: ${WIZARD_LABELS[n - 1]}`;
+  $("wizard-back").hidden = n === 1;
+  $("wizard-next").hidden = n === WIZARD_LABELS.length;
+}
+
+function wizardNext() {
+  if (wizardStep === 1 && !($("b-name").value.trim() && $("b-kind").value.trim() && $("b-description").value.trim())) { say("Укажите название, чем вы занимаетесь, и расскажите о бизнесе: по описанию сервис пишет объявления.", "err"); return; }
+  if (wizardStep === 2 && !$("b-nationwide").checked && !$("b-city").value.trim()) { say("Укажите город или отметьте «Показывать по всей России».", "err"); return; }
+  showWizardStep(wizardStep + 1);
+  window.scrollTo(0, 0);
+}
+
+function wizardBack() {
+  showWizardStep(wizardStep - 1);
+  window.scrollTo(0, 0);
+}
 function rememberedBusiness() {
   try { return Number(localStorage.getItem("autobider.business")) || null; } catch (_) { return null; }
 }
@@ -384,6 +417,7 @@ async function selectBusiness(id, refreshList = true) {
   rememberBusiness(currentBusiness.id);
   fillForm(currentBusiness);
   renderFiles();
+  refreshNav();
   refreshStopbar();
   loadMetrika();
   loadMarking();
@@ -395,8 +429,26 @@ async function selectBusiness(id, refreshList = true) {
   }
 }
 
+// Пока бизнеса нет, в меню остаются Главная, Бизнес и Подключения: остальное вело бы в пустые страницы.
+// «Результаты» появляются, когда есть реклама или пример. Короткие кнопки-подсказки на главной тоже нужны только с бизнесом.
+function updateNav(hasBusiness, hasResults) {
+  document.body.classList.toggle("no-biz", !hasBusiness);
+  document.body.classList.toggle("no-results", !hasResults);
+  $("home-chips").hidden = !hasBusiness;
+  $("ptile-ideas").hidden = !hasBusiness;
+}
+
+async function refreshNav() {
+  if (!currentBusiness) { updateNav(false, false); return; }
+  const id = currentBusiness.id;
+  updateNav(true, !document.body.classList.contains("no-results"));   // пока ответ не пришёл, оставляем как было
+  const r = await api("GET", `/api/businesses/${id}/overview`);
+  if (currentBusiness && currentBusiness.id === id) updateNav(true, r.ok && !!(r.data.real || r.data.example));
+}
+
 function newBusiness() {
   currentBusiness = null;
+  updateNav(false, false);
   fillForm(null);
   renderFiles();
   $("stopbar").hidden = true;
@@ -431,6 +483,7 @@ function readForm() {
 
 async function saveBusiness(event) {
   event.preventDefault();
+  if ($("business-form").classList.contains("wizard") && wizardStep < 3) { wizardNext(); return; }   // Enter на первых шагах ведёт дальше, а не сохраняет недописанное
   const button = $("business-save");
   button.disabled = true;
   setStatus("business-status", "Сохраняем…");
@@ -465,8 +518,12 @@ async function deleteBusiness() {
 let creativeTimer = null;
 let creativeLimits = { title: 56, text: 81 };
 const autoTexts = new Set();
-let creativePrices = { image: 0.08, video: 0.7 };
-const usd = (v) => `$${v.toFixed(2)}`;
+let creativePrices = { image: 0.08, video: 0.7, strategist: 0.03 };
+let usdRub = 95;   // курс приходит с сервера: генерация оплачивается в долларах, а человеку цену показываем в рублях
+const usd = (v) => {   // имя прежнее, но возвращает рубли
+  const rub = v * usdRub;
+  return rub < 1 ? "меньше 1 ₽" : `${Math.round(rub)} ₽`;
+};
 
 function counterEl(input, limit) {
   const span = el("span", { className: "counter" });
@@ -493,9 +550,11 @@ async function loadCreatives() {
   if (!has) return;
   const result = await creativeCall("GET", "");
   if (!result.ok) { setStatus("cr-texts-status", errorText(result), "err"); return; }
-  const { creatives, caps, spend, limits, prices_usd } = result.data;
+  const { creatives, caps, spend, limits, prices_usd, usd_rub } = result.data;
   creativeLimits = limits;
   if (prices_usd) creativePrices = prices_usd;
+  if (usd_rub) usdRub = usd_rub;
+  $("briefs-gen").textContent = `Предложить идеи · ${usd(creativePrices.strategist)}`;
 
   const note = $("cr-ai-note");
   note.hidden = caps.text_ai;
@@ -504,7 +563,7 @@ async function loadCreatives() {
   $("cr-image-note").textContent = "Создание картинок и видео пока не подключено на сервере. Свои фото можно загрузить выше, в этом же разделе.";
   $("cr-image-form").hidden = !caps.image_ai;
   $("cr-spend").textContent = caps.image_ai || caps.text_ai
-    ? `Потрачено на создание в этом месяце: $${spend.spent_usd.toFixed(2)} из $${spend.limit_usd.toFixed(0)}, всего с начала: $${(spend.total_usd ?? spend.spent_usd).toFixed(2)}. Больше лимита сервис не потратит, 1-го числа он обнуляется.` : "";
+    ? `Потрачено на создание в этом месяце: ${usd(spend.spent_usd)} из ${usd(spend.limit_usd)}, всего с начала: ${usd(spend.total_usd ?? spend.spent_usd)}. Больше лимита сервис не потратит, 1-го числа он обнуляется. Сумма пересчитана по курсу ${usdRub} ₽ за доллар, это примерно.` : "";
 
   renderTexts(creatives.filter((c) => c.kind === "text").reverse());  // старые сверху, новые снизу
   const images = creatives.filter((c) => c.kind === "image");
@@ -1169,6 +1228,8 @@ function renderLaunchStep() {
 
 function updateIdeasCount() {
   const used = ideasState.filter((b) => b.status === "used").length;
+  // шаг можно пропустить: без идей в рекламу идут готовые тексты, и кнопка говорит об этом, а не зовёт «дальше» с пустой страницы
+  $("ideas-next").textContent = used ? "Дальше: баннеры" : ideasState.length ? "Дальше без выбора: возьмём готовые тексты" : "Пропустить: возьмём готовые тексты";
   $("ideas-count").textContent = ideasState.length
     ? `Взято ${used} из ${ideasState.length}. Бюджета хватает на ${lastCount || 0} объявлений.`
     : "";
@@ -1239,7 +1300,7 @@ async function loadBriefs() {
 async function generateBriefs() {
   const button = $("briefs-gen");
   button.disabled = true;
-  setStatus("briefs-status", "Стратег думает над идеями… около полминуты");
+  setStatus("briefs-status", "Придумываю идеи… около полминуты");
   const r = await api("POST", `/api/businesses/${currentBusiness.id}/briefs/generate`, { count: Number($("briefs-count").value) });
   button.disabled = false;
   setStatus("briefs-status", r.ok ? `Готово, идей: ${r.data.briefs.length}. Выберите подходящие.` : errorText(r), r.ok ? "ok" : "err");
@@ -1793,8 +1854,8 @@ async function copyLeadsSnippet() {
 function renderTelegram(s) {
   $("tg-unlinked").hidden = !s.configured || s.linked;
   $("tg-linked").hidden = !s.linked;
-  $("tg-note").hidden = s.configured;
-  $("tg-note").textContent = s.configured ? "" : "Telegram на сервере пока не настроен: администратору нужно создать бота и записать его токен (см. docs/deployment.md).";
+  $("tg-card").hidden = !s.configured;   // бот не заведён: владельцу подключать нечего, а инструкция для администратора в docs/deployment.md
+  $("tg-note").hidden = true;
   $("tg-notify").checked = s.notify;
   $("tg-steps").hidden = !s.code;
   $("tg-connect").textContent = s.code ? "Получить новый код" : "Подключить Telegram";
@@ -2012,6 +2073,7 @@ async function loadStats() {
   const result = await api("GET", `/api/businesses/${currentBusiness.id}/overview`);
   if (!result.ok) { say(errorText(result), "err"); return; }
   const data = result.data;
+  updateNav(true, !!(data.real || data.example));
   renderChecklist(data.checklist || []);
   renderHome(data);
   renderGoal(data);
@@ -2037,7 +2099,7 @@ async function loadStats() {
   const notices = $("notices");
   notices.replaceChildren(...(data.notices || []).map((n) => el("li", {}, ...withLinks(n))));
 
-  // Блок статистики стоит в сетке главной рядом с «Нашими работами» и «Идеями стратега»; пока рекламы нет, в нём прочерки
+  // Блок статистики стоит в сетке главной рядом с «Нашими работами» и «Идеями для рекламы»; пока рекламы нет, в нём прочерки
   const tiles = $("tiles");
   tiles.hidden = false;
   $("stats-tile").hidden = false;
@@ -2123,13 +2185,18 @@ function campaignGroup(g, several, number) {
   const head2 = el("tr", {}, ...cells(["Объявление", "", "Оценка", ...(shared ? [] : ["Бюджет в неделю"]), "Расход", "Переходы", "Цена клика", "Обращения", "Клиенты", "Цена клиента"]));
   const body = el("tbody");
   for (const u of g.units) {
-    const name = el("td", { textContent: u.title });
+    const name = el("td", { className: "ad-name", textContent: u.title });
     if (u.note) name.append(el("span", { className: "sub" }, ...withLinks(u.note)));
     if (u.in_test) name.append(el("span", { className: "sub", textContent: "Идёт сравнение двух вариантов" }));
     else if (u.variant) name.append(el("span", { className: "sub", textContent: "Второй вариант для сравнения" }));
-    const cell = (v) => el("td", { textContent: v });
+    // на телефоне строка превращается в карточку: подпись берётся из data-label, редкие числа спрятаны под «Подробнее»
+    const cell = (v, label, more = false) => {
+      const td = el("td", { textContent: v, className: more ? "ad-more" : "" });
+      td.setAttribute("data-label", label);
+      return td;
+    };
     const badge = el("span", { className: `badge ${u.verdict_code}`, textContent: u.verdict });
-    const pauseCell = el("td");
+    const pauseCell = el("td", { className: "ad-pause" });
     if (u.can_pause || u.can_resume) {
       const button = el("button", { type: "button", className: "small secondary", textContent: u.can_resume ? "Включить" : "Пауза" });
       button.addEventListener("click", async () => {
@@ -2142,8 +2209,18 @@ function campaignGroup(g, several, number) {
       });
       pauseCell.append(button);
     }
-    body.append(el("tr", { className: u.active ? "" : "off" }, name, pauseCell, el("td", {}, badge), ...(shared ? [] : [cell(money(u.weekly_budget))]),
-      cell(money(u.spend)), cell(String(u.clicks)), cell(money(u.cost_per_click)), cell(String(u.leads)), cell(String(u.clients)), cell(money(u.cost_per_client))));
+    const verdict = el("td", {}, badge);
+    verdict.setAttribute("data-label", "Оценка");
+    const row = el("tr", { className: u.active ? "" : "off" }, name, pauseCell, verdict, ...(shared ? [] : [cell(money(u.weekly_budget), "Бюджет в неделю", true)]),
+      cell(money(u.spend), "Расход"), cell(String(u.clicks), "Переходы"), cell(money(u.cost_per_click), "Цена клика"),
+      cell(String(u.leads), "Обращения", true), cell(String(u.clients), "Клиенты", true), cell(money(u.cost_per_client), "Цена клиента", true));
+    const toggle = el("td", { className: "ad-toggle" }, el("button", { type: "button", className: "small secondary", textContent: "Подробнее" }));
+    toggle.firstChild.addEventListener("click", () => {
+      const open = row.classList.toggle("open");
+      toggle.firstChild.textContent = open ? "Скрыть" : "Подробнее";
+    });
+    row.append(toggle);
+    body.append(row);
   }
   group.append(el("div", { className: "table-wrap" }, el("table", {}, el("thead", {}, head2), body)));
   return group;
@@ -2159,7 +2236,7 @@ async function openLaunch() {
   launchAdding = p.adding;
   $("launch-go").textContent = launchAdding ? "Добавить в рекламу и отправить на проверку" : "Создать и отправить на проверку";
   $("launch-summary").textContent = launchAdding
-    ? `Реклама уже идёт. Новые объявления встанут в последнюю группу, пока в ней есть место (до трёх), остальные пойдут в новую кампанию: бюджет на неё ${p.weekly} ₽ в неделю${p.groups ? `, новых кампаний ${p.groups}, всего ${p.total} ₽ в неделю` : ""}. Запросы и районы те же. ${p.variants.length ? `Будет добавлено: ${adsPhrase(p.variants.length)}.` : "Новых объявлений нет: все объявления из списка «Пойдут в рекламу» уже в рекламе. Добавьте новый вариант на вкладке «Креативы» или увеличьте число объявлений в показе."}`
+    ? `Реклама уже идёт. Новые объявления встанут в последнюю группу, пока в ней есть место (до трёх), остальные пойдут в новую кампанию: бюджет на неё ${p.weekly} ₽ в неделю${p.groups ? `, новых кампаний ${p.groups}, всего ${p.total} ₽ в неделю` : ""}. Запросы и районы те же. ${p.variants.length ? `Будет добавлено: ${adsPhrase(p.variants.length)}.` : "Новых объявлений нет: все объявления из списка «Пойдут в рекламу» уже в рекламе. Добавьте новый вариант на вкладке «Объявления» или увеличьте число объявлений в показе."}`
     : `Кабинет: ${p.account}. Где показывать: ${p.city}${p.districts.length ? (p.by_district ? `, только районы: ${p.districts.join(", ")}` : `, районы в текстах и фразах: ${p.districts.join(", ")}`) : ""}. ${p.groups === 1 ? `Одна кампания: ${adsPhrase(p.count)} с бюджетом ${p.weekly} ₽ в неделю` : `Кампаний ${p.groups} (по группам объявлений, в группе до трёх), бюджет у каждой свой, ${p.weekly} ₽ в неделю, всего ${p.total} ₽ в неделю: ${adsPhrase(p.count)}`}. Ведёт на: ${p.link}${p.tagged ? " (к ссылке добавятся метки utm: в Метрике будет видно, с какого объявления пришёл человек)" : ""}.`;
   $("launch-variants").replaceChildren(...p.variants.map((v) =>
     el("li", {}, el("div", { className: "t", textContent: v.title }), el("div", { className: "hint", textContent: v.text }))));
@@ -2472,6 +2549,8 @@ async function start() {
   $("units-empty-go").addEventListener("click", () => showPage("creatives"));
   $("briefs-gen").addEventListener("click", generateBriefs);
   for (const btn of document.querySelectorAll("#cr-steps .step")) btn.addEventListener("click", () => setStep(btn.dataset.step));
+  $("wizard-next").addEventListener("click", wizardNext);
+  $("wizard-back").addEventListener("click", wizardBack);
   $("ideas-next").addEventListener("click", () => setStep("banners"));
   $("banners-next").addEventListener("click", () => setStep("launch"));
   $("launch-back").addEventListener("click", () => setStep("banners"));

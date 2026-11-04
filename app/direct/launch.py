@@ -210,7 +210,7 @@ def plan_launch(biz, region_id: int | None, min_weekly_micro: int = MIN_WEEKLY, 
     for v in variants:
         warnings += check(v["title"], v["text"])
     if custom and own < min(count, 2):
-        warnings.append("Одобрено мало своих вариантов. Для сравнения лучше одобрить хотя бы 2–3 на вкладке «Креативы».")
+        warnings.append("Одобрено мало своих вариантов. Для сравнения лучше одобрить хотя бы 2–3 на вкладке «Объявления».")
     advised = ads_for_budget(start_pool)
     per_group = max(group_sizes(count))   # бюджет у каждой группы свой, поэтому и достаточность считаем на группу
     if per_group > advised:
@@ -529,7 +529,7 @@ async def add_ads(client: DirectClient, conn: sqlite3.Connection, biz, target: s
     остальные идут в новую кампанию со своим бюджетом (на каждую группу объявлений бюджет свой). Тексты, баннеры, отправка на проверку."""
     fresh = new_variants(conn, biz, plan)
     if not fresh:
-        raise EngineError("Все объявления из списка уже есть в рекламе. Добавьте на вкладке «Креативы» новый вариант или увеличьте число объявлений в показе.", "nothing_new")
+        raise EngineError("Все объявления из списка уже есть в рекламе. Добавьте на вкладке «Объявления» новый вариант или увеличьте число объявлений в показе.", "nothing_new")
     photos, logo = media_typed(conn, biz)
     ai_banners = ai_banners_for(conn, biz)
     ai_scenes = ai_scenes_for(conn, biz)

@@ -553,3 +553,39 @@ button.photo-pick-item.none.sel { border-style: solid; background: var(--mint); 
 /* срезы: каждое измерение раскрывается отдельно */
 .slice { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
 .slice > summary { cursor: pointer; font-weight: 600; }
+
+/* Пока нет бизнеса, в меню только Главная, Бизнес и Подключения; пока нет рекламы, нет и «Результатов» */
+body.no-biz #nav-creatives, body.no-biz #nav-media, body.no-biz #nav-stats, body.no-biz #grp-media, body.no-results #nav-stats { display: none; }
+
+/* Таблица результатов на телефоне: каждое объявление карточкой, подпись рядом с числом */
+@media (max-width: 700px) {
+  .camp-group .table-wrap { overflow: visible; margin: 0; }
+  .camp-group table, .camp-group tbody, .camp-group tr, .camp-group td { display: block; width: 100%; }
+  .camp-group thead { display: none; }
+  .camp-group tr { border: 1px solid var(--line-2); border-radius: 14px; padding: 10px 12px; margin-bottom: 10px; }
+  .camp-group td { border: 0; padding: 4px 0; display: flex; justify-content: space-between; align-items: baseline; gap: 12px; text-align: right; }
+  .camp-group td::before { content: attr(data-label); color: var(--muted); font-size: 13px; text-align: left; flex: none; }
+  .camp-group td.ad-name { display: block; text-align: left; font-weight: 600; padding-bottom: 6px; }
+  .camp-group td.ad-name::before, .camp-group td.ad-pause::before { content: none; }
+  .camp-group td.ad-pause { justify-content: flex-start; padding-bottom: 6px; }
+  .camp-group td.ad-more { display: none; }
+  .camp-group tr.open td.ad-more { display: flex; }
+  .camp-group td.ad-toggle { display: block; text-align: left; }
+  .camp-group td.ad-toggle::before { content: none; }
+}
+@media (min-width: 701px) { .camp-group td.ad-toggle { display: none; } }
+/* Экран загрузки: вместо белой страницы, пока скрипт не решил, что показать (вход или кабинет) */
+.boot { position: fixed; inset: 0; z-index: 100; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; align-content: center; gap: 12px 14px; background: var(--bg); font-weight: 600; }
+.boot[hidden] { display: none; }
+.boot-late { flex-basis: 100%; text-align: center; font-weight: 400; font-size: 13px; color: var(--muted); opacity: 0; animation: boot-late 0s 12s forwards; }
+@keyframes boot-late { to { opacity: 1; } }
+/* Новый бизнес вносится в три шага; у существующего форма целиком */
+.wizard-bar { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin: 0 0 12px; font-weight: 600; }
+.wizard-bar[hidden], .wizard-nav[hidden] { display: none; }
+.wizard-dots { display: flex; gap: 6px; }
+.wizard-dots i { width: 28px; height: 6px; border-radius: 999px; background: var(--line); }
+#business-form[data-wstep="1"] .wizard-dots i:nth-child(-n+1), #business-form[data-wstep="2"] .wizard-dots i:nth-child(-n+2), #business-form[data-wstep="3"] .wizard-dots i { background: var(--text); }
+.wizard-nav { display: flex; gap: 10px; margin: 6px 0 12px; }
+#business-form.wizard[data-wstep="1"] fieldset:not([data-step="1"]), #business-form.wizard[data-wstep="2"] fieldset:not([data-step="2"]), #business-form.wizard[data-wstep="3"] fieldset:not([data-step="3"]) { display: none; }
+#business-form.wizard:not([data-wstep="3"]) .savebar { display: none; }
+summary.legend-like { font-weight: 700; cursor: pointer; margin-bottom: 6px; }

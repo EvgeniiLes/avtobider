@@ -37,6 +37,7 @@ class Settings:
     fal_text_model: str
     fal_banner_model: str
     gen_limit_usd: float
+    usd_rub_rate: float   # только для показа цен генерации в рублях: расчёты с fal.ai идут в долларах
     redirect_uri: str
     direct_api_version: str
     direct_client_login: str
@@ -83,6 +84,7 @@ def get_settings() -> Settings:
         fal_text_model=os.environ.get("FAL_TEXT_MODEL", "").strip() or "anthropic/claude-sonnet-4.5",
         fal_banner_model=os.environ.get("FAL_BANNER_MODEL", "").strip() or "openai/gpt-image-2",
         gen_limit_usd=float(os.environ.get("GEN_LIMIT_USD", "").strip() or 5),
+        usd_rub_rate=float(os.environ.get("USD_RUB_RATE", "").strip() or 95),
         login_client_id=os.environ.get("YANDEX_LOGIN_CLIENT_ID", "").strip(),
         login_client_secret=os.environ.get("YANDEX_LOGIN_CLIENT_SECRET", "").strip(),
         redirect_uri=os.environ.get("YANDEX_REDIRECT_URI", "").strip(),

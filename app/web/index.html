@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body class="guest">
+  <div id="boot" class="boot" role="status"><span class="spinner" aria-hidden="true"></span><span>Загружаем…</span><span class="boot-late">Если страница не открывается больше минуты, обновите её.</span></div>
   <svg class="sprite" aria-hidden="true" focusable="false">
     <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 11l9-8 9 8v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z"/></symbol>
     <symbol id="i-business" viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></symbol>
@@ -29,13 +30,13 @@
     <nav class="nav" id="nav" hidden aria-label="Разделы">
       <span class="grp">Реклама</span>
       <button id="nav-home" title="Главная" class="active"><svg class="ic"><use href="#i-home"/></svg><span>Главная</span><span class="dot" id="nav-home-dot" hidden></span></button>
-      <button id="nav-creatives" title="Объявления"><svg class="ic"><use href="#i-ads"/></svg><span>Объявления</span></button>
-      <button id="nav-stats" title="Результаты"><svg class="ic"><use href="#i-stats"/></svg><span>Результаты</span></button>
-      <span class="grp">Материалы</span>
-      <button id="nav-media" title="Фото и баннеры"><svg class="ic"><use href="#i-media"/></svg><span class="long">Фото и баннеры</span><span class="short">Материалы</span></button>
+      <button id="nav-creatives" title="Объявления"><svg class="ic"><use href="#i-ads"/></svg><span class="long">Объявления</span><span class="short">Реклама</span></button>
+      <button id="nav-stats" title="Результаты"><svg class="ic"><use href="#i-stats"/></svg><span class="long">Результаты</span><span class="short">Итоги</span></button>
+      <span class="grp" id="grp-media">Материалы</span>
+      <button id="nav-media" title="Фото и баннеры"><svg class="ic"><use href="#i-media"/></svg><span class="long">Фото и баннеры</span><span class="short">Фото</span></button>
       <span class="grp">Настройки</span>
       <button id="nav-business" title="Бизнес"><svg class="ic"><use href="#i-business"/></svg><span>Бизнес</span></button>
-      <button id="nav-accounts" title="Подключения"><svg class="ic"><use href="#i-link"/></svg><span>Подключения</span></button>
+      <button id="nav-accounts" title="Подключения"><svg class="ic"><use href="#i-link"/></svg><span class="long">Подключения</span><span class="short">Кабинет</span></button>
     </nav>
     <div id="user" class="user" hidden>
       <span id="user-email"></span>
@@ -69,7 +70,7 @@
             <div class="ptile lav"><div class="th"><span>Клики</span><em>+214</em></div><div class="cbars"><svg viewBox="0 0 330 142" role="img" aria-label="Клики по дням за 14 дней"><rect class="" x="2.0" y="75.0" width="19.6" height="45.0" rx="9.8"/><rect class="" x="25.6" y="60.0" width="19.6" height="60.0" rx="9.8"/><rect class="" x="49.1" y="65.0" width="19.6" height="55.0" rx="9.8"/><rect class="" x="72.7" y="50.0" width="19.6" height="70.0" rx="9.8"/><rect class="" x="96.3" y="30.0" width="19.6" height="90.0" rx="9.8"/><rect class="" x="119.9" y="40.0" width="19.6" height="80.0" rx="9.8"/><rect class="" x="143.4" y="70.0" width="19.6" height="50.0" rx="9.8"/><rect class="" x="167.0" y="55.0" width="19.6" height="65.0" rx="9.8"/><rect class="" x="190.6" y="35.0" width="19.6" height="85.0" rx="9.8"/><rect class="" x="214.1" y="25.0" width="19.6" height="95.0" rx="9.8"/><rect class="hi" x="237.7" y="10.0" width="19.6" height="110.0" rx="9.8"/><rect class="" x="261.3" y="15.0" width="19.6" height="105.0" rx="9.8"/><rect class="" x="284.9" y="30.0" width="19.6" height="90.0" rx="9.8"/><rect class="" x="308.4" y="50.0" width="19.6" height="70.0" rx="9.8"/><text x="11.8" y="137" text-anchor="middle">17</text><text x="106.1" y="137" text-anchor="middle">21</text><text x="200.4" y="137" text-anchor="middle">25</text><text x="318.2" y="137" text-anchor="middle">30</text></svg></div></div>
             <div class="ptile butter"><div class="th"><span>Бюджет недели</span></div><p class="bigno">3 240 <small>из 5 000 ₽</small></p>
               <div class="cap" role="img" aria-label="Потрачено 65 процентов"><i class="w65"></i></div><p class="sm">Идём чуть медленнее плана</p></div>
-            <div class="ptile pink"><div><span>Идеи стратега</span><b>5 новых</b></div>
+            <div class="ptile pink"><div><span>Идеи для рекламы</span><b>5 новых</b></div>
               <div class="thumbs"><img src="/static/img/b2.jpg" alt=""><img src="/static/img/b4.jpg" alt=""><img src="/static/img/b3.jpg" alt=""></div></div>
           </div>
         </div>
@@ -137,7 +138,7 @@
               <button id="home-cta" class="big">Начать</button>
               <button id="sim-start" class="secondary big" hidden>Посмотреть на примере</button>
             </div>
-            <div class="chiprow">
+            <div class="chiprow" id="home-chips">
               <button type="button" class="chip-plus" id="chip-banner">Нарисовать баннер<span class="plus">+</span></button>
               <button type="button" class="chip-plus" id="chip-ideas">Новые идеи<span class="plus">+</span></button>
               <button type="button" class="chip-plus" id="chip-photo">Добавить фото<span class="plus">+</span></button>
@@ -161,7 +162,7 @@
               <div class="bar"><div id="budget-fill" class="fill"></div></div>
             </div>
             <div class="ptile stats" id="stats-tile" hidden><div class="th"><span>Статистика</span><em id="stats-period">14 дней</em></div><div id="tiles" class="tiles"></div></div>
-            <div class="ptile pink" id="ptile-ideas"><div><span>Идеи стратега</span><b>Что проверим в рекламе</b></div><button type="button" id="ptile-ideas-go" aria-label="Открыть идеи">+</button></div>
+            <div class="ptile pink" id="ptile-ideas"><div><span>Идеи для рекламы</span><b>Что попробуем показать</b></div><button type="button" id="ptile-ideas-go" aria-label="Открыть идеи">+</button></div>
           </div>
         </section>
 
@@ -208,7 +209,11 @@
         </div>
 
         <form id="business-form">
-          <fieldset class="card">
+          <div id="wizard-bar" class="wizard-bar" hidden>
+            <span id="wizard-label"></span>
+            <div class="wizard-dots" aria-hidden="true"><i></i><i></i><i></i></div>
+          </div>
+          <fieldset class="card" data-step="1">
             <legend id="business-title">Расскажите о бизнесе</legend>
             <label for="b-name">Название</label>
             <input type="text" id="b-name" maxlength="100" required placeholder="Например, Салон «Лотос»">
@@ -229,6 +234,10 @@
             <label class="check"><input type="checkbox" id="b-promo"> Можно писать в рекламе про скидки и акции из описания</label>
             <p class="hint">По умолчанию выключено: скидки, акции, подарки и бонусы из описания в тексты и на баннеры не попадают, даже если вы их там упомянули. Отметьте, если хотите рекламировать акцию.</p>
 
+          </fieldset>
+
+          <fieldset class="card" data-step="2">
+            <legend>Где показывать</legend>
             <label class="check"><input type="checkbox" id="b-nationwide"> Показывать по всей России (онлайн-услуга, города нет)</label>
             <p class="hint">Отметьте, если клиенты могут быть откуда угодно: сервис покажет рекламу по всей России и не будет писать город в объявлениях.</p>
 
@@ -254,10 +263,12 @@
             <p class="hint">Найдите организацию в Яндекс Картах и скопируйте адрес страницы из браузера. По ней покажем в рекламе адрес, рейтинг и отзывы.</p>
           </fieldset>
 
-          <fieldset class="card">
+          <fieldset class="card" data-step="3">
             <legend>Деньги</legend>
-            <label for="b-budget">Бюджет на каждую группу объявлений в неделю, ₽</label>
-            <input type="number" id="b-budget" min="0" step="1" inputmode="numeric" placeholder="В группе до трёх объявлений, у каждой группы свой бюджет">
+            <label for="b-budget">Сколько тратить в неделю на каждые три объявления, ₽</label>
+            <input type="number" id="b-budget" min="0" step="1" inputmode="numeric" placeholder="Например, 5000">
+            <p class="hint">Объявления идут группами по три, у каждой группы свой бюджет, и больше него она за неделю не потратит. Три объявления на 5 000 ₽ потратят вместе не больше 5 000 ₽. Если объявлений станет четыре и больше, групп будет две, и расход удвоится.</p>
+            <p class="hint">Дальше нужен хотя бы один ответ: средний чек или сколько готовы платить за клиента. По ним сервис считает, какая реклама окупается.</p>
             <label for="b-cpa">Сколько готовы платить за одного клиента, ₽</label>
             <input type="number" id="b-cpa" min="0" step="1" inputmode="numeric" placeholder="Если не знаете, оставьте пустым">
             <label for="b-check">Средний чек, ₽</label>
@@ -268,7 +279,7 @@
             <div id="b-advice" class="advice" hidden aria-live="polite"></div>
           </fieldset>
 
-          <fieldset class="card">
+          <fieldset class="card" data-step="3">
             <legend>Как действовать сервису</legend>
             <label class="radio"><input type="radio" name="mode" id="mode-ask" value="ask" checked>
               <span><strong>Сначала спрашивать меня</strong><br><span class="hint">Сервис предлагает остановить слабое объявление или добавить бюджет, а вы подтверждаете. Так спокойнее на старте.</span></span></label>
@@ -276,8 +287,9 @@
               <span><strong>Делать самому</strong><br><span class="hint">Сервис сам меняет рекламу и записывает всё в историю. Любое изменение можно отменить.</span></span></label>
           </fieldset>
 
-          <fieldset class="card">
-            <legend>Стиль рекламы</legend>
+          <fieldset class="card" data-step="3">
+            <details id="b-style-box" open>
+            <summary class="legend-like">Стиль картинок <span class="hint">(необязательно)</span></summary>
             <label for="b-visual">Что показывать на картинках <span class="hint">(необязательно)</span></label>
             <textarea id="b-visual" rows="2" maxlength="300" placeholder="Например: игра идёт в телефоне, на картинках смартфон в руках. Бумажных карт быть не должно."></textarea>
             <p class="hint">Нейросеть рисует по описанию бизнеса, но иногда понимает смысл не так. Здесь вы можете прямо сказать, что должно быть на картинках и чего не должно.</p>
@@ -295,7 +307,13 @@
               </div>
             </div>
             <p class="hint">Цвета и логотип помогут сделать картинки в вашем стиле.</p>
+            </details>
           </fieldset>
+
+          <div id="wizard-nav" class="wizard-nav" hidden>
+            <button type="button" id="wizard-back" class="secondary">Назад</button>
+            <button type="button" id="wizard-next">Дальше</button>
+          </div>
 
           <div class="savebar">
             <button type="submit" id="business-save">Сохранить</button>
@@ -367,16 +385,16 @@
           <section class="card" id="step-ideas">
             <div class="step-head">
               <div>
-                <h2>Что проверим в рекламе</h2>
-                <p class="hint">Стратег предлагает разные идеи: для какой аудитории, с каким заголовком, на каком вашем фото и в какой подаче. Отметьте те, что берём в тест. Текст, фото и подачу можно поменять на следующем шаге.</p>
+                <h2>Идеи для объявлений</h2>
+                <p class="hint">Сервис предлагает разные идеи: для какой аудитории, с каким заголовком, на каком вашем фото и в какой подаче. Отметьте те, что берём в рекламу: так видно, какая подача приводит клиентов лучше. Текст, фото и подачу можно поменять на следующем шаге.</p>
               </div>
               <div class="upload-row">
                 <select id="briefs-count"><option value="3">3 идеи</option><option value="4" selected>4 идеи</option><option value="5">5 идей</option></select>
-                <button id="briefs-gen" class="small">Предложить идеи · 3 ¢</button>
+                <button id="briefs-gen" class="small">Предложить идеи</button>
               </div>
             </div>
             <p id="briefs-status" class="status" role="status"></p>
-            <p id="briefs-empty" class="hint" hidden>Идей пока нет. Нажмите «Предложить идеи» или напишите свой вариант ниже.</p>
+            <p id="briefs-empty" class="hint" hidden>Идей пока нет. Нажмите «Предложить идеи», напишите свой вариант ниже или пропустите шаг: тогда в рекламу пойдут готовые тексты.</p>
             <div id="briefs" class="briefs"></div>
             <details class="own-text">
               <summary>Написать свой вариант</summary>
@@ -411,7 +429,7 @@
             <h2>Запуск</h2>
             <p class="hint" id="ads-summary"></p>
             <div class="card-inner" id="budget-box">
-              <h3>Бюджет на каждую группу объявлений в неделю</h3>
+              <h3>Сколько тратить в неделю на каждые три объявления</h3>
               <p class="hint" id="budget-hint"></p>
               <div class="upload-row">
                 <input type="number" id="budget-input" min="1" step="100" inputmode="numeric" placeholder="₽ в неделю">

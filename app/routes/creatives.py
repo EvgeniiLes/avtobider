@@ -215,7 +215,8 @@ def list_creatives(business_id: int, user: sqlite3.Row = Depends(current_user), 
                   "total_usd": round(_spent_cents(conn, business_id, whole_time=True) / 100, 2)},
         "limits": {"title": TITLE_MAX, "text": TEXT_MAX},
         "prices_usd": {"image": fal.COST_CENTS["image"] / 100, "video": fal.COST_CENTS["video"] / 100,
-                       "ai_banner": fal.COST_CENTS["ai_banner"] / 100},
+                       "ai_banner": fal.COST_CENTS["ai_banner"] / 100, "strategist": fal.COST_CENTS["strategist"] / 100},
+        "usd_rub": get_settings().usd_rub_rate,   # сайт показывает цены в рублях по этому курсу, а не в долларах и центах
     }
 
 
