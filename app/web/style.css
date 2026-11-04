@@ -594,3 +594,5 @@ summary.legend-like { font-weight: 700; cursor: pointer; margin-bottom: 6px; }
 #business-form[data-wstep="4"] + #wizard-files { display: block; }
 #business-form.wizard[data-wstep="4"] fieldset { display: none; }
 #business-form[data-wstep="4"] .wizard-dots i { background: var(--text); }
+/* Описание референса показываем целиком, с переносом строк */
+.chip.wrap { white-space: normal; text-align: left; border-radius: 18px; max-width: 100%; line-height: 1.35; }

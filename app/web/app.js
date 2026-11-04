@@ -1138,8 +1138,8 @@ function adEditor(a) {
   // подача
   const refChips = el("div", { className: "chips" });
   const lookChips = el("div", { className: "chips" });
-  const addChip = (row, label, selected, payload) => {
-    const c = el("button", { type: "button", className: "chip" + (selected ? " sel" : ""), textContent: label, title: label });
+  const addChip = (row, label, selected, payload, wrap = false) => {
+    const c = el("button", { type: "button", className: "chip" + (selected ? " sel" : "") + (wrap ? " wrap" : ""), textContent: label, title: label });
     c.addEventListener("click", async () => {
       if (selected) return;
       const index = await commitText();   // несохранённая правка текста не должна пропасть при смене подачи
@@ -1152,7 +1152,7 @@ function adEditor(a) {
   };
   const cap = (t) => t.charAt(0).toUpperCase() + t.slice(1);
   addChip(refChips, "Без референса", !a.ref_id, { ref_id: 0 });   // сброс: баннер рисуется без образца (автоподбор приёма его не вернёт)
-  lastStyles.refs.forEach((r) => addChip(refChips, cap(r.label.length > 34 ? `${r.label.slice(0, 32)}…` : r.label), a.ref_id === r.id, { ref_id: r.id }));
+  lastStyles.refs.forEach((r) => addChip(refChips, cap(r.label), a.ref_id === r.id, { ref_id: r.id }, true));
   if (!scratch) lastStyles.looks.forEach((l) => addChip(lookChips, cap(l.label), !a.ref_id && a.look_no === l.no, { look: l.no }));
   const chips = el("div", {}, el("span", { className: "sub", textContent: scratch ? "По мотивам (идея из рекламы вашей ниши, без фото)" : "По мотивам (вдохновение из рекламы вашей ниши)" }), refChips,
     ...(scratch ? [] : [el("span", { className: "sub", textContent: "Обычное оформление" }), lookChips]));
