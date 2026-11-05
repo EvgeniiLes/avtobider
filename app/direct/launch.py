@@ -755,12 +755,18 @@ async def sync_units(client: DirectClient, conn: sqlite3.Connection, biz, today:
     goal =biz["metrika_goal_id"] or None
     all_goals = goal_ids_for_report(conn, biz) if goal else []   # все цели счётчика: не только «обращение», а весь путь посетителя
     start = day_add(today, -(days - 1))
+    goal_error = ""
     try:
         rows = await client.ad_stats(start, today, goal_id=goal, goal_ids=all_goals)
-    except DirectError:
-        if len(all_goals) <= 1:
-            raise
-        rows = await client.ad_stats(start, today, goal_id=goal)   # Директ не принял часть целей (чужой счётчик, цель удалена): хотя бы «обращение» не теряем
+    except DirectError as first:
+        try:
+            if len(all_goals) <= 1:
+                raise first
+            rows = await client.ad_stats(start, today, goal_id=goal)   # Директ не принял часть целей (чужой счётчик, цель удалена): хотя бы «обращение» не теряем
+        except DirectError as second:
+            goal = None
+            goal_error = f"Директ не принял цель Метрики в отчёте, поэтому обращения пока не видны (расход и клики обновлены): {second.full_message()}"
+            rows = await client.ad_stats(start, today)   # без цели: расход, показы и клики всё равно нужны
     by_ad = {str(u["external_ad_id"]): u["id"] for u in units}
     n = 0
     for r in rows:
@@ -779,4 +785,4 @@ async def sync_units(client: DirectClient, conn: sqlite3.Connection, biz, today:
                 "ON CONFLICT(unit_id, day, goal_id) DO UPDATE SET conversions = excluded.conversions", (unit_id, r["day"], goal_id, count))
         n += 1
     conn.commit()
-    return {"units": len(units), "rows": n}
+    return {"units": len(units), "rows": n, "goal_error": goal_error}

@@ -112,9 +112,9 @@ def sync_and_run(conn: sqlite3.Connection, biz: sqlite3.Row, today: str | None =
 
             decide = asyncio.run(check())["level"] != "bad"
         changes = run_cycle(conn, biz, platform, today, cfg=DIRECT_CONFIG, decide=decide)
-        error = ""
+        error = synced.get("goal_error", "")   # расход и клики обновились, а цель Метрики Директ в отчёт не принял: причину показываем, а не молчим
     except (EngineError, DirectError) as e:
-        synced, changes, error = {"units": 0, "rows": 0}, [], e.message
+        synced, changes, error = {"units": 0, "rows": 0}, [], (e.full_message() if isinstance(e, DirectError) else e.message)   # с кодом и номером запроса: ошибку можно разобрать
     conn.execute(
         "UPDATE businesses SET last_sync_at = ?, last_sync_error = ? WHERE id = ?",
         (datetime.now(timezone.utc).isoformat(timespec="seconds"), error, biz["id"]),

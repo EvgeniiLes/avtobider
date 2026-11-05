@@ -2131,11 +2131,31 @@ async function resumeAll() {
   await Promise.all([refreshStopbar(), loadStats()]);
 }
 
+// Кампании и объявления на главной: по каждой кампании расход и по каждому объявлению расход, переходы и цена клика. Нет рекламы: подсказка
+function renderHomeAds(data) {
+  const list = (data && data.campaigns) || [];
+  $("home-ads-empty").hidden = list.length > 0;
+  $("home-ads-more").hidden = list.length === 0;
+  const box = $("home-ads");
+  box.replaceChildren(...list.map((g, i) => {
+    const head = el("div", { className: "home-camp-head" },
+      el("strong", { textContent: g.intent || (list.length > 1 ? `Группа ${i + 1}` : "Кампания") }),
+      el("span", { className: `badge ${g.state}`, textContent: g.state_label }),
+      el("span", { className: "hint", textContent: `Расход ${money(g.spend)} · обращений ${g.leads}${g.weekly ? ` · бюджет ${money(g.weekly)} в неделю` : ""}` }));
+    const rows = (g.units || []).map((u) => el("li", {},
+      el("span", { className: "home-ad-title", textContent: u.title }),
+      el("span", { className: `badge ${u.verdict_code}`, textContent: u.verdict }),
+      el("span", { className: "hint", textContent: `расход ${money(u.spend)} · переходов ${u.clicks} · клик ${money(u.cost_per_click)}` })));
+    return el("section", { className: "home-camp" }, head, el("ul", { className: "home-ads-list" }, ...rows));
+  }));
+}
+
 async function loadStats() {
   const has = !!currentBusiness;
   $("stats-empty").hidden = has;
   $("stats-body").hidden = !has;
   if (!has) {
+    renderHomeAds(null);
     homeAction = () => showPage("business");
     $("home-eyebrow").textContent = "Добро пожаловать";
     $("home-title").textContent = "Расскажите о своём бизнесе";
@@ -2152,6 +2172,7 @@ async function loadStats() {
   if (!result.ok) { say(errorText(result), "err"); return; }
   const data = result.data;
   updateNav(true, !!(data.real || data.example));
+  renderHomeAds(data);
   renderChecklist(data.checklist || []);
   renderHome(data);
   renderGoal(data);
@@ -2623,6 +2644,7 @@ async function start() {
   $("land-start").addEventListener("click", () => goToAuth("register"));
   $("land-cta").addEventListener("click", () => goToAuth("register"));
   const toAds = (step) => () => { showPage("creatives"); setStep(step); };
+  $("home-ads-more").addEventListener("click", () => showPage("stats"));
   $("chip-banner").addEventListener("click", toAds("banners"));
   $("chip-ideas").addEventListener("click", toAds("ideas"));
   $("ptile-ideas-go").addEventListener("click", toAds("ideas"));

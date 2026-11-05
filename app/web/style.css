@@ -602,3 +602,11 @@ summary.legend-like { font-weight: 700; cursor: pointer; margin-bottom: 6px; }
 .ed-motion input[type=text] { width: 100%; margin-top: 8px; }
 .ed-video { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 12px; }
 .ed-video video { width: 100%; max-width: 360px; border-radius: 14px; }
+
+/* Кампании и объявления на главной */
+.home-camp { padding: 12px 0; border-top: 1px solid var(--line-2); }
+.home-camp:first-of-type { border-top: 0; }
+.home-camp-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.home-ads-list { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 8px; }
+.home-ads-list li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
+.home-ad-title { font-weight: 600; }
