@@ -328,7 +328,7 @@ def usable_photos(conn: sqlite3.Connection, biz) -> list[sqlite3.Row]:
     Кадры, у которых ИИ нашёл серьёзные проблемы (оценка 1–2), и скриншоты приложения не берём."""
     rows = conn.execute(
         "SELECT a.id, a.stored_name, a.ai_type, a.tag, a.ai_score, a.ai_note, a.ai_fx, a.ai_fy FROM creatives c JOIN business_assets a ON a.id = c.asset_id "
-        "WHERE c.business_id = ? AND c.kind = 'image' AND c.status = 'approved' ORDER BY c.id", (biz["id"],)
+        "WHERE c.business_id = ? AND c.kind = 'image' AND c.status IN ('approved', 'draft') ORDER BY c.id", (biz["id"],)
     ).fetchall() + conn.execute(
         "SELECT id, stored_name, ai_type, tag, ai_score, ai_note, ai_fx, ai_fy FROM business_assets WHERE business_id = ? AND kind = 'photo' AND tag != 'screen' ORDER BY id LIMIT 12", (biz["id"],)
     ).fetchall()
@@ -374,7 +374,7 @@ def media_for(conn: sqlite3.Connection, biz) -> tuple[list[bytes], bytes | None]
     """Картинки для баннеров: сначала одобренные владельцем, иначе его загруженные фото. И логотип, если есть."""
     rows = conn.execute(
         "SELECT a.stored_name FROM creatives c JOIN business_assets a ON a.id = c.asset_id "
-        "WHERE c.business_id = ? AND c.kind = 'image' AND c.status = 'approved' ORDER BY c.id", (biz["id"],)
+        "WHERE c.business_id = ? AND c.kind = 'image' AND c.status IN ('approved', 'draft') ORDER BY c.id", (biz["id"],)
     ).fetchall()
     if not rows:
         rows = conn.execute(
