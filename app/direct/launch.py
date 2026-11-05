@@ -21,7 +21,7 @@ from app.direct.bids import ensure_bids
 from app.direct.goals import goal_ids_for_report
 from app.direct.marking import is_filled
 from app.direct import extras as ad_extras
-from app.direct.groups import GROUP_LIMIT, build_groups, group_sizes, score  # noqa: F401  (GROUP_LIMIT и group_sizes берут из launch другие модули)
+from app.direct.groups import GROUP_LIMIT, RESPONSIVE_PARTS, build_groups, group_sizes, score  # noqa: F401  (GROUP_LIMIT и group_sizes берут из launch другие модули)
 from app.direct.audience import autotargeting_for, effective_negatives, intents_for
 from app.direct.texts import check, draft_variants, mentions_district, near_variants
 from app.engine.util import EngineError, MICRO, day_add, plural, rub
@@ -61,6 +61,7 @@ class Plan:
     region_ids: list[int] | None = None     # районы, по которым идёт показ (Директ знает их как отдельные регионы); пусто: показ по region_id
     districts: list[str] | None = None      # районы, названные владельцем
     ad_description: str = ""                # «описание объекта продвижения» для маркировки: без него Директ ограничивает показы по закону «О рекламе»
+    responsive: bool = False                # комбинаторные объявления: в каждой группе одно объявление с двумя заголовками и двумя текстами
     groups: list[dict] | None = None        # группы-намерения: [{intent, keywords, variants, indexes}], по одной кампании на группу
     extras: dict | None = None              # второй заголовок, уточнения и отображаемая ссылка (app/direct/extras.py); None: объявления без дополнений
 
@@ -184,7 +185,7 @@ def render_banner(biz, variant: dict, photo: bytes, logo: bytes | None, index: i
 
 
 def plan_launch(biz, region_id: int | None, min_weekly_micro: int = MIN_WEEKLY, custom: list[dict] | None = None,
-                audience: dict | None = None, district_ids: list[int] | None = None) -> Plan:
+                audience: dict | None = None, district_ids: list[int] | None = None, responsive: bool = False) -> Plan:
     """Считает, что будет создано. Если создавать нечего или нельзя, объясняет простыми словами."""
     if not (biz["site_url"] or _maps_id(biz)):
         raise EngineError("Укажите сайт или ссылку на ваш бизнес в Яндекс Картах: без них объявлению некуда вести.", "no_target_link")
@@ -207,6 +208,8 @@ def plan_launch(biz, region_id: int | None, min_weekly_micro: int = MIN_WEEKLY, 
         need = rub(min_weekly_micro / START_SHARE / (1 - RESERVE))
         raise EngineError(f"Бюджет слишком мал: на одну кампанию Яндекс требует минимум {rub(min_weekly_micro)} в неделю. Нужно хотя бы {need} в неделю.", "budget_too_small")
 
+    if responsive and not (biz["ads_live"] if "ads_live" in biz.keys() else None):
+        count = min(count, RESPONSIVE_PARTS)   # комбинаторное объявление держит два заголовка и два текста: больше вариантов на группу не нужно
     variants, own = choose_variants(biz, custom, count)
     warnings = []
     if districts and sum(1 for v in variants[:count] if mentions_district(v, districts)) < (2 if count >= 3 else 1):
@@ -242,11 +245,12 @@ def plan_launch(biz, region_id: int | None, min_weekly_micro: int = MIN_WEEKLY, 
     elif len(keywords) < 5:
         warnings.append("В профиле мало ключевых фраз: большую часть запросов подберёт автотаргетинг Яндекса. Добавьте свои фразы в профиле аудитории.")
     intents = intents_for(audience)
-    groups = build_groups(variants[:count], intents or [{"name": "", "keywords": [k for k in keywords if k not in set(_district_phrases(keywords, districts))]}])
+    groups = build_groups(variants[:count], intents or [{"name": "", "keywords": [k for k in keywords if k not in set(_district_phrases(keywords, districts))]}],
+                          RESPONSIVE_PARTS if responsive else GROUP_LIMIT)
     for g in groups:   # районы добавляются к фразам каждой группы: «стрижка собак хамовники»
         g["keywords"] = g["keywords"] + _district_phrases(g["keywords"], districts)
     return Plan(
-        groups=groups, count=count, campaign_micro=start_pool, variants=variants, region_id=RUSSIA_REGION_ID if nationwide else region_id, ad_description=ad_description_of(biz),
+        responsive=responsive, groups=groups, count=count, campaign_micro=start_pool, variants=variants, region_id=RUSSIA_REGION_ID if nationwide else region_id, ad_description=ad_description_of(biz),
         city="вся Россия" if nationwide else biz["city"], href=biz["site_url"], business_id=_maps_id(biz), warnings=warnings, counter_ids=counters,
         own_count=own, negatives=effective_negatives(biz, audience), keywords=keywords, autotargeting=autotargeting_for(audience), audience=audience,
         region_ids=list(district_ids) if by_district and not nationwide else None, districts=districts or None,
@@ -283,7 +287,7 @@ async def extension_ids(client: DirectClient, plan: Plan) -> list[int]:
 
 
 async def create_campaign(client: DirectClient, plan: Plan, name: str, start_date: str, variants: list[dict], ext_ids: list[int] | None = None,
-                          keywords: list[str] | None = None, intent: str = "") -> dict:
+                          keywords: list[str] | None = None, intent: str = "", responsive: bool = False) -> dict:
     """Создаёт кампанию со своим недельным бюджетом, одну группу и в ней объявления (не больше трёх). Если что-то не вышло, удаляет созданное и пробрасывает ошибку."""
     campaign_id = None
     try:
@@ -291,11 +295,22 @@ async def create_campaign(client: DirectClient, plan: Plan, name: str, start_dat
             name, plan.campaign_micro, start_date, counter_ids=plan.counter_ids, negative_keywords=plan.negatives)
         group_id = await client.create_ad_group(campaign_id, (intent or "Основная")[:255], plan.region_ids or [plan.region_id])
         added = await client.add_keywords(group_id, plan.keywords or [] if keywords is None else keywords, plan.autotargeting)
-        ad_ids = []
-        for v in variants:
-            ad_ids.append(await client.create_text_ad(group_id, v["title"], v["text"], href=tagged_href(plan.href), business_id=plan.business_id,
-                                                      erir_description=plan.ad_description, title2=ad_extras.title2_for(plan.extras, v["title"]),
-                                                      display_path=ad_extras.fit_path(plan.extras), extension_ids=ext_ids))
+        ad_ids, kind, fallback = [], "text", ""
+        titles = list(dict.fromkeys(v["title"] for v in variants))[:RESPONSIVE_PARTS]
+        texts = list(dict.fromkeys(v["text"] for v in variants))[:RESPONSIVE_PARTS]
+        if responsive:
+            try:   # одно комбинаторное объявление с несколькими заголовками и текстами; не приняли: делаем обычные объявления, запуск не ломаем
+                ad_ids = [await client.create_responsive_ad(group_id, titles, texts, href=tagged_href(plan.href), business_id=plan.business_id,
+                                                            erir_description=plan.ad_description, display_path=ad_extras.fit_path(plan.extras),
+                                                            extension_ids=ext_ids)]
+                kind = "responsive"
+            except DirectError as e:
+                fallback = e.full_message()
+        if kind == "text":
+            for v in variants:
+                ad_ids.append(await client.create_text_ad(group_id, v["title"], v["text"], href=tagged_href(plan.href), business_id=plan.business_id,
+                                                          erir_description=plan.ad_description, title2=ad_extras.title2_for(plan.extras, v["title"]),
+                                                          display_path=ad_extras.fit_path(plan.extras), extension_ids=ext_ids))
     except DirectError:
         if campaign_id:
             try:
@@ -303,17 +318,26 @@ async def create_campaign(client: DirectClient, plan: Plan, name: str, start_dat
             except DirectError:
                 pass
         raise
-    return {"campaign_id": campaign_id, "group_id": group_id, "ad_ids": ad_ids, "keywords": added}
+    return {"campaign_id": campaign_id, "group_id": group_id, "ad_ids": ad_ids, "keywords": added, "kind": kind, "fallback": fallback,
+            "titles": titles, "texts": texts}
+
+
+def created_ads(ids: dict, variants: list[dict], indexes: list[int]) -> list[dict]:
+    """Объявления, которые создала кампания: у комбинаторной группы одно объявление на все её варианты, у обычной по объявлению на вариант."""
+    if ids["kind"] == "responsive":
+        return [{"ad_id": ids["ad_ids"][0], "variant": variants[0], "index": indexes[0], "responsive": True, "variants": variants, "indexes": indexes,
+                 "titles": ids["titles"], "texts": ids["texts"]}]
+    return [{"ad_id": ad_id, "variant": v, "index": index} for ad_id, v, index in zip(ids["ad_ids"], variants, indexes)]
 
 
 def save_unit(conn: sqlite3.Connection, biz, account_id: int, campaign_row_id: int, variant: dict, ids: dict,
               weekly_micro: int, today: str, variant_of: int | None = None, style: str = "", photo_type: str = "",
-              angle: str = "") -> int:
+              angle: str = "", ad_kind: str = "", variants_json: str = "") -> int:
     cur = conn.execute(
         "INSERT INTO ad_units (campaign_id, business_id, title, body, state, budget_micro, variant_of, last_changed_day, created_day, "
-        "external_campaign_id, external_group_id, external_ad_id, style, photo_type, angle) VALUES (?,?,?,?, 'moderation', ?,?,?,?,?,?,?,?,?,?)",
+        "external_campaign_id, external_group_id, external_ad_id, style, photo_type, angle, ad_kind, variants_json) VALUES (?,?,?,?, 'moderation', ?,?,?,?,?,?,?,?,?,?,?,?)",
         (campaign_row_id, biz["id"], variant["title"], variant["text"], weekly_micro, variant_of, today, today,
-         ids["campaign_id"], ids["group_id"], ids["ad_id"], style, photo_type, angle),
+         ids["campaign_id"], ids["group_id"], ids["ad_id"], style, photo_type, angle, ad_kind, variants_json),
     )
     return cur.lastrowid
 
@@ -447,6 +471,25 @@ async def attach_banners(client: DirectClient, biz, created: list[dict], photos:
     """Собирает баннер под каждое объявление и привязывает к нему. Если не вышло, объявление остаётся без картинки."""
     problems = []
     for i, c in enumerate(created):
+        if c.get("responsive"):   # у комбинаторного объявления до пяти картинок: баннеры всех его вариантов
+            hashes = []
+            for variant, place in zip(c["variants"], c["indexes"]):
+                try:
+                    ready = (ai or {}).get((variant["title"], variant["text"]))
+                    banner = ready if ready is not None else (render_banner(biz, variant, photo_for(photos, place)[1], logo, place) if photos else None)
+                    if banner is not None:
+                        hashes.append(await client.upload_image(banner, f"autobider-{biz['id']}-{place + 1}-{c['ad_id']}.jpg"))
+                except DirectError as e:
+                    problems.append(f"«{variant['title']}»: {e.message}")
+                except Exception:
+                    problems.append(f"«{variant['title']}»: не удалось подготовить картинку")
+            if hashes:
+                try:
+                    await client.attach_responsive_images(c["ad_id"], hashes)
+                    c["image_hash"] = hashes[0]
+                except DirectError as e:
+                    problems.append(f"«{c['variant']['title']}»: {e.message}")
+            continue
         try:
             place = c.get("index", i)   # номер в списке объявлений: от него зависят шаблон и фото баннера
             ready = (ai or {}).get((c["variant"]["title"], c["variant"]["text"]))
@@ -478,8 +521,9 @@ async def launch(client: DirectClient, conn: sqlite3.Connection, biz, account_id
     banner_problems = []
     try:
         for number, g in enumerate(groups):
-            ids = await create_campaign(client, plan, campaign_name(biz, number, g["intent"]), start_date, g["variants"], ext_ids, g["keywords"], g["intent"])
-            created = [{"ad_id": ad_id, "variant": v, "index": index} for ad_id, v, index in zip(ids["ad_ids"], g["variants"], g["indexes"])]
+            ids = await create_campaign(client, plan, campaign_name(biz, number, g["intent"]), start_date, g["variants"], ext_ids, g["keywords"], g["intent"],
+                                        plan.responsive)
+            created = created_ads(ids, g["variants"], g["indexes"])
             made.append((ids, created, g["intent"]))
             if photos or ai_banners:
                 banner_problems += await attach_banners(client, biz, created, photos, logo, ai_banners)
@@ -504,9 +548,13 @@ async def launch(client: DirectClient, conn: sqlite3.Connection, biz, account_id
             save_unit(conn, biz, account_id, row.lastrowid, c["variant"], {"campaign_id": ids["campaign_id"], "group_id": ids["group_id"], "ad_id": c["ad_id"]},
                       0, today, style=style_for(c["index"]),
                       photo_type=ai_scenes.get((c["variant"]["title"], c["variant"]["text"])) or (photo_for(photos, c["index"])[0] if photos else ""),
-                      angle=c["variant"].get("angle", ""))
+                      angle=c["variant"].get("angle", ""), ad_kind="responsive" if c.get("responsive") else "",
+                      variants_json=json.dumps({"titles": c["titles"], "texts": c["texts"]}, ensure_ascii=False) if c.get("responsive") else "")
             for c in created
         ]
+        if ids["fallback"]:
+            conn.execute("UPDATE ad_units SET status_note = ? WHERE id = ?",
+                         (f"Комбинаторное объявление Директ не принял, сделаны обычные: {ids['fallback']}", unit_ids[-len(created)]))
     if banner_problems:
         conn.execute("UPDATE ad_units SET status_note = ? WHERE id = ?", ("Картинки добавлены не ко всем объявлениям", unit_ids[0]))
     conn.execute("UPDATE businesses SET account_id = ?, status = 'running' WHERE id = ?", (account_id, biz["id"]))
@@ -527,7 +575,7 @@ def _existing_groups(conn: sqlite3.Connection, business_id: int, intents: list[d
     """Группы бизнеса в Директе: чья она кампания, какое намерение и сколько в ней объявлений."""
     by_name = {i["name"]: i for i in intents}
     rows = conn.execute(
-        "SELECT c.id AS row_id, c.account_id, c.intent, u.external_campaign_id AS cid, u.external_group_id AS gid, COUNT(u.id) AS n FROM campaigns c "
+        "SELECT c.id AS row_id, c.account_id, c.intent, u.external_campaign_id AS cid, u.external_group_id AS gid, COUNT(u.id) AS n, MAX(u.ad_kind) AS ad_kind FROM campaigns c "
         "JOIN ad_units u ON u.campaign_id = c.id WHERE c.business_id = ? AND c.source = 'direct' AND u.external_group_id IS NOT NULL "
         "GROUP BY u.external_group_id ORDER BY c.id, u.external_group_id", (business_id,)).fetchall()
     return [{**dict(r), "intent_obj": by_name.get(r["intent"])} for r in rows]
@@ -543,7 +591,7 @@ def plan_additions(conn: sqlite3.Connection, biz, plan: Plan, fresh: list[tuple[
         scores = [(score(v, i), i) for i in intents]
         top = max(scores, key=lambda x: x[0], default=(0, None))
         target = top[1] if top[0] > 0 and len(intents) > 1 else None
-        room = [g for g in groups if g["n"] < GROUP_LIMIT and (target is None or g["intent"] in ("", target["name"]))]
+        room = [g for g in groups if g["n"] < GROUP_LIMIT and g["ad_kind"] != "responsive" and (target is None or g["intent"] in ("", target["name"]))]   # в комбинаторное объявление новые варианты не добавляем
         if room:
             best = room[-1]   # самая новая подходящая группа
             best["n"] += 1
@@ -554,7 +602,7 @@ def plan_additions(conn: sqlite3.Connection, biz, plan: Plan, fresh: list[tuple[
     new_groups = []
     for g in pending.values():
         position = 0
-        for size in group_sizes(len(g["items"])):
+        for size in group_sizes(len(g["items"]), RESPONSIVE_PARTS if plan.responsive else GROUP_LIMIT):
             new_groups.append({"intent": g["intent"], "keywords": g["keywords"], "items": g["items"][position:position + size]})
             position += size
     return into, new_groups
@@ -592,10 +640,10 @@ async def add_ads(client: DirectClient, conn: sqlite3.Connection, biz, target: s
             created.append({"ad_id": ad_id, "variant": v, "index": index, "campaign": None, "row_id": g["row_id"], "ids": {"campaign_id": g["cid"], "group_id": g["gid"]}})
         for g in new_groups:
             ids = await create_campaign(client, plan, campaign_name(biz, have + len(new_campaigns), g["intent"]), day_add(today, 1),
-                                        [v for _, v in g["items"]], ext_ids, g["keywords"] or None, g["intent"])
+                                        [v for _, v in g["items"]], ext_ids, g["keywords"] or None, g["intent"], plan.responsive)
             new_campaigns.append((ids, g["intent"]))
-            created += [{"ad_id": ad_id, "variant": v, "index": index, "campaign": len(new_campaigns) - 1, "ids": ids}
-                        for ad_id, (index, v) in zip(ids["ad_ids"], g["items"])]
+            created += [{**c, "campaign": len(new_campaigns) - 1, "ids": ids}
+                        for c in created_ads(ids, [v for _, v in g["items"]], [index for index, _ in g["items"]])]
         banner_problems = await attach_banners(client, biz, created, photos, logo, ai_banners) if (photos or ai_banners) else []
         await client.moderate_ads([c["ad_id"] for c in created])
     except DirectError:
@@ -619,7 +667,8 @@ async def add_ads(client: DirectClient, conn: sqlite3.Connection, biz, target: s
                   {"campaign_id": c["ids"]["campaign_id"], "group_id": c["ids"]["group_id"], "ad_id": c["ad_id"]}, 0, today,
                   style=style_for(c["index"]),
                   photo_type=ai_scenes.get((c["variant"]["title"], c["variant"]["text"])) or (photo_for(photos, c["index"])[0] if photos else ""),
-                  angle=c["variant"].get("angle", ""))
+                  angle=c["variant"].get("angle", ""), ad_kind="responsive" if c.get("responsive") else "",
+                  variants_json=json.dumps({"titles": c["titles"], "texts": c["texts"]}, ensure_ascii=False) if c.get("responsive") else "")
         for c in created
     ]
     if banner_problems:
@@ -692,7 +741,7 @@ async def sync_units(client: DirectClient, conn: sqlite3.Connection, biz, today:
     by_id = {c["Id"]: c for c in result.get("Campaigns", [])}
     ads = {str(a["Id"]): a for a in await client.list_ads(ids)}
     # без «описания объекта продвижения» Директ ограничивает показы по закону «О рекламе»: дописываем его объявлениям, где его нет, а ответ Директа показываем в сервисе
-    missing = [a["Id"] for a in ads.values() if not (a.get("TextAd") or {}).get("ErirAdDescription")]
+    missing = [a["Id"] for a in ads.values() if a.get("TextAd") is not None and not (a.get("TextAd") or {}).get("ErirAdDescription")]   # у комбинаторного объявления описание ставится при создании
     marking_note = ""
     if missing:
         try:

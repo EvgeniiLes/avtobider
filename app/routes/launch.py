@@ -58,7 +58,7 @@ def _with_extras(conn, biz, plan, transport=None) -> None:
     plan.extras = saved if ad_extras.covers(saved, titles) else None
 
 
-def _plan_for(conn, user, biz, account_id, factory, transport=None):
+def _plan_for(conn, user, biz, account_id, factory, transport=None, ad_format: str | None = None):
     """Строит план запуска, обращаясь к Директу за регионом и минимальным бюджетом."""
     account = _pick_account(conn, user, biz, account_id)
     token, login = account_token(conn, account["id"])
@@ -75,7 +75,7 @@ def _plan_for(conn, user, biz, account_id, factory, transport=None):
     region, minimum, district_ids = asyncio.run(go())
     kwargs = {"min_weekly_micro": minimum} if minimum else {}
     custom = text_candidates(conn, biz)
-    plan = plan_launch(biz, region, custom=custom, audience=aud.load(biz), district_ids=district_ids, **kwargs)
+    plan = plan_launch(biz, region, custom=custom, audience=aud.load(biz), district_ids=district_ids, responsive=(ad_format or biz["ad_format"]) == "responsive", **kwargs)
     _with_extras(conn, biz, plan, transport)
     return account, token, login, plan
 
@@ -86,6 +86,7 @@ def _plan_json(plan, account, marking_confirmed: bool = False, fresh: list[dict]
     groups = len(plan.groups or group_sizes(plan.count)) if fresh is None else (new_campaigns or 0)
     return {
         "adding": fresh is not None,
+        "responsive": plan.responsive,
         "existing": 0 if fresh is None else plan.count - len(fresh),
         "marking": {"confirmed": marking_confirmed, "help": MARKING_HELP},
         "account": account["title"],
@@ -113,13 +114,13 @@ def _plan_json(plan, account, marking_confirmed: bool = False, fresh: list[dict]
 
 
 @router.get("/launch/preview")
-def preview(business_id: int, account_id: int | None = None, user: sqlite3.Row = Depends(current_user),
+def preview(business_id: int, account_id: int | None = None, ad_format: str | None = None, user: sqlite3.Row = Depends(current_user),
             conn: sqlite3.Connection = Depends(get_db), factory=Depends(client_factory), transport=Depends(creative_transport)):
     biz = _own(conn, user, business_id)
     fill_districts(conn, business_id, transport)   # район не указан, а адрес есть: берём район из адреса
     biz = _own(conn, user, business_id)
     try:
-        account, _, _, plan = _plan_for(conn, user, biz, account_id, factory, transport)
+        account, _, _, plan = _plan_for(conn, user, biz, account_id, factory, transport, ad_format)
     except (EngineError, DirectError) as e:
         raise _fail(e)
     target = existing_campaign(conn, business_id)
@@ -138,6 +139,7 @@ MARKING_HELP = (
 class LaunchIn(BaseModel):
     account_id: int | None = None
     marking_confirmed: bool = False
+    ad_format: str | None = None   # responsive: комбинаторные объявления (два заголовка и два текста в одном); пусто: как у бизнеса
 
 
 @router.post("/launch")
@@ -154,6 +156,10 @@ def start_launch(business_id: int, data: LaunchIn, user: sqlite3.Row = Depends(c
     if target is None and aud.load(biz) is None and make_profile(conn, biz, transport):   # профиль ещё не составлен: делаем его сами, чтобы запуск шёл с фразами и минус-словами
         biz = _own(conn, user, business_id)
     try:
+        if data.ad_format in ("responsive", "text"):
+            conn.execute("UPDATE businesses SET ad_format = ? WHERE id = ?", ("responsive" if data.ad_format == "responsive" else "", business_id))
+            conn.commit()
+            biz = _own(conn, user, business_id)
         account, token, login, plan = _plan_for(conn, user, biz, data.account_id, factory, transport)
         s = get_settings()
         today = date.today().isoformat()

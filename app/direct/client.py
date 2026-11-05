@@ -387,6 +387,30 @@ class DirectClient:
         result = await self.call("ads", "add", {"Ads": [{"AdGroupId": group_id, "TextAd": ad}]})
         return self._result_item(result, "AddResults")["Id"]
 
+    async def create_responsive_ad(self, group_id: int, titles: list[str], texts: list[str], *, href: str = "", business_id: int | None = None,
+                                   erir_description: str = "", display_path: str = "", extension_ids: list[int] | None = None) -> int:
+        """Комбинаторное объявление: несколько заголовков (до 7) и текстов (до 3) в одном, Директ сам подбирает лучшую комбинацию для каждого показа."""
+        ad: dict = {"Titles": titles, "Texts": texts}
+        if href:
+            ad["Href"] = href
+        if business_id:
+            ad["BusinessId"] = business_id
+        if erir_description:
+            ad["ErirAdDescription"] = erir_description
+        if display_path and href:
+            ad["DisplayUrlPath"] = display_path
+        if extension_ids:
+            ad["AdExtensionIds"] = extension_ids
+        if not (href or business_id):
+            raise DirectError("Для объявления нужен сайт или профиль организации в Яндекс Картах.")
+        result = await self.call("ads", "add", {"Ads": [{"AdGroupId": group_id, "ResponsiveAd": ad}]})
+        return self._result_item(result, "AddResults")["Id"]
+
+    async def attach_responsive_images(self, ad_id: int, hashes: list[str]) -> None:
+        """Картинки комбинаторного объявления (до пяти)."""
+        result = await self.call("ads", "update", {"Ads": [{"Id": ad_id, "ResponsiveAd": {"AdImageHashes": hashes[:5]}}]})
+        self._result_item(result, "UpdateResults")
+
     async def upload_image(self, data: bytes, name: str) -> str:
         """Загружает картинку в библиотеку изображений кабинета и возвращает её хеш."""
         import base64

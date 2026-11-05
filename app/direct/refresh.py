@@ -34,7 +34,7 @@ async def refresh_campaigns(client: DirectClient, conn: sqlite3.Connection, biz,
             ad_extras.save(conn, biz["id"], saved)
     if saved and ad_extras.covers(saved, titles):
         applied = set(str(i) for i in saved.get("applied", []))
-        todo = [u for u in units if str(u["external_ad_id"]) not in applied]
+        todo = [u for u in units if str(u["external_ad_id"]) not in applied and u["ad_kind"] != "responsive"]   # у комбинаторных всё задано при создании
         if todo and (saved.get("callouts") or saved.get("display_path") or saved.get("title2")):
             try:
                 callout_ids = await client.add_callouts(saved.get("callouts") or [])

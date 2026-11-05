@@ -178,6 +178,8 @@ def overview(business_id: int, user: sqlite3.Row = Depends(current_user), conn: 
             "id": u["id"],
             "campaign_id": u["campaign_id"],
             "title": u["title"],
+            "kind": u["ad_kind"] if "ad_kind" in u.keys() else "",
+            "variants": json.loads(u["variants_json"]) if "variants_json" in u.keys() and u["variants_json"] else None,   # заголовки и тексты комбинаторного объявления
             "active": u["state"] == "active",
             "variant": u["variant_of"] is not None,
             "in_test": u["id"] in in_test,

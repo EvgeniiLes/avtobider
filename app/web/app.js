@@ -2322,6 +2322,7 @@ function campaignGroup(g, several, number) {
   for (const u of g.units) {
     const name = el("td", { className: "ad-name", textContent: u.title });
     if (u.note) name.append(el("span", { className: "sub" }, ...withLinks(u.note)));
+    if (u.kind === "responsive" && u.variants) name.append(el("span", { className: "sub", textContent: `Комбинаторное объявление. Заголовки: ${u.variants.titles.join(" / ")}. Тексты: ${u.variants.texts.join(" / ")}` }));
     if (u.in_test) name.append(el("span", { className: "sub", textContent: "Идёт сравнение двух вариантов" }));
     else if (u.variant) name.append(el("span", { className: "sub", textContent: "Второй вариант для сравнения" }));
     // на телефоне строка превращается в карточку: подпись берётся из data-label, редкие числа спрятаны под «Подробнее»
@@ -2365,7 +2366,7 @@ let launchAdding = false;   // реклама уже идёт: кнопка за
 
 async function openLaunch() {
   if (!currentBusiness) return;
-  const result = await api("GET", `/api/businesses/${currentBusiness.id}/launch/preview`);
+  const result = await api("GET", `/api/businesses/${currentBusiness.id}/launch/preview?ad_format=${$("launch-responsive").checked ? "responsive" : "text"}`);
   if (!result.ok) { say(errorText(result), "err"); $("launch-card").hidden = true; return; }
   const p = result.data;
   launchAdding = p.adding;
@@ -2453,7 +2454,7 @@ async function confirmLaunch() {
   const button = $("launch-go");
   button.disabled = true;
   button.textContent = launchAdding ? "Добавляем…" : "Создаём рекламу…";
-  const result = await api("POST", `/api/businesses/${currentBusiness.id}/launch`, { marking_confirmed: $("marking-ok").checked });
+  const result = await api("POST", `/api/businesses/${currentBusiness.id}/launch`, { marking_confirmed: $("marking-ok").checked, ad_format: $("launch-responsive").checked ? "responsive" : "text" });
   button.disabled = false;
   button.textContent = launchAdding ? "Добавить в рекламу и отправить на проверку" : "Создать и отправить на проверку";
   $("launch-error").hidden = true;
@@ -2682,6 +2683,7 @@ async function start() {
   const toAds = (step) => () => { showPage("creatives"); setStep(step); };
   $("home-ads-more").addEventListener("click", () => showPage("stats"));
   $("home-ads-refresh").addEventListener("click", refreshCampaigns);
+  $("launch-responsive").addEventListener("change", openLaunch);   // формат поменяли: план (число групп, объявлений и бюджет) пересчитывается
   $("chip-banner").addEventListener("click", toAds("banners"));
   $("chip-ideas").addEventListener("click", toAds("ideas"));
   $("ptile-ideas-go").addEventListener("click", toAds("ideas"));
