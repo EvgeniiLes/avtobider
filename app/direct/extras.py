@@ -99,7 +99,7 @@ async def generate(biz, titles: list[str], fal_key: str, model: str, transport: 
     """Дополнения от ИИ. None, если ИИ недоступен или ответ не разобрать: тогда объявления идут без дополнений."""
     if not fal_key or not titles:
         return None
-    body = {"model": model, "max_tokens": 1500, "messages": [{"role": "system", "content": SYSTEM}, {"role": "user", "content": build_prompt(biz, titles)}]}
+    body = {"model": model, "max_tokens": 4000, "messages": [{"role": "system", "content": SYSTEM}, {"role": "user", "content": build_prompt(biz, titles)}]}
     try:
         async with httpx.AsyncClient(timeout=90, transport=transport) as http:
             r = await http.post(FAL_CHAT_URL, json=body, headers={"Authorization": f"Key {fal_key}", "Content-Type": "application/json"})

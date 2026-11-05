@@ -60,7 +60,7 @@ async def ideas(biz, title: str, scene: str, fal_key: str, model: str, transport
     """(идеи, от ИИ ли они). Без ключа или при сбое возвращает общие варианты и False."""
     if not fal_key:
         return list(FALLBACK), False
-    body = {"model": model, "max_tokens": 1200, "messages": [{"role": "system", "content": SYSTEM}, {"role": "user", "content": build_prompt(biz, title, scene)}]}
+    body = {"model": model, "max_tokens": 3500, "messages": [{"role": "system", "content": SYSTEM}, {"role": "user", "content": build_prompt(biz, title, scene)}]}
     try:
         async with httpx.AsyncClient(timeout=60, transport=transport) as http:
             r = await http.post(FAL_CHAT_URL, json=body, headers={"Authorization": f"Key {fal_key}", "Content-Type": "application/json"})
@@ -79,7 +79,7 @@ async def to_english(text: str, fal_key: str, model: str, transport: httpx.Async
     """Пожелание владельца по-русски в короткое английское описание движения (видеомодель лучше понимает английский). При сбое возвращаем как есть."""
     if not fal_key or not re.search(r"[а-яё]", text or "", re.I):
         return text
-    body = {"model": model, "max_tokens": 300, "messages": [{"role": "user", "content": (
+    body = {"model": model, "max_tokens": 1500, "messages": [{"role": "user", "content": (
         "Переведи на английский как короткое описание движения для видео (1-2 предложения, только перевод, без пояснений и кавычек): " + text)}]}
     try:
         async with httpx.AsyncClient(timeout=45, transport=transport) as http:

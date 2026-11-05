@@ -236,7 +236,7 @@ async def recommend_autotargeting(biz, profile: dict | None, fal_key: str, model
         return None
     who = (profile or {}).get("summary", "")
     user = build_prompt(biz) + (f"\nКлиент: {who}" if who else "")
-    body = {"model": model, "max_tokens": 800, "messages": [{"role": "system", "content": AUTO_SYSTEM}, {"role": "user", "content": user}]}
+    body = {"model": model, "max_tokens": 2500, "messages": [{"role": "system", "content": AUTO_SYSTEM}, {"role": "user", "content": user}]}
     try:
         async with httpx.AsyncClient(timeout=60, transport=transport) as http:
             r = await http.post(FAL_CHAT_URL, json=body, headers={"Authorization": f"Key {fal_key}", "Content-Type": "application/json"})

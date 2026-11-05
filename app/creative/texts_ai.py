@@ -382,7 +382,7 @@ async def alt_texts(biz, title: str, current: str, fal_key: str, model: str, tra
         return None
     user = "\n".join([f"Бизнес: {biz['name']}, {biz['kind']}", f"Описание от владельца: {effective_description(biz) or 'нет'}",
                       f"Заголовок: {title}", f"Текущий текст: {current}"])
-    body = {"model": model, "max_tokens": 1200, "messages": [{"role": "system", "content": ALT_SYSTEM}, {"role": "user", "content": user}]}
+    body = {"model": model, "max_tokens": 4000, "messages": [{"role": "system", "content": ALT_SYSTEM}, {"role": "user", "content": user}]}
     try:
         async with httpx.AsyncClient(timeout=60, transport=transport) as http:
             r = await http.post(FAL_CHAT_URL, json=body, headers={"Authorization": f"Key {fal_key}", "Content-Type": "application/json"})
