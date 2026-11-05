@@ -340,3 +340,54 @@ async def generate_texts(biz, count: int, api_key: str, model: str, hint: str = 
             if raw:
                 break
     return parse_variants(raw, facts_of(biz)) if raw else []
+
+ALT_SYSTEM = (
+    "Ты копирайтер Яндекс Директа для малого бизнеса. Тебе дают бизнес, заголовок объявления и его текущий текст. Предложи 4 других текста к ЭТОМУ ЖЕ заголовку: "
+    "до 81 символа, у каждого свой акцент (выгода для клиента, понятное действие, доверие и опыт, удобство и скорость). Не повторяй заголовок дословно и не повторяй "
+    "тексты друг друга. Только факты из описания бизнеса; цены, скидки, сроки и числа только если они там названы. Без восклицательных знаков, "
+    "без ВЕРХНЕГО РЕГИСТРА, без телефонов и сайтов. Ответ: только JSON-массив из 4 строк."
+)
+
+
+def clean_alt_texts(raw: str, current: str, title: str, facts: str) -> list[str]:
+    """Тексты от ИИ, прошедшие правила Директа и факты владельца. Дубли, повтор заголовка и текущий текст отбрасываются."""
+    from app.direct.extras import _BAD   # знаки, адреса сайтов, телефоны
+    from app.direct.texts import TEXT_MAX, unsupported_claims
+    match = re.search(r"\[.*\]", raw or "", re.S)
+    if not match:
+        return []
+    try:
+        items = json.loads(match.group(0))
+    except ValueError:
+        return []
+    seen = {_norm(current), _norm(title)}
+    out: list[str] = []
+    for item in items if isinstance(items, list) else []:
+        text = re.sub(r"\s+", " ", str(item or "")).strip()
+        letters = [c for c in text if c.isalpha()]
+        if not text or len(text) > TEXT_MAX or _BAD.search(text) or _norm(text) in seen or any(len(w) > 23 for w in text.split()):
+            continue
+        if len(letters) > 3 and sum(c.isupper() for c in letters) / len(letters) > 0.6:
+            continue
+        if unsupported_claims(text, facts):
+            continue
+        seen.add(_norm(text))
+        out.append(text)
+    return out[:4]
+
+
+async def alt_texts(biz, title: str, current: str, fal_key: str, model: str, transport: httpx.AsyncBaseTransport | None = None) -> list[str] | None:
+    """Другие тексты к тому же заголовку. None, если ИИ недоступен."""
+    if not fal_key:
+        return None
+    user = "\n".join([f"Бизнес: {biz['name']}, {biz['kind']}", f"Описание от владельца: {effective_description(biz) or 'нет'}",
+                      f"Заголовок: {title}", f"Текущий текст: {current}"])
+    body = {"model": model, "max_tokens": 1200, "messages": [{"role": "system", "content": ALT_SYSTEM}, {"role": "user", "content": user}]}
+    try:
+        async with httpx.AsyncClient(timeout=60, transport=transport) as http:
+            r = await http.post(FAL_CHAT_URL, json=body, headers={"Authorization": f"Key {fal_key}", "Content-Type": "application/json"})
+        if r.status_code != 200:
+            return None
+        return clean_alt_texts(r.json()["choices"][0]["message"]["content"] or "", current, title, facts_of(biz))
+    except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError):
+        return None

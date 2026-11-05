@@ -1241,6 +1241,26 @@ function adEditor(a) {
     say(`Новый текст: «${r.data.title}». Баннер к нему нужно нарисовать заново.`);
     await loadCreatives();
   });
+  // другие тексты к этому же заголовку: ИИ предлагает четыре, владелец выбирает лучший (текст встаёт в поле, дальше «Сохранить текст»)
+  const optLabel = `Другие тексты к заголовку · ${usd(0.01)}`;
+  const optBtn = el("button", { type: "button", className: "small secondary", textContent: optLabel });
+  const optBox = el("div", { className: "chips text-options" });
+  optBtn.addEventListener("click", async () => {
+    optBtn.disabled = true; optBtn.textContent = "Пишем…";
+    const r = await creativeCall("POST", `/ads/${a.index}/text-options`);
+    optBtn.disabled = false; optBtn.textContent = optLabel;
+    if (!r.ok) { say(errorText(r), "err"); return; }
+    optBox.replaceChildren(...r.data.options.map((t) => {
+      const c = el("button", { type: "button", className: "chip wrap", textContent: t });
+      c.addEventListener("click", () => {
+        textIn.value = t;
+        textIn.dispatchEvent(new Event("input"));   // появится «Сохранить текст»
+        for (const x of optBox.children) x.classList.remove("sel");
+        c.classList.add("sel");
+      });
+      return c;
+    }));
+  });
   const actions = el("div", { className: "ed-actions" }, draw, again);
   if (a.creative_id && a.own) {
     const drop = el("button", { className: "link", textContent: "Убрать из рекламы" });
@@ -1259,7 +1279,7 @@ function adEditor(a) {
     ...(a.ai && a.ai.ref_sent !== undefined ? [el("span", { className: "hint", textContent: a.ai.ref_sent ? `В последний заказ ушёл референс №${a.ai.ref_sent}: ${a.ai.ref_note}` : "В последний заказ референс не ушёл: баннер нарисован без него" })] : []));
   const fields = el("div", { className: "ed-fields" },
     el("div", {}, el("span", { className: "lab", textContent: "Заголовок на баннере" }), titleIn, counterEl(titleIn, creativeLimits.title)),
-    el("div", {}, el("span", { className: "lab", textContent: "Текст объявления" }), textIn, counterEl(textIn, creativeLimits.text), saveBtn),
+    el("div", {}, el("span", { className: "lab", textContent: "Текст объявления" }), textIn, counterEl(textIn, creativeLimits.text), saveBtn, optBtn, optBox),
     el("div", {}, el("span", { className: "lab", textContent: "Фото" }), photoBox),
     ...(a.no_photo ? [el("p", { className: "hint ed-note", textContent: "Баннер нарисуется с нуля по описанию бизнеса: сцену придумает арт-директор, ваши фото в нём не используются." })] : []),
     el("div", {}, el("span", { className: "lab", textContent: "Подача" }), chips,

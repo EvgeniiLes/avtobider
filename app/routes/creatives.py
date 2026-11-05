@@ -22,7 +22,7 @@ from app.assets import PHOTO_TAGS
 from app.creative.compose import add_caption, add_logo, find_price, prepare_for_direct, style_for
 from app.creative.art import art_direction, review_banner, scene_label
 from app.creative.screen import insert_logo, insert_screenshot
-from app.creative.texts_ai import (EXTRA_WORDS_OK, check_facts, check_photo, extra_words, facts_of, foreign_prices, generate_texts, invented_links,
+from app.creative.texts_ai import (EXTRA_WORDS_OK, alt_texts, check_facts, check_photo, extra_words, facts_of, foreign_prices, generate_texts, invented_links,
                                    missing_phrases, read_image_text)
 from app.db import get_db
 from app.deps import creative_transport, current_user
@@ -593,6 +593,28 @@ def rewrite_text(business_id: int, index: int, user: sqlite3.Row = Depends(curre
     conn.commit()
     return {"title": pick["title"], "text": pick["text"], "angle": pick.get("angle", "")}
 
+
+@router.post("/ads/{index}/text-options")
+def text_options(business_id: int, index: int, user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connection = Depends(get_db),
+                 transport=Depends(creative_transport)):
+    """Несколько других текстов к заголовку этого объявления: владелец выбирает лучший. Заголовок и баннер не меняются."""
+    biz = _own(conn, user, business_id)
+    s = get_settings()
+    if not s.fal_key:
+        raise HTTPException(503, detail={"message": "ИИ для текстов пока не подключён на сервере."})
+    variants, _count, _pool = _ad_variants(conn, biz)
+    if not 0 <= index < len(variants):
+        raise HTTPException(400, detail={"message": "Такого объявления нет."})
+    old = variants[index]
+    options = asyncio.run(alt_texts(biz, old["title"], old["text"], s.fal_key, s.fal_text_model, transport))
+    if options is None:
+        why = asyncio.run(fal.why_down(s.fal_key, s.fal_text_model, transport))
+        raise HTTPException(502, detail={"message": why or "ИИ не ответил. Попробуйте ещё раз чуть позже."})
+    _charge(conn, business_id, "text")
+    conn.commit()
+    if not options:
+        raise HTTPException(502, detail={"message": "ИИ не предложил подходящих текстов к этому заголовку. Попробуйте ещё раз."})
+    return {"options": options}
 
 @router.post("/ads/ai-banners")
 def make_all_ai_banners(business_id: int, redo: bool = False, user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connection = Depends(get_db),
