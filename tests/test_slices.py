@@ -96,7 +96,7 @@ def test_hours_and_weekdays_come_from_metrika_visits_with_ad_traffic_only(isolat
         fake.metrika_hours = [(9, 40, 4), (10, 60, 3), ("21", 30, 0)]
         fake.metrika_days = [("2026-11-02", 50, 5), ("2026-11-09", 30, 1), ("2026-11-03", 20, 0)]   # два понедельника и вторник
         sync(isolated, bid, fake)
-        asked = [r for r in fake.metrika_stat_requests if r.get("dimensions")]
+        asked = [r for r in fake.metrika_stat_requests if r.get("dimensions") in ("ym:s:hour", "ym:s:date")]   # запросы поведения по меткам (app/direct/behavior.py) здесь не в счёт
         assert {r["dimensions"] for r in asked} == {"ym:s:hour", "ym:s:date"}
         assert all(r["ids"] == "555" and "goal9001reaches" in r["metrics"] and "'ad'" in r["filters"] for r in asked)
         conn = connect(isolated)
