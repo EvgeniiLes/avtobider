@@ -62,7 +62,8 @@ def build_audience(business_id: int, user: sqlite3.Row = Depends(current_user), 
         raise HTTPException(400, detail={"message": "Сначала опишите бизнес на странице «Бизнес»: по описанию ИИ определяет, кто ваш клиент."})
     profile = make_profile(conn, biz, transport)
     if profile is None:
-        raise HTTPException(502, detail={"message": "ИИ не ответил. Попробуйте ещё раз чуть позже."})
+        why = asyncio.run(fal.why_down(get_settings().fal_key, get_settings().fal_text_model, transport))   # закончились деньги на fal.ai или просто сбой
+        raise HTTPException(502, detail={"message": why or "ИИ не ответил. Попробуйте ещё раз чуть позже."})
     return _full(conn, biz, aud.load(_own(conn, user, business_id)))
 
 

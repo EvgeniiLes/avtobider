@@ -239,7 +239,7 @@ def parse_profile(raw: str) -> dict | None:
 
 async def generate_profile(biz, fal_key: str, model: str, transport: httpx.AsyncBaseTransport | None = None) -> dict | None:
     """Просит ИИ составить профиль. Один повтор, если ответ не разобрать. None, если сервис недоступен."""
-    body = {"model": model, "max_tokens": 3000,
+    body = {"model": model, "max_tokens": 5000,
             "messages": [{"role": "system", "content": SYSTEM}, {"role": "user", "content": build_prompt(biz)}]}
     async with httpx.AsyncClient(timeout=90, transport=transport) as http:
         for _ in range(2):

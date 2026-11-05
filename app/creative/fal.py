@@ -179,11 +179,37 @@ def _owner_hint(biz) -> str:
     return f"The owner's direction for the visuals, follow it strictly: {hint}. " if hint else ""
 
 
+TOPUP_MESSAGE = ("На счёте сервиса генерации (fal.ai) закончились деньги, поэтому ИИ, картинки и видео сейчас не работают. "
+                 "Пополните счёт на fal.ai (раздел Billing): после этого всё заработает без других действий.")
+CHAT_URL = "https://fal.run/openrouter/router/openai/v1/chat/completions"
+
+
+def is_locked(status_code: int, text: str) -> bool:
+    """Ответ fal.ai «аккаунт заблокирован: нужно пополнить счёт» (403 с причиной TOP_UP)."""
+    return status_code in (402, 403) and any(w in (text or "").upper() for w in ("TOP_UP", "LOCKED", "BALANCE"))
+
+
+async def why_down(key: str, model: str, transport=None) -> str:
+    """Почему ИИ не отвечает: если закончились деньги на счёте fal.ai, возвращает понятное сообщение, иначе пустую строку (причина другая).
+    Проверка лёгкая: один запрос на один токен, который выполняется только когда обычный запрос уже не удался."""
+    if not key:
+        return ""
+    body = {"model": model, "max_tokens": 1, "messages": [{"role": "user", "content": "ok"}]}
+    try:
+        async with httpx.AsyncClient(timeout=30, transport=transport) as http:
+            r = await http.post(CHAT_URL, json=body, headers=_headers(key))
+    except httpx.HTTPError:
+        return ""
+    return TOPUP_MESSAGE if is_locked(r.status_code, r.text) else ""
+
+
 async def _submit(http: httpx.AsyncClient, model: str, key: str, payload: dict) -> dict:
     try:
         r = await http.post(f"{QUEUE}/{model}", json=payload, headers=_headers(key))
     except httpx.HTTPError:
         raise FalError("Не удалось связаться с сервисом генерации. Попробуйте позже.")
+    if is_locked(r.status_code, r.text):
+        raise FalError(TOPUP_MESSAGE)
     if r.status_code in (401, 403):
         raise FalError("Ключ сервиса генерации не подошёл. Администратору нужно проверить FAL_KEY.")
     if r.status_code == 402 or r.status_code == 429:

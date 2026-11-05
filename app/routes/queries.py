@@ -46,7 +46,8 @@ def analyze_queries(business_id: int, user: sqlite3.Row = Depends(current_user),
         raise HTTPException(400, detail={"message": "Пока нечего разбирать: по рекламе ещё не было кликов. Запросы появятся, когда пойдут показы."})
     found = asyncio.run(q.classify(queries, biz, aud.load(biz), s.fal_key, s.fal_text_model, transport))
     if found is None:
-        raise HTTPException(502, detail={"message": "ИИ не ответил. Попробуйте ещё раз чуть позже."})
+        why = asyncio.run(fal.why_down(s.fal_key, s.fal_text_model, transport))
+        raise HTTPException(502, detail={"message": why or "ИИ не ответил. Попробуйте ещё раз чуть позже."})
     conn.execute("INSERT INTO generations (business_id, kind, cents) VALUES (?, 'check', ?)", (business_id, fal.COST_CENTS["check"]))
     conn.commit()
     return {"minus": found, "checked": len(queries)}

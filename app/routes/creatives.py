@@ -258,9 +258,11 @@ def generate(business_id: int, data: TextsIn, user: sqlite3.Row = Depends(curren
         added += 1
     conn.commit()
     has_ai = bool(s.anthropic_api_key or s.fal_key)
+    down = asyncio.run(fal.why_down(s.fal_key, s.fal_text_model, transport)) if has_ai and not ai_count else ""   # закончились деньги на fal.ai: говорим об этом, а не «ИИ не ответил»
     return {"added": added, "ai": ai_count, "used_ai": has_ai,
             "message": ("Придумали варианты с помощью ИИ." if ai_count else
                         "Варианты собраны по шаблону: ИИ для текстов пока не подключён." if not has_ai else
+                        (down + " Пока варианты собраны по шаблону.") if down else
                         "ИИ не ответил, поэтому варианты собраны по шаблону. Попробуйте ещё раз позже.") if added else
                        "Новых вариантов не нашлось: такие заголовки уже есть."}
 

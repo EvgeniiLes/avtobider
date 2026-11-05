@@ -394,7 +394,8 @@ def analyze(business_id: int, user: sqlite3.Row = Depends(current_user), conn: s
     lines.append(f"Правило: меньше {MIN_IMPRESSIONS} показов на стиль или меньше {MIN_LEADS} обращений на стиль считается слишком малыми данными.")
     text = asyncio.run(analyze_results("\n".join(lines), s.fal_key, s.fal_text_model, transport))
     if not text:
-        raise HTTPException(502, detail={"message": "ИИ не ответил. Попробуйте ещё раз чуть позже."})
+        why = asyncio.run(fal.why_down(s.fal_key, s.fal_text_model, transport))
+        raise HTTPException(502, detail={"message": why or "ИИ не ответил. Попробуйте ещё раз чуть позже."})
     conn.execute("INSERT INTO generations (business_id, kind, cents) VALUES (?, 'check', ?)", (business_id, fal.COST_CENTS["check"]))
     conn.commit()
     return {"text": text, "enough": total_imp >= MIN_IMPRESSIONS}
