@@ -294,6 +294,32 @@ class DirectClient:
                 "BrandOptions": {"WithoutBrands": yes(brands["without"]), "WithAdvertiserBrand": yes(brands["own"]),
                                  "WithCompetitorsBrand": yes(brands["competitors"])}}
 
+    async def group_keywords(self, group_ids: list[int]) -> dict[int, set[str]]:
+        """Фразы, которые уже стоят в группах: {группа: набор}. Автотаргетинг в список не входит."""
+        found: dict[int, set[str]] = {g: set() for g in group_ids}
+        if not group_ids:
+            return found
+        result = await self.call("keywords", "get", {"SelectionCriteria": {"AdGroupIds": group_ids}, "FieldNames": ["Id", "AdGroupId", "Keyword"],
+                                                     "Page": {"Limit": PAGE_SIZE}})
+        for k in result.get("Keywords", []):
+            if k.get("Keyword") and k["Keyword"] != AUTOTARGETING_KEYWORD:
+                found.setdefault(k["AdGroupId"], set()).add(k["Keyword"].lower())
+        return found
+
+    async def add_ad_extras(self, ad_id: int, title2: str = "", display_path: str = "", callout_ids: list[int] | None = None) -> None:
+        """Второй заголовок, отображаемая ссылка и уточнения готовому объявлению (уточнения добавляются к тем, что уже есть)."""
+        text_ad: dict = {}
+        if title2:
+            text_ad["Title2"] = title2
+        if display_path:
+            text_ad["DisplayUrlPath"] = display_path
+        if callout_ids:
+            text_ad["CalloutSetting"] = {"AdExtensions": [{"AdExtensionId": i, "Operation": "ADD"} for i in callout_ids]}
+        if not text_ad:
+            return
+        result = await self.call("ads", "update", {"Ads": [{"Id": ad_id, "TextAd": text_ad}]})
+        self._result_item(result, "UpdateResults")
+
     async def autotargeting_ids(self, group_ids: list[int]) -> dict[int, int]:
         """Номер «ключевой фразы» автотаргетинга в каждой группе: {группа: номер}. Нужен, чтобы менять его настройки."""
         if not group_ids:

@@ -16,6 +16,7 @@ from app.direct.bids import ensure_bids
 from app.direct.client import DirectError
 from app.direct.launch import (STATE_LABELS, add_ads, existing_campaign, group_sizes, launch, new_campaigns_for, new_variants, plan_launch,
                                tagged_href, text_candidates)
+from app.direct.refresh import refresh_campaigns
 from app.direct.runner import account_token, sync_and_run
 from app.engine.util import EngineError, MICRO, plural
 from app.platforms.simulator import reset_demo
@@ -51,6 +52,7 @@ def _with_extras(conn, biz, plan, transport=None) -> None:
         s = get_settings()
         fresh = asyncio.run(ad_extras.generate(biz, titles, s.fal_key, s.fal_text_model, transport))
         if fresh is not None:
+            fresh = {**fresh, "applied": (saved or {}).get("applied", [])}   # какие объявления в Директе уже получили дополнения: при новом составлении не теряем
             ad_extras.save(conn, biz["id"], fresh)
             saved = fresh
     plan.extras = saved if ad_extras.covers(saved, titles) else None
@@ -188,6 +190,27 @@ def start_launch(business_id: int, data: LaunchIn, user: sqlite3.Row = Depends(c
     message = ("Кампания с объявлениями создана и отправлена на проверку в Яндекс." if groups == 1
                else f"Созданы кампании по группам объявлений ({groups}), у каждой свой бюджет. Они отправлены на проверку в Яндекс.")
     return {"created": len(unit_ids), "message": message}
+
+
+@router.post("/refresh-campaigns")
+def refresh_campaigns_now(business_id: int, user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connection = Depends(get_db),
+                          factory=Depends(client_factory), transport=Depends(creative_transport)):
+    """Переносит новые данные в уже созданные кампании: дополнения объявлений, новые фразы, минус-слова, категории автотаргетинга. Ничего не удаляет."""
+    biz = _own(conn, user, business_id)
+    account = _pick_account(conn, user, biz, None)
+    token, login = account_token(conn, account["id"])
+    s = get_settings()
+
+    async def go():
+        async with factory(token, api_version=s.direct_api_version, login=login) as client:
+            return await refresh_campaigns(client, conn, biz, date.today().isoformat(), transport)
+
+    try:
+        report = asyncio.run(go())
+    except (EngineError, DirectError) as e:
+        raise _fail(e)
+    message = "; ".join(report["changes"]) or ("Всё уже актуально, добавлять нечего." if not report["problems"] else "")
+    return {**report, "message": message}
 
 
 @router.post("/sync")
