@@ -177,20 +177,6 @@ def _owner_hint(biz) -> str:
     return f"The owner's direction for the visuals, follow it strictly: {hint}. " if hint else ""
 
 
-def reference_template_prompt(biz, title: str, price: str, cta: str, note: str) -> str:
-    """Баннер без фото по референсу: картинка референса задаёт дизайн целиком, сцену арт-директора не добавляем: она перебивала композицию референса."""
-    return ("Purpose: one advertising banner for Yandex Direct, landscape 4:3, for a Russian audience "
-            f"(the business is: {biz['kind']}; context only, never write it on the banner). "
-            f"Template: the attached image is the design template for this banner. Recreate it as closely as you can: the same composition and camera framing, "
-            "the same kind of subject and pose, the same type treatment (size, weight, case and position of the headline, including a huge headline that "
-            "overlaps the subject), the same color palette and the same overlay, transparency, frame and collage effects. Change only what belongs to another "
-            f"business: everything shown must fit a {biz['kind']}. Do NOT reuse the template's brand names, logo, working hours, addresses, small print or people's identities. "
-            + _owner_hint(biz)
-            + f"Visual direction: {note}. Natural realistic photography with natural skin texture, correct anatomy and hands. "
-            "Never write lists of services, keywords, the business description or any caption: the only text on the banner is the text given below. "
-            + _text_block(title, price, cta, by_direction=True) + ONE_BANNER + AVOID)
-
-
 async def _submit(http: httpx.AsyncClient, model: str, key: str, payload: dict) -> dict:
     try:
         r = await http.post(f"{QUEUE}/{model}", json=payload, headers=_headers(key))
@@ -244,22 +230,16 @@ def photo_banner_prompt(biz, title: str, price: str, cta: str, index: int = 0, m
             + _text_block(title, price, cta) + ONE_BANNER + AVOID)
 
 
-REF_STYLE = ("Template: the FIRST attached image is a layout and style template. Recreate its design closely, in landscape 4:3: the same composition, "
-             "the same type treatment (size, weight and position of the headline, including a huge headline that overlaps the subject), the same color palette "
-             "and the same overlay, transparency, frame and collage effects. Put the business photo (the SECOND attached image) into that layout in place of "
-             "the template's own photograph. Replace ALL the text of the template with the text given below only and fit the headline size to our words. "
-             "Do NOT reuse the template's brand names, logo, working hours, addresses, small print, products or people. ")
-
-
 def reference_banner_prompt(biz, title: str, price: str, cta: str, direction: str) -> str:
-    """Баннер по референсу: референс (первая картинка) задаёт дизайн целиком, фото владельца (вторая) встаёт на место его кадра."""
+    """Баннер из фото владельца по мотивам референса: вторая картинка служит только вдохновением, её не копируем."""
     return ("Purpose: one advertising banner for Yandex Direct, landscape 4:3, for a Russian audience "
             f"(the business is: {biz['kind']}; context only, never write it on the banner). "
-            "Subject: the SECOND attached image is the business's real photo and the one and only reference of the subject: preserve exactly the same people, "
+            "Subject: the FIRST attached image is the business's real photo and the one and only reference of the subject: preserve exactly the same people, "
             "animals, objects and place, their faces, coat or clothing and proportions, keep it natural and unaltered; you may crop it, extend its background "
             "and place it freely in the layout. "
-            + REF_STYLE
-            + f"Look and composition: Direction: {direction}. The text never covers faces or the main subject. "
+            "Style: the SECOND attached image is ONLY a style inspiration (its composition idea, color mood, typography weight and feel): do NOT copy it, "
+            "do NOT reuse its text, small print, lists, badges, logo, products, animals or characters; make a new original layout inspired by it. "
+            f"Look and composition: Direction: {direction}. The text never covers faces or the main subject. "
             + _text_block(title, price, cta, by_direction=True) + ONE_BANNER + AVOID)
 
 

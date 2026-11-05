@@ -448,7 +448,7 @@ def _order_banner(conn, biz, variants: list[dict], index: int, key: str, transpo
         look = fal.PHOTO_LOOKS[look_no % len(fal.PHOTO_LOOKS)][0]
         prompt = custom_prompt or (brief["prompt"] if brief and brief["prompt"] else fal.photo_banner_prompt(biz, v["title"], price, cta, look_no))
         ref_bytes = refs.load(brief["ref_id"]) if brief and brief["ref_id"] else None   # референс-вдохновение идёт второй картинкой
-        images = ([_bytes_url(ref_bytes, 900)] if ref_bytes else []) + [_bytes_url(data, 1280)]   # референс первым: он основа дизайна, фото владельца встаёт на место его кадра
+        images = [_bytes_url(data, 1280)] + ([_bytes_url(ref_bytes, 900)] if ref_bytes else [])
         if ref_bytes:
             _charge(conn, business_id, "ref_extra")
         job = asyncio.run(fal.start_edit(prompt, images, key, s.fal_banner_model, transport))
@@ -492,16 +492,17 @@ def _order_banner(conn, biz, variants: list[dict], index: int, key: str, transpo
     ref_bytes = refs.load(ref_id) if ref_id else None
     if ref_bytes:
         _charge(conn, business_id, "ref_extra")
-        direction = ""   # со своим референсом баннер собирается по шаблону (reference_template_prompt): сцена арт-директора композицию референса перебивала
+        direction = (f"the attached image is ONLY a style inspiration (the idea of its composition, color mood, typography weight and feel: {refs.note(ref_id)}). "
+                     "Follow that layout idea closely, but make a new original banner with the scene above: do not copy or reuse its text, logo, products, people or characters, "
+                     "and do not recreate its small print, captions, lists, badges, footer or contact lines: the only text on the banner is the text given below")
     else:
         direction = (f"{refs.note(ref_id)}. Take this advertising idea only as inspiration for the layout, color mood and type weight; "
                      "make an original design with your own scene and do not reuse any text, logo or character from it") if ref_id else ""
-    scene = f"по образцу референса: {refs.note(ref_id)}" if ref_bytes else art["scene"]   # сцена арт-директора нужна только без референса
-    prompt = custom_prompt or (fal.reference_template_prompt(biz, v["title"], price, cta, refs.note(ref_id)) if ref_bytes else fal.banner_prompt(
-        biz, v["title"], price, cta, logo_corner=use_logo, index=index + done_before, screen=screen, logo_ratio=_logo_ratio(logo), scene=art["scene"], direction=direction))
+    prompt = custom_prompt or fal.banner_prompt(biz, v["title"], price, cta, logo_corner=use_logo, index=index + done_before, screen=screen,
+                                                logo_ratio=_logo_ratio(logo), scene=art["scene"], direction=direction)
     job = (asyncio.run(fal.start_edit(prompt, [_bytes_url(ref_bytes, 900)], key, s.fal_banner_model, transport)) if ref_bytes
            else asyncio.run(fal.start_image(prompt, key, s.fal_banner_model, transport)))
-    meta = {"expect": expected, "caption": fal.caption_for(biz), "logo": use_logo, "screen": screen, "concept": art["concept"], "audience": art["audience"], "scene": scene,
+    meta = {"expect": expected, "caption": fal.caption_for(biz), "logo": use_logo, "screen": screen, "concept": art["concept"], "audience": art["audience"], "scene": art["scene"],
             "mode": "scratch", "ref": ref_id, "ref_img": bool(ref_bytes), "varied": varied,
             "logo_reason": art["logo_reason"], "prompt_text": prompt,
             "brief": ("ВАЖНО: на экране телефона вставлен НАСТОЯЩИЙ скриншот приложения владельца. Это не выдумка нейросети и не недостаток: "
@@ -511,11 +512,11 @@ def _order_banner(conn, biz, variants: list[dict], index: int, key: str, transpo
                      + ("Логотип вставлен позже из файла владельца, это нормально. " if use_logo else "")
                      + (f"Баннер сделан по мотивам приёма «{refs.note(ref_id)}»: подача, цвета и шрифт определяются этим приёмом, крупный заголовок это задумка, а не недостаток. "
                         if ref_id else "")
-                     + f"{biz['kind']} «{biz['name']}». Сюжет: {art['label']}. {scene}"}
+                     + f"{biz['kind']} «{biz['name']}». Сюжет: {art['label']}. {art['scene']}"}
     conn.execute("INSERT INTO creatives (business_id, kind, title, body, prompt, status, source, external_id, created_at) "   # дата с долями секунды: сравнивается с датой возврата версии
                      "VALUES (?, 'ai_banner', ?, ?, ?, 'working', 'fal', ?, strftime('%Y-%m-%d %H:%M:%f', 'now'))",
                  (business_id, v["title"], v["text"], json.dumps(meta, ensure_ascii=False), json.dumps(job)))
-    return scene
+    return art["scene"]
 
 
 class BannerIn(BaseModel):
@@ -754,7 +755,8 @@ def _apply_style(conn, biz, v: dict, brief, asset_id: int | None, look: int, ref
     chosen: подачу выбрал сам владелец, автоподбор референса её потом не трогает."""
     prompt = _brief_prompt(biz, v["title"], v["text"], look, ref_id) if asset_id and not no_photo else ""
     if keep_prompt and prompt:   # промпт идеи стратега (настроение, подача) не теряем: к нему добавляется только указание про референс
-        prompt = f"{keep_prompt} {fal.REF_STYLE}Direction: take inspiration from this idea: {refs.note(ref_id)}."
+        prompt = (f"{keep_prompt} Style: the SECOND attached image is ONLY a style inspiration (its composition idea, color mood, typography weight and feel): do NOT copy it, "
+                  f"do NOT reuse its text, small print, lists, badges, logo, products, animals or characters. Direction: take inspiration from this idea: {refs.note(ref_id)}.")
     if brief:
         conn.execute("UPDATE briefs SET asset_id = ?, look = ?, ref_id = ?, prompt = ?, no_photo = ?, chosen = MAX(chosen, ?) WHERE id = ?",
                      (None if no_photo else asset_id, look, ref_id, prompt, int(no_photo), int(chosen), brief["id"]))
