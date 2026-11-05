@@ -7,9 +7,17 @@ from fastapi import APIRouter, Depends, Query
 from app.db import get_db
 from app.deps import current_user
 from app.direct import slices
+from app.direct.behavior import view as behavior_view
 from app.routes.businesses import _own
 
 router = APIRouter(prefix="/api/businesses/{business_id}/slices", tags=["slices"])
+
+
+@router.get("/behavior")
+def behavior(business_id: int, user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connection = Depends(get_db)):
+    """Поведение посетителей на сайте по объявлениям и фразам (данные Метрики по меткам ссылок)."""
+    biz = _own(conn, user, business_id)
+    return behavior_view(conn, biz)
 
 
 @router.get("")

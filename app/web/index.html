@@ -695,6 +695,17 @@
             </div>
           </div>
 
+          <div class="card" id="behavior-card" hidden>
+            <h2>Поведение на сайте</h2>
+            <p class="hint">Что делают люди после клика: данные Метрики по меткам в ссылках объявлений за 30 дней. Отказ значит, что человек ушёл, не посмотрев больше одной страницы.</p>
+            <p id="behavior-empty" class="hint" hidden></p>
+            <div class="table-wrap"><table id="behavior-table" hidden><thead><tr><th>Объявление</th><th>Визиты</th><th>Отказы</th><th>Страниц</th><th>Время</th><th>Что это значит</th></tr></thead><tbody id="behavior-ads"></tbody></table></div>
+            <details id="behavior-terms-box" hidden>
+              <summary>По фразам</summary>
+              <div class="table-wrap"><table><thead><tr><th>Фраза</th><th>Визиты</th><th>Отказы</th><th>Время</th><th>Что это значит</th></tr></thead><tbody id="behavior-terms"></tbody></table></div>
+            </details>
+          </div>
+
           <div class="card" id="slices-card" hidden>
             <h2>Кто приходит и сколько это стоит</h2>
             <p class="hint" id="slices-hint"></p>

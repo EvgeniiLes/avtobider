@@ -343,6 +343,8 @@ ADDED_COLUMNS = [
     ("businesses", "counter_health", "TEXT NOT NULL DEFAULT ''"),    # результат последней проверки счётчика Метрики (JSON), см. app/direct/counter_health.py
     ("businesses", "queries_day", "TEXT NOT NULL DEFAULT ''"),       # день, когда последний раз загружали поисковые запросы
     ("businesses", "slices_day", "TEXT NOT NULL DEFAULT ''"),        # день, когда последний раз загружали срезы (app/direct/slices.py)
+    ("businesses", "behavior", "TEXT NOT NULL DEFAULT ''"),         # поведение посетителей по объявлениям и фразам (JSON из Метрики), см. app/direct/behavior.py
+    ("businesses", "behavior_day", "TEXT NOT NULL DEFAULT ''"),
     ("businesses", "slices_status", "TEXT NOT NULL DEFAULT ''"),     # что вышло и что нет по каждому измерению (JSON)
     ("businesses", "audience", "TEXT NOT NULL DEFAULT ''"),        # профиль целевой аудитории (JSON), см. app/direct/audience.py
     ("businesses", "nationwide", "INTEGER NOT NULL DEFAULT 0"),      # 1: показывать рекламу по всей России, города нет (онлайн-услуга)

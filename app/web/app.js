@@ -2040,6 +2040,27 @@ async function loadQueries() {
 
 const SLICE_FLAGS = { dear: "дорого", cheap: "дёшево", none: "нет обращений" };
 
+async function loadBehavior() {   // поведение посетителей по объявлениям и фразам (Метрика)
+  const card = $("behavior-card");
+  const r = await api("GET", `/api/businesses/${currentBusiness.id}/slices/behavior`);
+  if (!r.ok) { card.hidden = true; return; }
+  const d = r.data;
+  card.hidden = false;
+  const empty = $("behavior-empty");
+  empty.hidden = d.ads.length > 0;
+  empty.textContent = !d.has_counter ? "Подключите счётчик Метрики на странице «Бизнес»: тогда здесь будет видно, что делают люди после клика."
+    : d.synced ? "Данных пока нет: переходов с меток объявлений ещё не было." : "Данные появятся после ближайшего обновления (раз в день).";
+  $("behavior-table").hidden = d.ads.length === 0;
+  const secs = (n) => (n >= 60 ? `${Math.floor(n / 60)} мин ${n % 60} с` : `${n} с`);
+  $("behavior-ads").replaceChildren(...d.ads.map((a) => el("tr", {}, el("td", { textContent: a.title }), el("td", { textContent: String(a.visits) }),
+    el("td", { textContent: `${Math.round(a.bounce)}%` }), el("td", { textContent: String(a.depth) }), el("td", { textContent: secs(a.seconds) }),
+    el("td", {}, el("span", { className: `badge ${a.verdict_code}`, textContent: a.verdict })))));
+  $("behavior-terms-box").hidden = d.terms.length === 0;
+  $("behavior-terms").replaceChildren(...d.terms.map((t) => el("tr", {}, el("td", { textContent: t.term }), el("td", { textContent: String(t.visits) }),
+    el("td", { textContent: `${Math.round(t.bounce)}%` }), el("td", { textContent: secs(t.seconds) }),
+    el("td", {}, el("span", { className: `badge ${t.verdict_code}`, textContent: t.verdict })))));
+}
+
 async function loadSlices() {
   const card = $("slices-card");
   const result = await api("GET", `/api/businesses/${currentBusiness.id}/slices`);
@@ -2215,7 +2236,7 @@ async function loadStats() {
   if (data.real || data.example) loadSeries(); else renderChart([]);
   if (data.real || data.example) loadInsights(); else $("insights-card").hidden = true;
   loadLeads();
-  if (data.real) { loadReport(); loadVisitorGoals(); loadQueries(); loadSlices(); } else { $("report-card").hidden = true; $("goals-card").hidden = true; $("queries-card").hidden = true; $("slices-card").hidden = true; }
+  if (data.real) { loadReport(); loadVisitorGoals(); loadQueries(); loadSlices(); loadBehavior(); } else { $("behavior-card").hidden = true; $("report-card").hidden = true; $("goals-card").hidden = true; $("queries-card").hidden = true; $("slices-card").hidden = true; }
   renderDecisions();
   $("example-notice").hidden = !data.example;
   $("stats-needs").textContent = data.real || data.example ? data.needs : "";
