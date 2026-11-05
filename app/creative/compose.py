@@ -132,7 +132,23 @@ def find_price(*texts: str, fallback: str = "") -> str:
     if any(FREE.search(text or "") for text in texts):
         return ""
     prices = _price_in(fallback)
-    return _label(*prices[0]) if prices and len({amount for amount, _ in prices}) == 1 else ""
+    if not (prices and len({amount for amount, _ in prices}) == 1):
+        return ""
+    # одна цена в описании: берём её, только если фраза с ценой говорит о той же услуге, что объявление («аудит от 9 000 ₽» не для объявления про автоматизацию)
+    mine = _service_stems(" ".join(texts))
+    for clause in re.split(r"[.;\n]|,\s", fallback or ""):
+        found = _price_in(clause)
+        if found and _service_stems(clause) & mine:
+            return _label(*found[0])
+    return ""
+
+
+GENERIC_STEMS = {"бизне", "работ", "услуг", "компа", "клиен", "наши", "ваш", "дела", "цена", "стоим", "онлай", "запис", "груп"}
+
+
+def _service_stems(text: str) -> set[str]:
+    """Основы значимых слов (первые пять букв), без общих слов вроде «бизнес» и «услуга»: по ним видно, о какой услуге речь."""
+    return {w[:5] for w in re.findall(r"[а-яёa-z]{5,}", (text or "").lower()) if w[:5] not in GENERIC_STEMS}
 
 
 STYLES = ("photo", "luxe", "pastel", "bold", "ai")  # пять непохожих шаблонов: основа для сравнения вариантов (A/B)
