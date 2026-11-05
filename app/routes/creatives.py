@@ -451,6 +451,9 @@ def _order_banner(conn, biz, variants: list[dict], index: int, key: str, transpo
         images = [_bytes_url(data, 1280)] + ([_bytes_url(ref_bytes, 900)] if ref_bytes else [])
         if ref_bytes:
             _charge(conn, business_id, "ref_extra")
+            layout = asyncio.run(refs.layout_text(brief["ref_id"], key, s.fal_text_model, transport))   # раскладка референса словами: к картинке добавляется подробное описание
+            if layout and not custom_prompt and "Reference layout in words" not in prompt:
+                prompt += f" Reference layout in words (follow it for the design, put the business photo into it): {layout}"
         job = asyncio.run(fal.start_edit(prompt, images, key, s.fal_banner_model, transport))
         what = f"фото «{PHOTO_TAGS.get(kind, kind)}», " + (f"по мотивам референса {brief['ref_id']}" if ref_bytes else f"оформление: {look}")
         meta = {"expect": expected, "caption": fal.caption_for(biz), "logo": False, "screen": False, "mode": "photo", "concept": kind, "look": look,

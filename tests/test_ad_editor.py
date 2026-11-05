@@ -238,6 +238,9 @@ def test_renaming_the_text_keeps_the_photo_and_style_with_the_ad(monkeypatch):
 def test_a_drawn_banner_is_redrawn_with_the_renamed_title_not_the_old_one(monkeypatch):
     monkeypatch.setenv("FAL_KEY", "fal-test")
     fakes = Fakes(fal_done=True)
+    async def no_layout(*args, **kwargs):   # описание раскладки референса здесь не нужно: имитация ИИ отвечает на все запросы одним текстом
+        return ""
+    monkeypatch.setattr("app.creative.refs.layout_text", no_layout)
     with TestClient(app) as http:
         bid = setup(http)
         base = f"/api/businesses/{bid}"

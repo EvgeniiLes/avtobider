@@ -168,3 +168,62 @@ def load(ref_id: int) -> bytes | None:
     """Файл референса (уменьшенная копия) или None, если такого нет."""
     path = DIR / f"{ref_id:02d}.jpg"
     return path.read_bytes() if ref_id in REFS and path.is_file() else None
+
+# ---------- словесное описание раскладки ----------
+
+LAYOUT_ASK = ("Describe ONLY the layout and visual design of this advertising banner, in English, in 4-6 short sentences, as instructions for a designer who must "
+              "recreate the same design for another business: the background colors and shapes; where the main photo or subject sits (position, size, shape, "
+              "any overlap with text); where the headline sits and how it looks (size, case, weight, color, whether it overlaps the subject); panels, ribbons, "
+              "badges, buttons and frames (position, shape, color); overlays and effects. Do NOT mention the brand, the product, the words written on it or the "
+              "people's identities. Answer with the description only.")
+
+
+def _cache_file():
+    from app.config import get_settings
+    return get_settings().db_path.parent / "ref_layouts.json"
+
+
+def cached_layout(ref_id: int) -> str:
+    import json
+    try:
+        return json.loads(_cache_file().read_text(encoding="utf-8")).get(str(ref_id), "")
+    except (OSError, ValueError):
+        return ""
+
+
+async def layout_text(ref_id: int, fal_key: str, model: str, transport=None) -> str:
+    """Подробное описание раскладки референса словами (где фото, где заголовок, цвета, плашки). Составляет модель со зрением один раз
+    и запоминает в файле: дальше берётся из памяти. Пустая строка, если описать не вышло: тогда баннер идёт по картинке и короткому приёму."""
+    import base64
+    import json
+
+    import httpx
+    if not fal_key:
+        return ""
+    found = cached_layout(ref_id)
+    if found:
+        return found
+    data = load(ref_id)
+    if data is None:
+        return ""
+    url = "data:image/jpeg;base64," + base64.b64encode(data).decode()
+    body = {"model": model, "max_tokens": 500, "image_urls": [url], "messages": [{"role": "user", "content": LAYOUT_ASK}]}
+    try:
+        async with httpx.AsyncClient(timeout=90, transport=transport) as http:
+            r = await http.post("https://fal.run/openrouter/router/openai/v1/chat/completions", json=body,
+                                headers={"Authorization": f"Key {fal_key}", "Content-Type": "application/json"})
+        if r.status_code != 200:
+            return ""
+        text = " ".join((r.json()["choices"][0]["message"]["content"] or "").split())[:900]
+    except (httpx.HTTPError, ValueError, KeyError, IndexError):
+        return ""
+    if len(text) < 40:
+        return ""
+    try:
+        path = _cache_file()
+        stored = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+        stored[str(ref_id)] = text
+        path.write_text(json.dumps(stored, ensure_ascii=False, indent=1), encoding="utf-8")
+    except (OSError, ValueError):
+        pass
+    return text
