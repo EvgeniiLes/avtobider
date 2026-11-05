@@ -11,6 +11,7 @@ from app.db import get_db
 from app.creative.angles import districts_of, is_nationwide
 from app.deps import client_factory, creative_transport, current_user
 from app.direct import audience as aud
+from app.direct import extras as ad_extras
 from app.direct.bids import ensure_bids
 from app.direct.client import DirectError
 from app.direct.launch import (STATE_LABELS, add_ads, existing_campaign, group_sizes, launch, new_campaigns_for, new_variants, plan_launch,
@@ -42,7 +43,20 @@ def _pick_account(conn: sqlite3.Connection, user, biz, account_id: int | None) -
     return row
 
 
-def _plan_for(conn, user, biz, account_id, factory):
+def _with_extras(conn, biz, plan, transport=None) -> None:
+    """Второй заголовок, уточнения и отображаемая ссылка: берём сохранённые для этих заголовков или просим ИИ (один раз). Нет ИИ или сбой: без дополнений."""
+    titles = [v["title"] for v in plan.variants[:plan.count]]
+    saved = ad_extras.load(biz)
+    if not ad_extras.covers(saved, titles):
+        s = get_settings()
+        fresh = asyncio.run(ad_extras.generate(biz, titles, s.fal_key, s.fal_text_model, transport))
+        if fresh is not None:
+            ad_extras.save(conn, biz["id"], fresh)
+            saved = fresh
+    plan.extras = saved if ad_extras.covers(saved, titles) else None
+
+
+def _plan_for(conn, user, biz, account_id, factory, transport=None):
     """Строит план запуска, обращаясь к Директу за регионом и минимальным бюджетом."""
     account = _pick_account(conn, user, biz, account_id)
     token, login = account_token(conn, account["id"])
@@ -59,7 +73,9 @@ def _plan_for(conn, user, biz, account_id, factory):
     region, minimum, district_ids = asyncio.run(go())
     kwargs = {"min_weekly_micro": minimum} if minimum else {}
     custom = text_candidates(conn, biz)
-    return account, token, login, plan_launch(biz, region, custom=custom, audience=aud.load(biz), district_ids=district_ids, **kwargs)
+    plan = plan_launch(biz, region, custom=custom, audience=aud.load(biz), district_ids=district_ids, **kwargs)
+    _with_extras(conn, biz, plan, transport)
+    return account, token, login, plan
 
 
 def _plan_json(plan, account, marking_confirmed: bool = False, fresh: list[dict] | None = None, new_campaigns: int | None = None) -> dict:
@@ -81,6 +97,8 @@ def _plan_json(plan, account, marking_confirmed: bool = False, fresh: list[dict]
         "link": plan.href or "Профиль организации в Яндекс Картах",
         "tagged": bool(plan.href) and tagged_href(plan.href) != plan.href,   # ссылка получит utm-метки (откуда пришёл человек)
         "variants": plan.variants if fresh is None else fresh,
+        "extras": {"callouts": (plan.extras or {}).get("callouts") or [], "display_path": (plan.extras or {}).get("display_path") or "",
+                   "title2": (plan.extras or {}).get("title2") or {}},
         "own_count": plan.own_count,
         "negatives": plan.negatives or [],
         "keywords": plan.keywords or [],
@@ -98,7 +116,7 @@ def preview(business_id: int, account_id: int | None = None, user: sqlite3.Row =
     fill_districts(conn, business_id, transport)   # район не указан, а адрес есть: берём район из адреса
     biz = _own(conn, user, business_id)
     try:
-        account, _, _, plan = _plan_for(conn, user, biz, account_id, factory)
+        account, _, _, plan = _plan_for(conn, user, biz, account_id, factory, transport)
     except (EngineError, DirectError) as e:
         raise _fail(e)
     target = existing_campaign(conn, business_id)
@@ -132,7 +150,7 @@ def start_launch(business_id: int, data: LaunchIn, user: sqlite3.Row = Depends(c
     if target is None and aud.load(biz) is None and make_profile(conn, biz, transport):   # профиль ещё не составлен: делаем его сами, чтобы запуск шёл с фразами и минус-словами
         biz = _own(conn, user, business_id)
     try:
-        account, token, login, plan = _plan_for(conn, user, biz, data.account_id, factory)
+        account, token, login, plan = _plan_for(conn, user, biz, data.account_id, factory, transport)
         s = get_settings()
         today = date.today().isoformat()
 

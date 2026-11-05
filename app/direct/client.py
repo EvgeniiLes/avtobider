@@ -317,14 +317,26 @@ class DirectClient:
             raise DirectError(auto_error or (rejected[0]["reason"] if rejected else "Яндекс Директ не принял ключевые фразы."))
         return {"added": added, "rejected": rejected, "autotargeting": auto, "autotargeting_error": auto_error}
 
+    async def add_callouts(self, texts: list[str]) -> list[int]:
+        """Уточнения («Работаем без выходных») в кабинет. Возвращает номера принятых; что Директ не принял, пропускаем: уточнения не обязательны."""
+        if not texts:
+            return []
+        result = await self.call("adextensions", "add", {"AdExtensions": [{"Callout": {"CalloutText": t}} for t in texts]})
+        return [item["Id"] for item in result.get("AddResults", []) if item.get("Id") and not item.get("Errors")]
+
     async def create_text_ad(
         self, group_id: int, title: str, text: str, *, title2: str = "", href: str = "", business_id: int | None = None, erir_description: str = "",
+        display_path: str = "", extension_ids: list[int] | None = None,
     ) -> int:
         ad = {"Title": title, "Text": text, "Mobile": "NO"}
         if erir_description:
             ad["ErirAdDescription"] = erir_description   # описание объекта продвижения: без него Директ ограничивает показы по закону «О рекламе»
         if title2:
             ad["Title2"] = title2
+        if display_path and href:
+            ad["DisplayUrlPath"] = display_path   # только вместе со ссылкой на сайт
+        if extension_ids:
+            ad["AdExtensionIds"] = extension_ids
         if href:
             ad["Href"] = href
         if business_id:

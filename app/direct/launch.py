@@ -19,6 +19,7 @@ from app.direct.client import RUSSIA_REGION_ID, DirectClient, DirectError
 from app.direct.bids import ensure_bids
 from app.direct.goals import goal_ids_for_report
 from app.direct.marking import is_filled
+from app.direct import extras as ad_extras
 from app.direct.audience import autotargeting_for, effective_negatives
 from app.direct.texts import check, draft_variants, mentions_district, near_variants
 from app.engine.util import EngineError, MICRO, day_add, plural, rub
@@ -58,6 +59,7 @@ class Plan:
     region_ids: list[int] | None = None     # районы, по которым идёт показ (Директ знает их как отдельные регионы); пусто: показ по region_id
     districts: list[str] | None = None      # районы, названные владельцем
     ad_description: str = ""                # «описание объекта продвижения» для маркировки: без него Директ ограничивает показы по закону «О рекламе»
+    extras: dict | None = None              # второй заголовок, уточнения и отображаемая ссылка (app/direct/extras.py); None: объявления без дополнений
 
 
 def ad_description_of(biz) -> str:
@@ -271,7 +273,15 @@ def campaign_name(biz, number: int) -> str:
     return base if number == 0 else f"{base} {number + 1}"
 
 
-async def create_campaign(client: DirectClient, plan: Plan, name: str, start_date: str, variants: list[dict]) -> dict:
+async def extension_ids(client: DirectClient, plan: Plan) -> list[int]:
+    """Уточнения плана в кабинет (один раз на запуск, одни и те же у всех объявлений). Сбой не ломает запуск: уточнения не обязательны."""
+    try:
+        return await client.add_callouts((plan.extras or {}).get("callouts") or [])
+    except DirectError:
+        return []
+
+
+async def create_campaign(client: DirectClient, plan: Plan, name: str, start_date: str, variants: list[dict], ext_ids: list[int] | None = None) -> dict:
     """Создаёт кампанию со своим недельным бюджетом, одну группу и в ней объявления (не больше трёх). Если что-то не вышло, удаляет созданное и пробрасывает ошибку."""
     campaign_id = None
     try:
@@ -282,7 +292,8 @@ async def create_campaign(client: DirectClient, plan: Plan, name: str, start_dat
         ad_ids = []
         for v in variants:
             ad_ids.append(await client.create_text_ad(group_id, v["title"], v["text"], href=tagged_href(plan.href), business_id=plan.business_id,
-                                                      erir_description=plan.ad_description))
+                                                      erir_description=plan.ad_description, title2=ad_extras.title2_for(plan.extras, v["title"]),
+                                                      display_path=ad_extras.fit_path(plan.extras), extension_ids=ext_ids))
     except DirectError:
         if campaign_id:
             try:
@@ -459,12 +470,13 @@ async def launch(client: DirectClient, conn: sqlite3.Connection, biz, account_id
     photos, logo = media_typed(conn, biz)
     ai_banners = ai_banners_for(conn, biz)
     ai_scenes = ai_scenes_for(conn, biz)
+    ext_ids = await extension_ids(client, plan)
     made = []   # (кампания в Директе, её объявления): каждая группа объявлений идёт в своей кампании со своим бюджетом
     banner_problems = []
     try:
         position = 0
         for number, size in enumerate(group_sizes(len(plan.variants))):
-            ids = await create_campaign(client, plan, campaign_name(biz, number), start_date, plan.variants[position:position + size])
+            ids = await create_campaign(client, plan, campaign_name(biz, number), start_date, plan.variants[position:position + size], ext_ids)
             created = [{"ad_id": ad_id, "variant": v, "index": position + i}
                        for i, (ad_id, v) in enumerate(zip(ids["ad_ids"], plan.variants[position:position + size]))]
             made.append((ids, created))
@@ -536,17 +548,19 @@ async def add_ads(client: DirectClient, conn: sqlite3.Connection, biz, target: s
     group_id = target["external_group_id"]
     room = max(0, GROUP_LIMIT - conn.execute("SELECT COUNT(*) FROM ad_units WHERE external_group_id = ?", (group_id,)).fetchone()[0])
     have = conn.execute("SELECT COUNT(*) FROM campaigns WHERE business_id = ? AND source = 'direct'", (biz["id"],)).fetchone()[0]
+    ext_ids = await extension_ids(client, plan)
     created, new_campaigns = [], []   # объявления в старой группе; кампании, созданные для остальных
     try:
         for index, v in fresh[:room]:
             ad_id = await client.create_text_ad(group_id, v["title"], v["text"], href=tagged_href(plan.href),
-                                                business_id=plan.business_id, erir_description=plan.ad_description)
+                                                business_id=plan.business_id, erir_description=plan.ad_description,
+                                                title2=ad_extras.title2_for(plan.extras, v["title"]), display_path=ad_extras.fit_path(plan.extras), extension_ids=ext_ids)
             created.append({"ad_id": ad_id, "variant": v, "index": index, "campaign": None, "ids": {"campaign_id": target["external_campaign_id"], "group_id": group_id}})
         rest, position = fresh[room:], 0
         for size in (group_sizes(len(rest)) if rest else []):
             part = rest[position:position + size]
             position += size
-            ids = await create_campaign(client, plan, campaign_name(biz, have + len(new_campaigns)), day_add(today, 1), [v for _, v in part])
+            ids = await create_campaign(client, plan, campaign_name(biz, have + len(new_campaigns)), day_add(today, 1), [v for _, v in part], ext_ids)
             new_campaigns.append(ids)
             created += [{"ad_id": ad_id, "variant": v, "index": index, "campaign": len(new_campaigns) - 1, "ids": ids}
                         for ad_id, (index, v) in zip(ids["ad_ids"], part)]

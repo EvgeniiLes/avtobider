@@ -614,7 +614,7 @@ def test_the_district_is_taken_from_the_address_when_the_owner_left_it_empty(iso
         assert http.get(f"/api/businesses/{bid}").json()["districts"] == "Хамовники"           # видно в поле «Районы»: владелец проверяет и правит
         plan = http.get(f"/api/businesses/{bid}/launch/preview").json()
         assert plan["districts"] == ["Хамовники"] and plan["by_district"] is True
-        assert len(asked) == 1                                                                  # район уже есть: ИИ второй раз не спрашиваем
+        assert len([a for a in asked if "Ты определяешь по ад" in a]) == 1                      # район уже есть: ИИ второй раз не спрашиваем (запрос дополнений объявлений не в счёт)
 
 
 def test_a_district_the_owner_typed_is_not_replaced_by_the_one_from_the_address(isolated, monkeypatch):

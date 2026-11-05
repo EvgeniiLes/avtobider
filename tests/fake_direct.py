@@ -14,6 +14,7 @@ class FakeDirect:
         self.districts = {"центральный": 20001, "хамовники": 20002, "арбат": 20003}   # районы Москвы как отдельные регионы справочника
         self.min_weekly = min_weekly
         self.campaigns: dict[int, dict] = {}
+        self.adextensions: dict[int, dict] = {}   # уточнения объявлений
         self.groups: dict[int, int] = {}      # группа → кампания
         self.group_regions: dict[int, list[int]] = {}   # группа → регионы показа
         self.ads: dict[int, dict] = {}
@@ -207,6 +208,17 @@ class FakeDirect:
                     continue
                 self.keywords.append({"group": item["AdGroupId"], "keyword": item["Keyword"], "settings": item.get("AutotargetingSettings")})
                 results.append({"Id": self._next()})
+            return ok({"AddResults": results})
+        if service == "adextensions":
+            results = []
+            for item in params["AdExtensions"]:
+                text = (item.get("Callout") or {}).get("CalloutText", "")
+                if len(text) > 25 or any(c["text"] == text for c in self.adextensions.values()):
+                    results.append({"Errors": [{"Code": 5004, "Message": "Недопустимое уточнение"}]})
+                    continue
+                eid = self._next()
+                self.adextensions[eid] = {"text": text}
+                results.append({"Id": eid})
             return ok({"AddResults": results})
         if service == "adimages":
             item = params["AdImages"][0]

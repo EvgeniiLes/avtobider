@@ -225,7 +225,7 @@ def test_launch_builds_the_profile_itself_when_it_is_missing(isolated, monkeypat
     with TestClient(app) as http:
         bid = setup(http, fake, isolated)
         assert http.post(f"/api/businesses/{bid}/launch", json={"marking_confirmed": True}).status_code == 200
-        assert len(seen) == 1 and fake.keywords and fake.keywords[-1]["keyword"] == "---autotargeting"
+        assert len([x for x in seen if "аналитик целевой аудитории" in str(x)]) == 1 and fake.keywords and fake.keywords[-1]["keyword"] == "---autotargeting"   # запрос дополнений объявлений не в счёт
         assert http.get(f"/api/businesses/{bid}/audience").json()["profile"]["summary"]
 
 

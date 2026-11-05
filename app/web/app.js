@@ -2260,14 +2260,18 @@ async function openLaunch() {
   $("launch-summary").textContent = launchAdding
     ? `Реклама уже идёт. Новые объявления встанут в последнюю группу, пока в ней есть место (до трёх), остальные пойдут в новую кампанию: бюджет на неё ${p.weekly} ₽ в неделю${p.groups ? `, новых кампаний ${p.groups}, всего ${p.total} ₽ в неделю` : ""}. Запросы и районы те же. ${p.variants.length ? `Будет добавлено: ${adsPhrase(p.variants.length)}.` : "Новых объявлений нет: все объявления из списка «Пойдут в рекламу» уже в рекламе. Добавьте новый вариант на вкладке «Объявления» или увеличьте число объявлений в показе."}`
     : `Кабинет: ${p.account}. Где показывать: ${p.city}${p.districts.length ? (p.by_district ? `, только районы: ${p.districts.join(", ")}` : `, районы в текстах и фразах: ${p.districts.join(", ")}`) : ""}. ${p.groups === 1 ? `Одна кампания: ${adsPhrase(p.count)} с бюджетом ${p.weekly} ₽ в неделю` : `Кампаний ${p.groups} (по группам объявлений, в группе до трёх), бюджет у каждой свой, ${p.weekly} ₽ в неделю, всего ${p.total} ₽ в неделю: ${adsPhrase(p.count)}`}. Ведёт на: ${p.link}${p.tagged ? " (к ссылке добавятся метки utm: в Метрике будет видно, с какого объявления пришёл человек)" : ""}.`;
+  const second = (p.extras && p.extras.title2) || {};
   $("launch-variants").replaceChildren(...p.variants.map((v) =>
-    el("li", {}, el("div", { className: "t", textContent: v.title }), el("div", { className: "hint", textContent: v.text }))));
+    el("li", {}, el("div", { className: "t", textContent: v.title }), ...(second[v.title.toLowerCase()] ? [el("div", { className: "hint", textContent: `Второй заголовок: ${second[v.title.toLowerCase()]}` })] : []),
+      el("div", { className: "hint", textContent: v.text }))));
   $("launch-warnings").replaceChildren(...p.warnings.map((w) => el("li", { textContent: w })));
   const queries = [
     p.audience ? `Кому показываем: ${p.audience.summary}` : "Профиль аудитории не составлен.",
     p.keywords.length ? `Ключевые фразы (${p.keywords.length}): ${p.keywords.join("; ")}.` : "Ключевых фраз нет, запросы подберёт автотаргетинг.",
     `Автотаргетинг: ${p.autotargeting.categories.join(", ")}. Бренды: ${p.autotargeting.brands.join(", ")}.`,
     `Минус-слова (${p.negatives.length}): ${p.negatives.join(", ")}.`,
+    ...(p.extras && p.extras.callouts.length ? [`Уточнения под объявлением: ${p.extras.callouts.join("; ")}.`] : []),
+    ...(p.extras && p.extras.display_path ? [`Отображаемая ссылка: ${p.extras.display_path}.`] : []),
   ];
   $("launch-queries").replaceChildren(...queries.map((t) => el("p", { className: "hint", textContent: t })));
   $("marking-help").textContent = p.marking.help;
