@@ -113,6 +113,33 @@ def mentions_district(variant: dict, districts: list[str]) -> bool:
     return any(d.lower()[:max(4, len(d) - 2)] in low for d in districts)
 
 
+def in_district(name: str) -> str:
+    """Где: «в Адлере», «в Хамовниках», «в Центральном районе». Склоняет одно слово по простым правилам; если не уверены (несколько слов, цифры,
+    женский род на -ая), говорим «в районе Название»: так не ошибёмся."""
+    d = name.strip()
+    low = d.lower()
+    if not d or " " in d or "-" in d or any(ch.isdigit() for ch in d):
+        return f"в районе {d}"
+    if low.endswith(("ый", "ой", "ий")):
+        return f"в {d[:-2]}{'ом' if low.endswith(('ый', 'ой')) else 'ем'} районе"
+    if low.endswith(("ая", "яя", "ое", "ее")):
+        return f"в районе {d}"
+    if low.endswith(("ы", "и")):
+        stem = d[:-1]
+        return f"в {stem}{'ах' if low[-2:-1] in 'гкхжчшщ' or low.endswith('ы') else 'ях'}"
+    if low.endswith("ия"):
+        return f"в {d[:-1]}и"
+    if low.endswith(("а", "я")):
+        return f"в {d[:-1]}е"   # Хоста → в Хосте, Дубровка → в Дубровке
+    if low.endswith(("о", "е", "ё", "у", "ю", "э")):
+        return f"в {d}"   # Строгино, Кунцево, Марьино не склоняются
+    if low.endswith("ь"):
+        return f"в районе {d}"
+    if low.endswith("й"):
+        return f"в районе {d}"
+    return f"в {d}е"
+
+
 def near_variants(biz, count: int = 6) -> list[dict]:
     """Объявления «мы рядом с вами»: с названием района, где идёт реклама. Без районов или для онлайн-проекта их нет."""
     from app.creative.angles import districts_of, needs_districts, profile  # импорт здесь, чтобы не было круга
@@ -122,7 +149,7 @@ def near_variants(biz, count: int = 6) -> list[dict]:
     act, name, kind = profile(biz)["cta_sentence"], biz["name"].strip(), biz["kind"].strip()
     out = []
     for d in districts:
-        out += [(f"{kind} в районе {d}", f"{name} рядом с вами. {act}"), (f"{kind} рядом: {d}", f"{name}, {d}. {act}")]
+        out += [(f"{kind} {in_district(d)}", f"{name} рядом с вами. {act}"), (f"{kind} рядом: {d}", f"{name}, {d}. {act}")]
     return [{"title": fit(t, TITLE_MAX), "text": fit(x, TEXT_MAX), "angle": "location"} for t, x in out[:count]]
 
 
