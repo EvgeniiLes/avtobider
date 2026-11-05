@@ -1,0 +1,61 @@
+"""Раскладка объявлений по группам-намерениям.
+
+Профессиональная структура Директа: каждая услуга живёт в своей группе со своими фразами, а заголовок объявления содержит то, что человек искал.
+У нас группа объявлений (до трёх) это отдельная кампания со своим бюджетом, поэтому одно намерение равно одной кампании.
+Чтобы бюджет не умножался впустую, групп не больше, чем объявлений поровну по два: у каждой группы хотя бы два объявления для сравнения.
+"""
+import re
+
+GROUP_LIMIT = 3   # больше трёх объявлений в группе Директ не принимает (ошибка 7001 «комбинаторных объявлений в группе»)
+
+
+def group_sizes(count: int) -> list[int]:
+    """Как делим объявления одного намерения на группы: в каждой не больше трёх и поровну (4 → 2+2, 5 → 3+2)."""
+    groups = max(1, -(-count // GROUP_LIMIT))
+    return [count // groups + (1 if i < count % groups else 0) for i in range(groups)]
+
+
+def _stems(text: str) -> set[str]:
+    """Основы слов (первые пять букв): «собак», «собаку» и «собаки» дают одну основу."""
+    return {w[:5] for w in re.findall(r"[а-яёa-z0-9]{4,}", (text or "").lower())}
+
+
+def score(variant: dict, intent: dict | None) -> int:
+    """Сколько основ слов намерения (название и фразы) названо в объявлении. Чем больше, тем точнее объявление отвечает на то, что искал человек."""
+    if not intent:
+        return 0
+    wanted = _stems(intent.get("name", "") + " " + " ".join(intent.get("keywords", [])))
+    return len(wanted & _stems(f"{variant['title']} {variant['text']}"))
+
+
+def build_groups(variants: list[dict], intents: list[dict]) -> list[dict]:
+    """[{intent, keywords, variants, indexes}]: объявления по группам. Одно намерение или меньше четырёх объявлений: прежняя схема, все фразы у всех групп.
+    Иначе берём первые намерения (профиль ставит главные первыми) и раскладываем объявления по тому, какое из них названо в заголовке и тексте."""
+    n = len(variants)
+    everything = [k for i in intents for k in i["keywords"]]
+    if len(intents) < 2 or n < 4:
+        name = intents[0]["name"] if len(intents) == 1 else ""
+        out, position = [], 0
+        for size in group_sizes(n):
+            out.append({"intent": name, "keywords": list(everything), "variants": variants[position:position + size],
+                        "indexes": list(range(position, position + size))})
+            position += size
+        return out
+    chosen = intents[:max(1, min(len(intents), n // 2))]
+    groups = [{"intent": i["name"], "keywords": list(i["keywords"]), "variants": [], "indexes": []} for i in chosen]
+    for index, variant in enumerate(variants):
+        scores = [score(variant, i) if len(g["variants"]) < GROUP_LIMIT else -1 for g, i in zip(groups, chosen)]
+        best = max(range(len(groups)), key=lambda j: (scores[j], -len(groups[j]["variants"])))
+        groups[best]["variants"].append(variant)
+        groups[best]["indexes"].append(index)
+    for g, intent in zip(groups, chosen):   # у каждой группы хотя бы два объявления (для сравнения): добираем у самой большой то, что лучше подходит этой группе
+        while len(g["variants"]) < 2:
+            donor = max(groups, key=lambda x: len(x["variants"]))
+            if len(donor["variants"]) <= 2 and g["variants"]:
+                break
+            if len(donor["variants"]) < 2:
+                break
+            pick = max(range(len(donor["variants"])), key=lambda k: score(donor["variants"][k], intent))
+            g["variants"].append(donor["variants"].pop(pick))
+            g["indexes"].append(donor["indexes"].pop(pick))
+    return [g for g in groups if g["variants"]]

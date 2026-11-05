@@ -112,7 +112,7 @@ def _campaign_groups(conn: sqlite3.Connection, business_id: int, entries: list[d
         states = {e["state"] for e in mine}
         state = "active" if "active" in states else next((s for s in ("moderation", "unpaid", "rejected", "draft") if s in states), "paused")
         group = {
-            "id": camp["id"], "name": camp["name"], "created_day": camp["created_day"], "editable": shared,
+            "id": camp["id"], "name": camp["name"], "intent": camp["intent"] if "intent" in camp.keys() else "", "created_day": camp["created_day"], "editable": shared,
             "state": state, "state_label": STATE_LABELS.get(state, "Остановлено"),
             "spend": round(sum(e["spend"] for e in mine), 2), "leads": sum(e["leads"] for e in mine),
             "clients": sum(e["clients"] for e in mine), "units": mine,

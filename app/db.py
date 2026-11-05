@@ -347,6 +347,7 @@ ADDED_COLUMNS = [
     ("businesses", "audience", "TEXT NOT NULL DEFAULT ''"),        # профиль целевой аудитории (JSON), см. app/direct/audience.py
     ("businesses", "nationwide", "INTEGER NOT NULL DEFAULT 0"),      # 1: показывать рекламу по всей России, города нет (онлайн-услуга)
     ("businesses", "ad_extras", "TEXT NOT NULL DEFAULT ''"),                         # второй заголовок, уточнения и отображаемая ссылка объявлений (JSON), см. app/direct/extras.py
+    ("campaigns", "intent", "TEXT NOT NULL DEFAULT ''"),                           # намерение (услуга), которое ведёт эта кампания; пусто у запусков до схемы по намерениям
     ("campaigns", "external_id", "INTEGER"),                          # номер кампании в Директе
     ("campaigns", "weekly_micro", "INTEGER NOT NULL DEFAULT 0"),      # недельный лимит кампании
     ("campaigns", "strategy", "TEXT NOT NULL DEFAULT 'clicks'"),      # clicks: «Максимум кликов», conversions: «Максимум конверсий»

@@ -81,7 +81,7 @@ def _plan_for(conn, user, biz, account_id, factory, transport=None):
 def _plan_json(plan, account, marking_confirmed: bool = False, fresh: list[dict] | None = None, new_campaigns: int | None = None) -> dict:
     """fresh: реклама уже идёт, и показываем только объявления, которых в ней ещё нет (их и добавит запуск).
     new_campaigns: сколько новых кампаний создаст добавление (бюджет задаётся на каждую группу объявлений, то есть на каждую кампанию)."""
-    groups = len(group_sizes(plan.count)) if fresh is None else (new_campaigns or 0)
+    groups = len(plan.groups or group_sizes(plan.count)) if fresh is None else (new_campaigns or 0)
     return {
         "adding": fresh is not None,
         "existing": 0 if fresh is None else plan.count - len(fresh),
@@ -90,6 +90,7 @@ def _plan_json(plan, account, marking_confirmed: bool = False, fresh: list[dict]
         "count": plan.count,
         "weekly": round(plan.campaign_micro / MICRO),   # бюджет одной группы объявлений
         "groups": groups,
+        "group_names": [g["intent"] for g in (plan.groups or []) if g["intent"]],   # услуги, по которым раскладываем объявления (пусто: одна общая группа)
         "total": round(plan.campaign_micro * groups / MICRO),
         "city": plan.city,
         "districts": plan.districts or [],
@@ -120,8 +121,9 @@ def preview(business_id: int, account_id: int | None = None, user: sqlite3.Row =
     except (EngineError, DirectError) as e:
         raise _fail(e)
     target = existing_campaign(conn, business_id)
-    fresh = [v for _, v in new_variants(conn, biz, plan)] if target else None
-    return _plan_json(plan, account, bool(biz["marking_confirmed"]), fresh, new_campaigns_for(conn, target, len(fresh)) if target else None)
+    pairs = new_variants(conn, biz, plan) if target else None
+    fresh = [v for _, v in pairs] if target else None
+    return _plan_json(plan, account, bool(biz["marking_confirmed"]), fresh, new_campaigns_for(conn, biz, plan, pairs) if target else None)
 
 
 MARKING_HELP = (

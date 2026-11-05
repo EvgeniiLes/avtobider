@@ -2166,7 +2166,7 @@ function campaignHint(g) {
 function campaignGroup(g, several, number) {
   const started = g.created_day ? new Date(g.created_day).toLocaleDateString("ru-RU") : "";
   const what = started ? `Запуск от ${started}` : "Кампания";
-  const title = el("h3", { textContent: several ? `Группа ${number}: ${what.toLowerCase()}` : what });
+  const title = el("h3", { textContent: g.intent ? `${g.intent}: ${what.toLowerCase()}` : several ? `Группа ${number}: ${what.toLowerCase()}` : what });
   const head = el("div", { className: "camp-head" }, title, el("span", { className: `badge ${g.state}`, textContent: g.state_label }));
   const group = el("section", { className: "camp-group" }, head);
   if (several) head.append(el("span", { className: "camp-total", textContent: `Расход ${money(g.spend)} · обращений ${g.leads}` }));
@@ -2259,7 +2259,7 @@ async function openLaunch() {
   $("launch-go").textContent = launchAdding ? "Добавить в рекламу и отправить на проверку" : "Создать и отправить на проверку";
   $("launch-summary").textContent = launchAdding
     ? `Реклама уже идёт. Новые объявления встанут в последнюю группу, пока в ней есть место (до трёх), остальные пойдут в новую кампанию: бюджет на неё ${p.weekly} ₽ в неделю${p.groups ? `, новых кампаний ${p.groups}, всего ${p.total} ₽ в неделю` : ""}. Запросы и районы те же. ${p.variants.length ? `Будет добавлено: ${adsPhrase(p.variants.length)}.` : "Новых объявлений нет: все объявления из списка «Пойдут в рекламу» уже в рекламе. Добавьте новый вариант на вкладке «Объявления» или увеличьте число объявлений в показе."}`
-    : `Кабинет: ${p.account}. Где показывать: ${p.city}${p.districts.length ? (p.by_district ? `, только районы: ${p.districts.join(", ")}` : `, районы в текстах и фразах: ${p.districts.join(", ")}`) : ""}. ${p.groups === 1 ? `Одна кампания: ${adsPhrase(p.count)} с бюджетом ${p.weekly} ₽ в неделю` : `Кампаний ${p.groups} (по группам объявлений, в группе до трёх), бюджет у каждой свой, ${p.weekly} ₽ в неделю, всего ${p.total} ₽ в неделю: ${adsPhrase(p.count)}`}. Ведёт на: ${p.link}${p.tagged ? " (к ссылке добавятся метки utm: в Метрике будет видно, с какого объявления пришёл человек)" : ""}.`;
+    : `Кабинет: ${p.account}. Где показывать: ${p.city}${p.districts.length ? (p.by_district ? `, только районы: ${p.districts.join(", ")}` : `, районы в текстах и фразах: ${p.districts.join(", ")}`) : ""}. ${p.groups === 1 ? `Одна кампания: ${adsPhrase(p.count)} с бюджетом ${p.weekly} ₽ в неделю` : `Кампаний ${p.groups} ${p.group_names && p.group_names.length ? `по услугам (${p.group_names.join(", ")}): в каждой свои фразы и объявления` : "(по группам объявлений, в группе до трёх)"}, бюджет у каждой свой, ${p.weekly} ₽ в неделю, всего ${p.total} ₽ в неделю: ${adsPhrase(p.count)}`}. Ведёт на: ${p.link}${p.tagged ? " (к ссылке добавятся метки utm: в Метрике будет видно, с какого объявления пришёл человек)" : ""}.`;
   const second = (p.extras && p.extras.title2) || {};
   $("launch-variants").replaceChildren(...p.variants.map((v) =>
     el("li", {}, el("div", { className: "t", textContent: v.title }), ...(second[v.title.toLowerCase()] ? [el("div", { className: "hint", textContent: `Второй заголовок: ${second[v.title.toLowerCase()]}` })] : []),

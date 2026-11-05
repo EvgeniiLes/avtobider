@@ -41,9 +41,14 @@ SYSTEM = (
     "Фразы про обучение, бесплатные способы, вакансии и скачивание не нужны, если бизнес этим не занимается.\n"
     "Минус-слова: отдельные слова, по которым ищут не нашу услугу (бесплатно, самому, вакансия, скачать, определение и т. п.). "
     "Не включай слова, которые описывают услуги самого бизнеса.\n"
+    "Намерения (intents): сгруппируй ключевые фразы по тому, что именно человек хочет заказать. Профессионал разводит разные услуги по разным группам, "
+    "чтобы заголовок объявления содержал то, что человек искал. 2-4 группы по услугам (например «стрижка собак», «груминг кошек», «тримминг»), "
+    "у каждой name (название услуги, 2-4 слова) и keywords (3-8 фраз; в каждой общее слово услуги). Самую важную и частую услугу ставь первой. "
+    "Если услуга по сути одна, верни одну группу.\n"
     "Ответ: только JSON-объект без пояснений вида {\"summary\": \"кто клиент, 2-3 предложения\", \"gender\": \"any|female|male\", "
     "\"ages\": [\"25-34\"], \"income\": \"any|above_average|high\", \"need\": \"с какой задачей приходит человек\", "
-    "\"pains\": [\"3-5 коротких проблем или желаний клиента\"], \"keywords\": [\"10-20 фраз\"], \"negatives\": [\"15-40 слов\"], "
+    "\"pains\": [\"3-5 коротких проблем или желаний клиента\"], \"keywords\": [\"10-20 фраз\"], "
+    "\"intents\": [{\"name\": \"услуга\", \"keywords\": [\"фразы этой услуги\"]}], \"negatives\": [\"15-40 слов\"], "
     "\"confidence\": \"low|medium|high\", \"note\": \"почему именно так и что неизвестно\"}. "
     f"ages только из списка {', '.join(AGES)}."
 )
@@ -101,6 +106,43 @@ def clean_negatives(items, limit: int = MAX_NEGATIVES) -> list[str]:
     return result[:limit]
 
 
+MAX_INTENTS = 4
+
+
+def clean_intents(items, keywords: list[str]) -> list[dict]:
+    """Группы по намерениям: название услуги и её фразы (только допустимые, как у остальных). Пустые и безымянные отбрасываем."""
+    result = []
+    for item in items if isinstance(items, list) else []:
+        if not isinstance(item, dict):
+            continue
+        name = re.sub(r"\s+", " ", str(item.get("name", ""))).strip()[:40]
+        phrases = clean_keywords(item.get("keywords"))
+        if name and phrases and name.lower() not in {r["name"].lower() for r in result}:
+            result.append({"name": name, "keywords": phrases})
+    return result[:MAX_INTENTS]
+
+
+def intents_for(profile: dict | None) -> list[dict]:
+    """Намерения профиля, согласованные с текущим списком фраз (владелец мог их поправить). Фразы вне групп уходят в ближайшую по словам
+    или в первую группу. Нет намерений (старый профиль) или одно: одна группа со всеми фразами, как раньше."""
+    keywords = list((profile or {}).get("keywords", []))
+    groups = []
+    for item in (profile or {}).get("intents") or []:
+        mine = [k for k in item.get("keywords", []) if k in keywords]
+        if mine:
+            groups.append({"name": item["name"], "keywords": mine})
+    if len(groups) < 2:
+        return [{"name": groups[0]["name"] if groups else "", "keywords": keywords}] if keywords else []
+    placed = {k for g in groups for k in g["keywords"]}
+    for k in keywords:
+        if k in placed:
+            continue
+        stems = {w[:5] for w in k.split(" ") if len(w) >= 4}
+        best = max(groups, key=lambda g: len(stems & {w[:5] for p in g["keywords"] for w in p.split(" ") if len(w) >= 4}))
+        best["keywords"].append(k)
+    return groups
+
+
 def _same_word(a: str, b: str) -> bool:
     """Директ склеивает формы слова («курс», «курсы»), поэтому минус-слово режет и близкие формы."""
     if a == b:
@@ -154,6 +196,13 @@ def autotargeting_for(profile: dict | None) -> dict:
     return {"categories": categories, "brands": brands}
 
 
+def _all_keywords(data: dict) -> list[str]:
+    """Общий список фраз: то, что назвал ИИ, плюс фразы из намерений, которых в общем списке не оказалось."""
+    extra = [k for item in (data.get("intents") if isinstance(data.get("intents"), list) else []) if isinstance(item, dict) for k in (item.get("keywords") or [])]
+    base = list(data.get("keywords") if isinstance(data.get("keywords"), list) else [])
+    return clean_keywords(base + extra, limit=MAX_KEYWORDS + 4)
+
+
 def parse_profile(raw: str) -> dict | None:
     """Профиль из ответа модели. Всё, что не проходит проверку, отбрасывается; без описания клиента профиль не принимаем."""
     match = re.search(r"\{.*\}", raw or "", re.S)
@@ -177,7 +226,8 @@ def parse_profile(raw: str) -> dict | None:
         "income": data.get("income") if data.get("income") in INCOMES else "any",
         "need": re.sub(r"\s+", " ", str(data.get("need", ""))).strip()[:300],
         "pains": pains,
-        "keywords": clean_keywords(data.get("keywords")),
+        "keywords": _all_keywords(data),
+        "intents": clean_intents(data.get("intents"), []),
         "negatives": clean_negatives(data.get("negatives")),
         "confidence": data.get("confidence") if data.get("confidence") in CONFIDENCE else "low",
         "note": re.sub(r"\s+", " ", str(data.get("note", ""))).strip()[:500],
@@ -237,6 +287,7 @@ def apply_edits(profile: dict, edits: dict) -> dict:
         result["income"] = edits["income"]
     if "keywords" in edits:
         result["keywords"] = clean_keywords(edits["keywords"])
+        result["intents"] = [g for g in ({"name": i["name"], "keywords": [k for k in i["keywords"] if k in result["keywords"]]} for i in result.get("intents") or []) if g["keywords"]]
     if "negatives" in edits:
         result["negatives"] = clean_negatives(edits["negatives"])
     if "autotargeting" in edits:
