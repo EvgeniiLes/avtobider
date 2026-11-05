@@ -755,8 +755,8 @@ def _apply_style(conn, biz, v: dict, brief, asset_id: int | None, look: int, ref
     chosen: подачу выбрал сам владелец, автоподбор референса её потом не трогает."""
     prompt = _brief_prompt(biz, v["title"], v["text"], look, ref_id) if asset_id and not no_photo else ""
     if keep_prompt and prompt:   # промпт идеи стратега (настроение, подача) не теряем: к нему добавляется только указание про референс
-        prompt = (f"{keep_prompt} Style: the SECOND attached image is ONLY a style inspiration (its composition idea, color mood, typography weight and feel): do NOT copy it, "
-                  f"do NOT reuse its text, small print, lists, badges, logo, products, animals or characters. Direction: take inspiration from this idea: {refs.note(ref_id)}.")
+        prompt = (f"{keep_prompt} Layout: the SECOND attached image is the design reference: follow its layout closely (composition, size, weight and position of the headline, colors, panels and effects) "
+                  f"and put the business photo (the FIRST image) into it as the main subject. Do NOT reuse its text, small print, lists, badges, logo, products, animals or characters. Direction: take inspiration from this idea: {refs.note(ref_id)}.")
     if brief:
         conn.execute("UPDATE briefs SET asset_id = ?, look = ?, ref_id = ?, prompt = ?, no_photo = ?, chosen = MAX(chosen, ?) WHERE id = ?",
                      (None if no_photo else asset_id, look, ref_id, prompt, int(no_photo), int(chosen), brief["id"]))
