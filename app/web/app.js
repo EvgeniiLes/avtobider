@@ -1031,6 +1031,62 @@ function enableAdDrag(grip, item, list) {
   });
 }
 
+// Оживление баннера в видео: идеи от ИИ под это объявление или своя строка, видео этого объявления ниже
+function motionBlock(a, ready) {
+  const box = el("div", { className: "ed-motion" }, el("h3", { textContent: "Оживить баннер в видео" }));
+  if (!ready) {
+    box.append(el("p", { className: "hint", textContent: "Видео делается из готового баннера: сначала нарисуйте его." }));
+    return box;
+  }
+  let chosen = "";   // готовое английское описание движения выбранной идеи; своё пожелание сервис переведёт сам
+  const input = el("input", { type: "text", maxLength: 300, placeholder: "Что должно двигаться (необязательно), например: пена стекает по кузову" });
+  input.addEventListener("input", () => { chosen = ""; });
+  const chips = el("div", { className: "chips" });
+  const ideasLabel = `Подобрать идеи · ${usd(0.01)}`;
+  const ideasBtn = el("button", { type: "button", className: "small secondary", textContent: ideasLabel });
+  ideasBtn.addEventListener("click", async () => {
+    ideasBtn.disabled = true; ideasBtn.textContent = "Подбираю…";
+    const r = await creativeCall("POST", `/ads/${a.index}/motion-ideas`);
+    ideasBtn.disabled = false; ideasBtn.textContent = ideasLabel;
+    if (!r.ok) { say(errorText(r), "err"); return; }
+    chips.replaceChildren(...r.data.ideas.map((idea) => {
+      const c = el("button", { type: "button", className: "chip", textContent: idea.label });
+      c.addEventListener("click", () => {
+        input.value = idea.label; chosen = idea.prompt;
+        for (const x of chips.children) x.classList.remove("sel");
+        c.classList.add("sel");
+      });
+      return c;
+    }));
+    if (!r.data.ai) say("ИИ сейчас недоступен: показаны общие варианты.");
+  });
+  const makeLabel = `Сделать видео · ${usd(creativePrices.video)}`;
+  const make = el("button", { type: "button", className: "small", textContent: makeLabel });
+  make.addEventListener("click", async () => {
+    if (!(await askConfirm("Сделать видео?", `Это платно: около ${usd(creativePrices.video)} с баланса генерации. Готовится 5–7 минут. Текст и логотип на баннере останутся без движения.`, "Сделать"))) return;
+    make.disabled = true;
+    const r = await creativeCall("POST", `/ads/${a.index}/video`, { prompt: chosen || input.value });
+    make.disabled = false;
+    if (!r.ok) { say(errorText(r), "err"); return; }
+    say("Видео готовится, оно появится здесь.");
+    await loadCreatives();
+  });
+  box.append(el("p", { className: "hint", textContent: "Выберите готовую идею, которую ИИ подбирает именно под этот баннер, или напишите своё. Если ничего не писать, будет плавное движение камеры." }),
+    el("div", { className: "upload-row" }, ideasBtn), chips, input, el("p"), make);
+  const videos = lastCreatives.filter((c) => c.kind === "video" && c.title === a.title && c.body === a.text).sort((x, y) => y.id - x.id);
+  for (const v of videos) {
+    const card = el("div", { className: "ed-video" });
+    if (v.status === "working") card.append(el("div", { className: "spinner" }), el("span", { className: "hint", textContent: "Видео готовится: 5–7 минут" }));
+    else if (v.status === "failed") card.append(el("span", { className: "hint", textContent: v.error || "Видео не получилось. Попробуйте ещё раз." }));
+    else if (v.url) card.append(el("video", { src: v.url, controls: true, muted: true, loop: true, playsInline: true, preload: "metadata" }));
+    const drop = el("button", { type: "button", className: "link", textContent: "Удалить" });
+    drop.addEventListener("click", async () => { await creativeCall("DELETE", `/${v.id}`); await loadCreatives(); });
+    card.append(drop);
+    box.append(card);
+  }
+  return box;
+}
+
 function adEditor(a) {
   const working = a.ai && a.ai.status === "working";
   const stamp = Date.now();
@@ -1204,7 +1260,7 @@ function adEditor(a) {
     ...(a.no_photo ? [el("p", { className: "hint ed-note", textContent: "Баннер нарисуется с нуля по описанию бизнеса: сцену придумает арт-директор, ваши фото в нём не используются." })] : []),
     el("div", {}, el("span", { className: "lab", textContent: "Подача" }), chips,
       el("p", { className: "hint ed-note", textContent: "Подача сохраняется сразу, но баннер меняется после «Нарисовать». Если подачу не менять, «Нарисовать заново» сам берёт следующую подачу из ниши, чтобы вариант отличался." })));
-  const box = el("div", {}, top, el("div", { className: "ed-grid" }, el("div", {}, preview, strip, ...failedNote), fields), actions);
+  const box = el("div", {}, top, el("div", { className: "ed-grid" }, el("div", {}, preview, strip, ...failedNote, motionBlock(a, ready)), fields), actions);
   if (a.ai && a.ai.prompt) {   // промпт для тех, кто хочет править сам
     const area = el("textarea", { rows: 7, maxLength: 4000, value: a.ai.prompt });
     const go = el("button", { className: "small", textContent: "Нарисовать по этому промпту" });

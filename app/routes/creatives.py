@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 
 from app.assets import AssetError, prepare_image, prepare_video
 from app.config import get_settings
-from app.creative import fal, refs
+from app.creative import fal, motion, refs
 from app.creative.angles import effective_description, label as angle_label, profile
 from app.assets import PHOTO_TAGS
 from app.creative.compose import add_caption, add_logo, find_price, prepare_for_direct, style_for
@@ -655,6 +655,61 @@ def ad_banner(business_id: int, index: int, user: sqlite3.Row = Depends(current_
         _BANNERS[key] = banner
     return Response(banner, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=60"})
 
+
+def _banner_for_motion(conn, biz, index: int):
+    """Готовый баннер объявления: (вариант, строка заказа, байты картинки для видео). 400, если баннера ещё нет."""
+    variants, _count, _pool = _ad_variants(conn, biz)
+    if not 0 <= index < len(variants):
+        raise HTTPException(404, detail={"message": "Такого объявления нет."})
+    row = _ready_row(conn, biz["id"], variants[index])
+    asset = conn.execute("SELECT * FROM business_assets WHERE id = ?", (row["asset_id"],)).fetchone() if row else None
+    if row is None or asset is None:
+        raise HTTPException(400, detail={"message": "Видео делается из готового баннера. Сначала нарисуйте баннер для этого объявления."})
+    picture = prepare_for_direct(_asset_path(biz["id"], asset["stored_name"]).read_bytes())
+    return variants[index], row, picture
+
+
+@router.post("/ads/{index}/motion-ideas")
+def motion_ideas(business_id: int, index: int, user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connection = Depends(get_db),
+                 transport=Depends(creative_transport)):
+    """Несколько готовых идей, как оживить баннер именно этого объявления: владелец выбирает одну или пишет свою."""
+    biz = _own(conn, user, business_id)
+    variant, row, _picture = _banner_for_motion(conn, biz, index)
+    s = get_settings()
+    try:
+        scene = json.loads(row["prompt"] or "{}").get("scene", "")
+    except ValueError:
+        scene = ""
+    found, from_ai = asyncio.run(motion.ideas(biz, variant["title"], scene, s.fal_key, s.fal_text_model, transport))
+    if from_ai:
+        _charge(conn, business_id, "check")
+        conn.commit()
+    return {"ideas": found, "ai": from_ai}
+
+
+class AdVideoIn(BaseModel):
+    prompt: str = Field(default="", max_length=400)
+
+
+@router.post("/ads/{index}/video")
+def ad_video(business_id: int, index: int, data: AdVideoIn, user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connection = Depends(get_db),
+             transport=Depends(creative_transport)):
+    """Оживляет готовый баннер объявления в короткое видео. Движение: выбранная идея или текст владельца; текст и логотип на баннере страхуем."""
+    biz = _own(conn, user, business_id)
+    key = _need_fal()
+    variant, _row_, picture = _banner_for_motion(conn, biz, index)
+    wish = asyncio.run(motion.to_english(data.prompt, key, get_settings().fal_text_model, transport))   # своё пожелание по-русски переводим для видеомодели
+    prompt = motion.final_prompt(wish)
+    _charge(conn, business_id, "video")
+    try:
+        job = asyncio.run(fal.start_video(_bytes_url(picture, 1280), prompt, key, get_settings().fal_video_model, transport))
+    except fal.FalError as e:
+        conn.commit()
+        raise HTTPException(502, detail={"message": e.message})
+    conn.execute("INSERT INTO creatives (business_id, kind, title, body, prompt, status, source, external_id) VALUES (?, 'video', ?, ?, ?, 'working', 'fal', ?)",
+                 (business_id, variant["title"], variant["text"], (data.prompt.strip() or "Плавное движение")[:400], json.dumps(job)))
+    conn.commit()
+    return {"started": 1}
 
 @router.post("/ads/{index}/accept-rejected")
 def accept_rejected_banner(business_id: int, index: int, user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connection = Depends(get_db)):

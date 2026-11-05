@@ -596,3 +596,9 @@ summary.legend-like { font-weight: 700; cursor: pointer; margin-bottom: 6px; }
 #business-form[data-wstep="4"] .wizard-dots i { background: var(--text); }
 /* Описание референса показываем целиком, с переносом строк */
 .chip.wrap { white-space: normal; text-align: left; border-radius: 18px; max-width: 100%; line-height: 1.35; }
+
+/* Оживление баннера в видео */
+.ed-motion { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line-2); }
+.ed-motion input[type=text] { width: 100%; margin-top: 8px; }
+.ed-video { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 12px; }
+.ed-video video { width: 100%; max-width: 360px; border-radius: 14px; }
