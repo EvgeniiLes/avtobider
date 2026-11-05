@@ -12,11 +12,11 @@ FAL_CHAT_URL = "https://fal.run/openrouter/router/openai/v1/chat/completions"
 # ключ -> (название для людей, задание сюжета; запасная сцена для модели картинок)
 SCENES = {
     "scene_group": ("Компания людей", "3-5 people of the target audience together in a natural setting, for example around a table, "
-                    "engaged and smiling, the product or a phone in the centre of their attention"),
-    "scene_hand": ("Рука с продуктом", "close-up of one hand holding the product or a phone, nothing else in the frame, shallow depth of field, "
+                    "engaged and smiling, the product itself in the centre of their attention"),
+    "scene_hand": ("Рука с продуктом", "close-up of one hand holding the product, nothing else in the frame, shallow depth of field, "
                    "plain calm background, a lot of free space for text"),
     "scene_person": ("Один человек", "one person candidly absorbed in using the product, medium shot, a real unposed moment, natural light"),
-    "scene_still": ("Предмет без людей", "the product or a phone alone on a styled surface, no people, a hero still life on a bold contrasting backdrop"),
+    "scene_still": ("Предмет без людей", "the product alone on a styled surface, no people, a hero still life on a bold contrasting backdrop"),
     "scene_emotion": ("Эмоция крупно", "tight close-up of a face with a genuine strong emotion (laughter, surprise, excitement) while using the product"),
 }
 ORDER = list(SCENES)
@@ -42,6 +42,7 @@ ART_SYSTEM = (
     "стоковые метафоры вроде цепи, шестерёнок, светящегося мозга и рукопожатия над ноутбуком: показывай саму услугу или её результат. Никогда не придумывай интерфейс приложения или сайта: "
     "если в запросе сказано, что скриншот есть, телефон с экраном, повёрнутым к зрителю, обязателен; если скриншота нет, "
     "экран нигде не должен читаться (телефон виден со спины или под углом, экран в тени или погашен, либо в кадре только руки и лица людей). "
+    "Телефон в кадре допустим только если бизнес сам онлайн-услуга или приложение; у офлайн-бизнеса (кофейня, салон, магазин, студия) телефона быть не должно: рисуй продукт, место и людей. "
     "Сцена должна отличаться от сцен других баннеров этого бизнеса (они перечислены в запросе): другие люди, место, ракурс. "
     "Правила логотипа: ставь логотип (true) только если он читается крупно, а в композиции есть спокойное место под заметный блок; "
     "не ставь (false), если логотип мелкий, сложный или с мелким текстом, если кадр плотный, если это крупный план без места, "
@@ -72,7 +73,7 @@ async def art_direction(biz, variant: dict, index: int, others: list[str], logo:
             + "Раскладку (где будет текст) не задавай: это решит художник. В сцене оставь спокойную область, на которую можно положить крупный текст.\n"
             + ("Настоящий скриншот есть: телефон с экраном обязателен. Человек держит его в руках ВЕРТИКАЛЬНО (портретная ориентация), экраном к камере, "
                "крупно (экран не меньше 20% высоты кадра). Телефон не лежит на столе и не держится горизонтально.\n" if has_screen
-               else "Скриншота приложения нет: экран телефона нигде не должен читаться, интерфейс не придумывай.\n")
+               else "Скриншота приложения нет. Телефон в кадр не добавляй, если сам бизнес не онлайн-сервис или приложение (кофейня, салон, магазин и другие офлайн-бизнесы показывай без телефона); интерфейс не придумывай.\n")
             + (f"Сцены других баннеров (не повторяй): {' | '.join(others)}\n" if others else "")
             + logo_line)
     body = {"model": model, "max_tokens": 900, "messages": [{"role": "system", "content": ART_SYSTEM}, {"role": "user", "content": user}]}
