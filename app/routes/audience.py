@@ -1,5 +1,6 @@
 """Профиль целевой аудитории: ИИ составляет, владелец правит, из профиля берутся фразы, минус-слова и автотаргетинг запуска."""
 import asyncio
+from datetime import date
 import sqlite3
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -37,6 +38,10 @@ def make_profile(conn: sqlite3.Connection, biz, transport=None) -> dict | None:
         return None
     profile = asyncio.run(aud.generate_profile(biz, s.fal_key, s.fal_text_model, transport))
     if profile:
+        reco = asyncio.run(aud.recommend_autotargeting(biz, profile, s.fal_key, s.fal_text_model, transport))   # какие категории запросов включить именно этому бизнесу
+        if reco:
+            profile["autotargeting"] = {"categories": reco["categories"], "brands": aud.autotargeting_for(profile)["brands"]}
+            profile["auto_why"], profile["auto_reco"] = reco["why"], date.today().isoformat()
         old = aud.load(biz) or {}
         profile.update({k: old[k] for k in KEEP if k in old})
         aud.save(conn, biz["id"], profile)

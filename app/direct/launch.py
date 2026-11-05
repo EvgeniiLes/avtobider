@@ -16,6 +16,7 @@ from urllib.parse import urlsplit, urlunsplit
 from app.creative.compose import style_for
 from app.creative.angles import districts_of, is_nationwide, needs_districts
 from app.direct.client import RUSSIA_REGION_ID, DirectClient, DirectError
+from app.direct.autotarget import ensure_autotargeting
 from app.direct.bids import ensure_bids
 from app.direct.goals import goal_ids_for_report
 from app.direct.marking import is_filled
@@ -751,6 +752,10 @@ async def sync_units(client: DirectClient, conn: sqlite3.Connection, biz, today:
             conn.execute("UPDATE ad_units SET state = ?, status_note = ? WHERE id = ?", (state, note, u["id"]))
     conn.commit()
     await ensure_bids(client, conn, biz["id"], today)   # корректировки по полу и возрасту из профиля аудитории ставит сам сервис
+    try:
+        await ensure_autotargeting(client, conn, biz["id"], today)   # категории автотаргетинга подбирает и держит в кабинете сам сервис
+    except DirectError:
+        pass
 
     goal =biz["metrika_goal_id"] or None
     all_goals = goal_ids_for_report(conn, biz) if goal else []   # все цели счётчика: не только «обращение», а весь путь посетителя

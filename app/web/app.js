@@ -681,6 +681,10 @@ function renderAudience(data) {
   $("aud-negatives").value = (p.negatives || []).join("\n");
   $("aud-negatives-hint").textContent = `В Директ уйдёт минус-слов: ${data.negatives.length}. Общий список вашей сферы добавляется сам, слова, которые режут вашу услугу, сервис не пропустит.`;
   switches("aud-categories", L.categories, data.autotargeting.categories, CATEGORY_HINTS);
+  const autoWhy = $("aud-auto-why");   // сервис подбирает категории сам: объясняем выбор и показываем, если Директ не принял изменение
+  const pr = data.profile || {};
+  autoWhy.textContent = [pr.auto_why && !pr.auto_owner ? `Категории подобрал сервис: ${pr.auto_why}` : pr.auto_owner ? "Категории выбраны вами, сервис их не меняет." : "",
+    pr.auto_error ? `Не удалось применить в Директе: ${pr.auto_error}` : ""].filter(Boolean).join(" ");
   switches("aud-brands", L.brands, data.autotargeting.brands);
   const launched = launchedText(p.launched);
   $("aud-launched").hidden = !launched;

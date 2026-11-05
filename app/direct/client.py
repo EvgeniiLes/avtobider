@@ -285,20 +285,35 @@ class DirectClient:
         }]})
         return self._result_item(result, "AddResults")["Id"]
 
+    @staticmethod
+    def _auto_settings(autotargeting: dict) -> dict:
+        yes = lambda value: "YES" if value else "NO"
+        categories, brands = autotargeting["categories"], autotargeting["brands"]
+        return {"Categories": {"Exact": yes(categories["exact"]), "Narrow": yes(categories["narrow"]), "Alternative": yes(categories["alternative"]),
+                               "Accessory": yes(categories["accessory"]), "Broader": yes(categories["broader"])},
+                "BrandOptions": {"WithoutBrands": yes(brands["without"]), "WithAdvertiserBrand": yes(brands["own"]),
+                                 "WithCompetitorsBrand": yes(brands["competitors"])}}
+
+    async def autotargeting_ids(self, group_ids: list[int]) -> dict[int, int]:
+        """Номер «ключевой фразы» автотаргетинга в каждой группе: {группа: номер}. Нужен, чтобы менять его настройки."""
+        if not group_ids:
+            return {}
+        result = await self.call("keywords", "get", {"SelectionCriteria": {"AdGroupIds": group_ids}, "FieldNames": ["Id", "AdGroupId", "Keyword"],
+                                                     "Page": {"Limit": PAGE_SIZE}})
+        return {k["AdGroupId"]: k["Id"] for k in result.get("Keywords", []) if k.get("Keyword") == AUTOTARGETING_KEYWORD}
+
+    async def update_autotargeting(self, keyword_id: int, autotargeting: dict) -> None:
+        """Меняет категории и бренды автотаргетинга у готовой группы."""
+        result = await self.call("keywords", "update", {"Keywords": [{"Id": keyword_id, "AutotargetingSettings": self._auto_settings(autotargeting)}]})
+        self._result_item(result, "UpdateResults")
+
     async def add_keywords(self, group_id: int, phrases: list[str], autotargeting: dict | None = None) -> dict:
         """Ключевые фразы группы и автотаргетинг одним вызовом. Автотаргетинг в API это особая фраза `---autotargeting`
         с настройками категорий. Фразу, которую Директ не принял, пропускаем и возвращаем в rejected. Если не принято
         вообще ничего (ни фраз, ни автотаргетинга), группа осталась бы без запросов, и это ошибка."""
         items = [{"AdGroupId": group_id, "Keyword": p} for p in phrases]
         if autotargeting is not None:
-            yes = lambda value: "YES" if value else "NO"
-            categories, brands = autotargeting["categories"], autotargeting["brands"]
-            items.append({"AdGroupId": group_id, "Keyword": AUTOTARGETING_KEYWORD, "AutotargetingSettings": {
-                "Categories": {"Exact": yes(categories["exact"]), "Narrow": yes(categories["narrow"]), "Alternative": yes(categories["alternative"]),
-                               "Accessory": yes(categories["accessory"]), "Broader": yes(categories["broader"])},
-                "BrandOptions": {"WithoutBrands": yes(brands["without"]), "WithAdvertiserBrand": yes(brands["own"]),
-                                 "WithCompetitorsBrand": yes(brands["competitors"])},
-            }})
+            items.append({"AdGroupId": group_id, "Keyword": AUTOTARGETING_KEYWORD, "AutotargetingSettings": self._auto_settings(autotargeting)})
         if not items:
             return {"added": 0, "rejected": [], "autotargeting": False, "autotargeting_error": ""}
         result = await self.call("keywords", "add", {"Keywords": items})

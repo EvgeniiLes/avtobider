@@ -197,6 +197,19 @@ class FakeDirect:
                     self.bid_modifiers[bid] = {"campaign": item["CampaignId"], "gender": i.get("Gender"), "age": i.get("Age"), "percent": i["BidModifier"]}
                     created.append(bid)
                 return ok({"AddResults": [{"Ids": created}]})
+        if service == "keywords" and method == "get":
+            wanted = params["SelectionCriteria"]["AdGroupIds"]
+            return ok({"Keywords": [{"Id": k["id"], "AdGroupId": k["group"], "Keyword": k["keyword"]} for k in self.keywords if k["group"] in wanted]})
+        if service == "keywords" and method == "update":
+            results = []
+            for item in params["Keywords"]:
+                found = next((k for k in self.keywords if k["id"] == item["Id"]), None)
+                if found is None:
+                    results.append({"Errors": [{"Code": 8800, "Message": "Не найдено"}]})
+                    continue
+                found["settings"] = item["AutotargetingSettings"]
+                results.append({"Id": item["Id"]})
+            return ok({"UpdateResults": results})
         if service == "keywords":
             results = []
             for item in params["Keywords"]:
@@ -206,8 +219,9 @@ class FakeDirect:
                 if item["Keyword"] == "---autotargeting" and self.reject_autotargeting:
                     results.append({"Errors": [{"Code": 5001, "Message": "Автотаргетинг недоступен для этой группы"}]})
                     continue
-                self.keywords.append({"group": item["AdGroupId"], "keyword": item["Keyword"], "settings": item.get("AutotargetingSettings")})
-                results.append({"Id": self._next()})
+                keyword_id = self._next()
+                self.keywords.append({"id": keyword_id, "group": item["AdGroupId"], "keyword": item["Keyword"], "settings": item.get("AutotargetingSettings")})
+                results.append({"Id": keyword_id})
             return ok({"AddResults": results})
         if service == "adextensions":
             results = []

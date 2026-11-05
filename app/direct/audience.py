@@ -203,6 +203,48 @@ def _all_keywords(data: dict) -> list[str]:
     return clean_keywords(base + extra, limit=MAX_KEYWORDS + 4)
 
 
+AUTO_SYSTEM = (
+    "Ты специалист по Яндекс Директу. Для бизнеса нужно выбрать, какие категории запросов включить в автотаргетинг текстовой кампании. "
+    "Категории: exact (целевые: именно то, что мы продаём), narrow (узкие: уточнённые варианты нашей услуги), alternative (альтернативные: "
+    "другие способы решить ту же задачу), accessory (сопутствующие: запросы по теме, смежные услуги и вопросы вокруг нашей), broader (широкие: общие запросы шире нашей услуги). "
+    "exact и narrow включены всегда. Включай accessory, когда у услуги нет осязаемого товара и спрос в основном идёт запросами вокруг темы "
+    "(консалтинг, автоматизация, обучение, IT, юридические и подобные услуги): там сопутствующие запросы это и есть наши клиенты. "
+    "Для местных услуг и товаров (салон, груминг, ремонт, магазин) accessory обычно только расходует бюджет, оставь выключенными. "
+    "alternative включай, только если у бизнеса мало прямого спроса и это нужно, чтобы набрать показы. broader не включай никогда на малом бюджете. "
+    "Ответ: только JSON {\"accessory\": true|false, \"alternative\": true|false, \"why\": \"одно предложение по-русски, почему так\"}."
+)
+
+
+def clean_recommendation(raw: str) -> dict | None:
+    """Категории автотаргетинга из ответа модели: целевые и узкие всегда, широкие никогда, остальное по её совету. None, если ответ не разобрать."""
+    match = re.search(r"\{.*\}", raw or "", re.S)
+    if not match:
+        return None
+    try:
+        data = json.loads(match.group(0))
+    except ValueError:
+        return None
+    if not isinstance(data, dict) or not ("accessory" in data or "alternative" in data):
+        return None
+    categories = {"exact": True, "narrow": True, "alternative": bool(data.get("alternative")), "accessory": bool(data.get("accessory")), "broader": False}
+    return {"categories": categories, "why": re.sub(r"\s+", " ", str(data.get("why", ""))).strip()[:300]}
+
+
+async def recommend_autotargeting(biz, profile: dict | None, fal_key: str, model: str, transport: httpx.AsyncBaseTransport | None = None) -> dict | None:
+    """Просит ИИ выбрать категории автотаргетинга под этот бизнес. None, если ИИ недоступен."""
+    if not fal_key:
+        return None
+    who = (profile or {}).get("summary", "")
+    user = build_prompt(biz) + (f"\nКлиент: {who}" if who else "")
+    body = {"model": model, "max_tokens": 800, "messages": [{"role": "system", "content": AUTO_SYSTEM}, {"role": "user", "content": user}]}
+    try:
+        async with httpx.AsyncClient(timeout=60, transport=transport) as http:
+            r = await http.post(FAL_CHAT_URL, json=body, headers={"Authorization": f"Key {fal_key}", "Content-Type": "application/json"})
+        return clean_recommendation(r.json()["choices"][0]["message"]["content"] or "") if r.status_code == 200 else None
+    except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError):
+        return None
+
+
 def parse_profile(raw: str) -> dict | None:
     """Профиль из ответа модели. Всё, что не проходит проверку, отбрасывается; без описания клиента профиль не принимаем."""
     match = re.search(r"\{.*\}", raw or "", re.S)
@@ -292,6 +334,7 @@ def apply_edits(profile: dict, edits: dict) -> dict:
         result["negatives"] = clean_negatives(edits["negatives"])
     if "autotargeting" in edits:
         result["autotargeting"] = autotargeting_for({"autotargeting": edits["autotargeting"]})
+        result["auto_owner"] = True   # категории выбрал сам владелец: сервис их больше не пересматривает
     result["edited"] = True
     return result
 
