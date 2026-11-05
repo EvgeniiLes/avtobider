@@ -144,7 +144,7 @@ async def check_photo(image_data_url: str, fal_key: str, model: str, transport: 
     brand: название бизнеса владельца. Вывеска или логотип с ним на фото свои, а не чужой бренд."""
     own = (f" Бизнес владельца называется «{brand}». Вывеска, надпись или логотип с этим названием свои: это не чужой бренд и не проблема."
            if brand.strip() else "")
-    body = {"model": model, "max_tokens": 600, "image_urls": [image_data_url],
+    body = {"model": model, "max_tokens": 1200, "image_urls": [image_data_url],
             "messages": [{"role": "system", "content": LOGO_CHECK_SYSTEM if logo else PHOTO_CHECK_SYSTEM},
                          {"role": "user", "content": ("Оцени этот логотип." if logo else "Оцени это фото." + (
                              " Это картинка, нарисованная нейросетью: людей на ней не существует, согласие на показ лиц не нужно." if synthetic else "")) + own}]}
@@ -193,7 +193,7 @@ DISTRICT_SYSTEM = (
 async def derive_districts(city: str, address: str, fal_key: str, model: str, transport: httpx.AsyncBaseTransport | None = None) -> list[str]:
     """Район города по адресу бизнеса. Пустой список, если ИИ не ответил или не уверен."""
     from app.creative.angles import split_districts  # здесь, чтобы не было круга
-    body = {"model": model, "max_tokens": 200,
+    body = {"model": model, "max_tokens": 600,
             "messages": [{"role": "system", "content": DISTRICT_SYSTEM}, {"role": "user", "content": f"Город: {city}. Адрес: {address}"}]}
     try:
         async with httpx.AsyncClient(timeout=60, transport=transport) as http:
@@ -283,7 +283,7 @@ async def check_facts(facts: str, title: str, text: str, read: list[str], fal_ke
     (тогда баннер не отбраковываем: сомнение работает в пользу владельца, а не модели)."""
     if not read:
         return []
-    body = {"model": model, "max_tokens": 500, "messages": [
+    body = {"model": model, "max_tokens": 900, "messages": [
         {"role": "system", "content": FACTS_SYSTEM},
         {"role": "user", "content": f"Факты о бизнесе: {facts[:1800] or 'не указаны'}\nОбъявление: {title}. {text}\nТекст на баннере: {' | '.join(read)}"}]}
     try:

@@ -207,7 +207,7 @@ async def layout_text(ref_id: int, fal_key: str, model: str, transport=None) -> 
     if data is None:
         return ""
     url = "data:image/jpeg;base64," + base64.b64encode(data).decode()
-    body = {"model": model, "max_tokens": 500, "image_urls": [url], "messages": [{"role": "user", "content": LAYOUT_ASK}]}
+    body = {"model": model, "max_tokens": 900, "image_urls": [url], "messages": [{"role": "user", "content": LAYOUT_ASK}]}
     try:
         async with httpx.AsyncClient(timeout=90, transport=transport) as http:
             r = await http.post("https://fal.run/openrouter/router/openai/v1/chat/completions", json=body,

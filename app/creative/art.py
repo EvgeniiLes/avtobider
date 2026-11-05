@@ -76,7 +76,7 @@ async def art_direction(biz, variant: dict, index: int, others: list[str], logo:
                else "Скриншота приложения нет. Телефон в кадр не добавляй, если сам бизнес не онлайн-сервис или приложение (кофейня, салон, магазин и другие офлайн-бизнесы показывай без телефона); интерфейс не придумывай.\n")
             + (f"Сцены других баннеров (не повторяй): {' | '.join(others)}\n" if others else "")
             + logo_line)
-    body = {"model": model, "max_tokens": 900, "messages": [{"role": "system", "content": ART_SYSTEM}, {"role": "user", "content": user}]}
+    body = {"model": model, "max_tokens": 1500, "messages": [{"role": "system", "content": ART_SYSTEM}, {"role": "user", "content": user}]}
     try:
         async with httpx.AsyncClient(timeout=60, transport=transport) as http:
             r = await http.post(FAL_CHAT_URL, json=body, headers={"Authorization": f"Key {fal_key}", "Content-Type": "application/json"})
@@ -115,7 +115,7 @@ REVIEW_SYSTEM = (
 async def review_banner(image_url: str, brief: str, fal_key: str, model: str,
                         transport: httpx.AsyncBaseTransport | None = None) -> dict | None:
     """Самопроверка готового баннера моделью со зрением. None, если оценить не удалось (тогда баннер не отбраковываем)."""
-    body = {"model": model, "max_tokens": 500, "image_urls": [image_url],
+    body = {"model": model, "max_tokens": 800, "image_urls": [image_url],
             "messages": [{"role": "system", "content": REVIEW_SYSTEM}, {"role": "user", "content": f"Бизнес и задание: {brief[:1200]}"}]}
     try:
         async with httpx.AsyncClient(timeout=90, transport=transport) as http:
