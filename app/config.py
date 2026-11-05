@@ -35,6 +35,7 @@ class Settings:
     fal_image_model: str
     fal_video_model: str
     fal_text_model: str
+    fal_vision_model: str   # чтение картинок (надписи на баннере, оценка фото): проверенная модель, отдельно от текстовой
     fal_banner_model: str
     gen_limit_usd: float
     usd_rub_rate: float   # только для показа цен генерации в рублях: расчёты с fal.ai идут в долларах
@@ -82,6 +83,7 @@ def get_settings() -> Settings:
         fal_image_model=os.environ.get("FAL_IMAGE_MODEL", "").strip() or "fal-ai/nano-banana-2",
         fal_video_model=os.environ.get("FAL_VIDEO_MODEL", "").strip() or "fal-ai/kling-video/v3/pro/image-to-video",
         fal_text_model=os.environ.get("FAL_TEXT_MODEL", "").strip() or "anthropic/claude-sonnet-5.5",
+        fal_vision_model=os.environ.get("FAL_VISION_MODEL", "").strip() or "anthropic/claude-sonnet-4.5",
         fal_banner_model=os.environ.get("FAL_BANNER_MODEL", "").strip() or "openai/gpt-image-2",
         gen_limit_usd=float(os.environ.get("GEN_LIMIT_USD", "").strip() or 5),
         usd_rub_rate=float(os.environ.get("USD_RUB_RATE", "").strip() or 95),

@@ -133,10 +133,14 @@ def _refresh_working(conn, business_id: int, transport) -> None:
         if r["kind"] == "ai_banner":  # нейросеть могла ошибиться в буквах: сверяем надписи с нужными, ошибочную не принимаем
             expected = json.loads(r["prompt"] or "{}").get("expect", [])
             s = get_settings()
-            read = asyncio.run(read_image_text(value, key, s.fal_text_model, transport))
+            read = asyncio.run(read_image_text(value, key, s.fal_vision_model, transport))
             if read is None:   # распознавание порой не отвечает с первого раза (на пробе у каждого четвёртого баннера): без повтора баннер прошёл бы непроверенным
-                read = asyncio.run(read_image_text(value, key, s.fal_text_model, transport))
+                read = asyncio.run(read_image_text(value, key, s.fal_vision_model, transport))
             wrong = missing_phrases(expected, read) if read is not None else []
+            if wrong:   # распознавание порой читает не то, что написано: прежде чем браковать, читаем ещё раз
+                again = asyncio.run(read_image_text(value, key, s.fal_vision_model, transport))
+                if again is not None:
+                    read, wrong = again, missing_phrases(expected, again)
             if wrong:
                 _reject(conn, business_id, r["id"], f"На картинке ошибки в тексте: {', '.join(wrong)}. Нажмите «Нарисовать» ещё раз.", transport, url=value)
                 continue
@@ -179,7 +183,7 @@ def _refresh_working(conn, business_id: int, transport) -> None:
             if r["kind"] == "ai_banner" and meta.get("caption"):   # «название · вид деятельности» дорисовывает код: так подпись всегда читается, без искажённых букв
                 data = add_caption(data, meta["caption"])
             if r["kind"] == "ai_banner" and meta.get("brief"):  # самопроверка итоговой картинки: слабую не принимаем, чтобы не платить за неё рекламой
-                verdict = asyncio.run(review_banner(_bytes_url(data), meta["brief"], key, get_settings().fal_text_model, transport))
+                verdict = asyncio.run(review_banner(_bytes_url(data), meta["brief"], key, get_settings().fal_vision_model, transport))
                 if verdict is not None and verdict["score"] <= 2:
                     _reject(conn, business_id, r["id"], "Баннер получился слабым" + (": " + "; ".join(verdict["issues"]) if verdict["issues"] else "") + ". Нажмите «Другой баннер».", transport, data=data)
                     continue
@@ -451,7 +455,7 @@ def _order_banner(conn, biz, variants: list[dict], index: int, key: str, transpo
         images = [_bytes_url(data, 1280)] + ([_bytes_url(ref_bytes, 900)] if ref_bytes else [])
         if ref_bytes:
             _charge(conn, business_id, "ref_extra")
-            layout = asyncio.run(refs.layout_text(brief["ref_id"], key, s.fal_text_model, transport))   # раскладка референса словами: к картинке добавляется подробное описание
+            layout = asyncio.run(refs.layout_text(brief["ref_id"], key, s.fal_vision_model, transport))   # раскладка референса словами: к картинке добавляется подробное описание
             if layout and not custom_prompt and "Reference layout in words" not in prompt:
                 prompt += f" Reference layout in words (follow it for the design, put the business photo into it): {layout}"
         job = asyncio.run(fal.start_edit(prompt, images, key, s.fal_banner_model, transport))
@@ -709,7 +713,7 @@ def check_photos(business_id: int, force: bool = False, user: sqlite3.Row = Depe
     for r in rows:
         _charge(conn, business_id, "check")
         try:
-            result = asyncio.run(check_photo(_data_url(_asset_path(business_id, r["stored_name"])), key, s.fal_text_model, transport,
+            result = asyncio.run(check_photo(_data_url(_asset_path(business_id, r["stored_name"])), key, s.fal_vision_model, transport,
                                              logo=r["kind"] == "logo", synthetic=r["kind"] == "generated", brand=biz["name"]))
         except (OSError, ValueError):
             result = None
