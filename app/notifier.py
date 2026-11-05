@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 
 from app import telegram
 from app.config import get_settings
+from app.direct import moderation
 from app.reports import alerts, week_report
 
 log = logging.getLogger("autobider.notify")
@@ -57,6 +58,9 @@ def run(conn: sqlite3.Connection, biz, send, now: datetime | None = None) -> lis
         if _sent(conn, biz["id"], a["kind"], a["key"], a["cooldown"], now_utc):
             continue
         messages.append((a["kind"], a["key"], a["text"]))
+    accepted = moderation.accepted(conn, biz, today)   # объявления, которые Яндекс только что принял после проверки
+    if accepted:
+        messages.append(("mod_ok_batch", ",".join(str(r["id"]) for r in accepted), moderation.accepted_text(accepted)))
 
     sent = []
     for kind, key, text in messages:
@@ -66,5 +70,7 @@ def run(conn: sqlite3.Connection, biz, send, now: datetime | None = None) -> lis
             log.warning("бизнес %s: не удалось отправить в Telegram: %s", biz["id"], e.message)
             break   # дальше пытаться бессмысленно: повторим при следующем проходе
         _record(conn, biz["id"], kind, key)
+        if kind == "mod_ok_batch":
+            moderation.record_accepted(conn, biz["id"], accepted)   # каждое принятое объявление уведомляет один раз
         sent.append(text)
     return sent

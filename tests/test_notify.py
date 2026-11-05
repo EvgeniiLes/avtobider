@@ -275,7 +275,7 @@ def test_alerts_are_sent_once_and_repeat_only_after_their_pause(isolated):
         send = lambda chat, text: sent.append(text)
         tuesday = datetime(2026, 11, 3, 7, 0, tzinfo=timezone.utc)
         first = alerts_only(notifier.run(conn, biz_row(conn, bid), send, now=tuesday))
-        assert any("Метрика не получает визитов" in t for t in first) and any("не прошло проверку" in t and "Запрещённое слово" in t for t in first)
+        assert any("Метрика не получает визитов" in t for t in first) and any("отклонил" in t and "Запрещённое слово" in t for t in first)
         assert notifier.run(conn, biz_row(conn, bid), send, now=tuesday + timedelta(hours=2)) == []          # тот же день: тишина
         later = alerts_only(notifier.run(conn, biz_row(conn, bid), send, now=tuesday + timedelta(days=1)))
         assert later == []                                                                                    # счётчик: не чаще раза в 3 дня; объявление: один раз
@@ -292,7 +292,7 @@ def test_a_failed_send_is_retried_next_time_instead_of_being_forgotten(isolated)
             raise telegram.TelegramError("недоступен")
 
         assert notifier.run(conn, biz_row(conn, bid), broken, now=MONDAY_10_MSK) == []
-        assert conn.execute("SELECT COUNT(*) FROM notifications").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM notifications WHERE kind != 'mod_pending'").fetchone()[0] == 0   # пометки «на проверке» не в счёт
         sent = []
         assert len(notifier.run(conn, biz_row(conn, bid), lambda c, t: sent.append(t), now=MONDAY_10_MSK + timedelta(minutes=30))) == 1
         conn.close()

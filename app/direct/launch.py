@@ -339,6 +339,8 @@ def save_unit(conn: sqlite3.Connection, biz, account_id: int, campaign_row_id: i
         (campaign_row_id, biz["id"], variant["title"], variant["text"], weekly_micro, variant_of, today, today,
          ids["campaign_id"], ids["group_id"], ids["ad_id"], style, photo_type, angle, ad_kind, variants_json),
     )
+    from app.direct import moderation   # здесь, чтобы не было круга
+    moderation.mark_pending(conn, biz["id"], cur.lastrowid)   # ушло на проверку: когда Яндекс его примет, владельцу придёт сообщение
     return cur.lastrowid
 
 

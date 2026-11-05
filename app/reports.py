@@ -7,6 +7,7 @@
 import sqlite3
 
 from app.direct.counter_health import load_health
+from app.direct.moderation import rejected_text
 from app.engine.util import day_add, plural, rub
 
 NO_CONVERSIONS = "Обращений не видно: подключите Метрику на странице «Бизнес», иначе сервис не отличит хорошее объявление от плохого."
@@ -147,9 +148,7 @@ def alerts(conn: sqlite3.Connection, biz, today: str) -> list[dict]:
     units = conn.execute("SELECT id, title, state, status_note FROM ad_units WHERE business_id = ? AND external_ad_id IS NOT NULL", (biz["id"],)).fetchall()
     for u in units:
         if u["state"] == "rejected":
-            note = f" Причина: {u['status_note']}." if u["status_note"] else ""
-            found.append({"kind": "rejected", "key": str(u["id"]), "cooldown": None,
-                          "text": f"⚠ Объявление «{u['title']}» не прошло проверку в Яндексе.{note} Сервис предложит новый текст."})
+            found.append({"kind": "rejected", "key": str(u["id"]), "cooldown": None, "text": rejected_text(u["title"], u["status_note"])})
     if any(u["state"] == "unpaid" for u in units):
         found.append({"kind": "unpaid", "key": today, "cooldown": 2,
                       "text": "⚠ Объявления одобрены, но показов нет: пополните счёт в Яндекс Директе (минимум 300 ₽)."})
