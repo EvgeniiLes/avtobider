@@ -96,11 +96,18 @@ function setAuthMode(mode) {
   $("auth-submit").textContent = mode === "login" ? "Войти" : "Создать аккаунт";
   $("password-hint").textContent = mode === "register" ? "(не меньше 8 символов)" : "";
   $("password").autocomplete = mode === "login" ? "current-password" : "new-password";
+  $("password2-box").hidden = mode === "login";
+  $("password2").required = mode === "register";
+  $("password2").value = "";
   setStatus("auth-status", "");
 }
 
 async function submitAuth(event) {
   event.preventDefault();
+  if (authMode === "register" && $("password").value !== $("password2").value) {
+    setStatus("auth-status", "Пароли не совпадают. Введите один и тот же пароль дважды.", "err");
+    return;
+  }
   const button = $("auth-submit");
   button.disabled = true;
   setStatus("auth-status", "Подождите…");
@@ -114,6 +121,7 @@ async function submitAuth(event) {
     return;
   }
   $("password").value = "";
+  $("password2").value = "";
   showApp(result.data.email);
 }
 
