@@ -27,8 +27,12 @@ ONLINE = re.compile(r"(?i)онлайн|интернет|приложени|пл�
 OFFLINE = re.compile(r"(?i)салон|студи|клиник|кабинет|барбер|маникюр|педикюр|массаж|стоматолог|косметолог|парикмахер|ремонт|магазин|кафе|ресторан|фитнес|зал\b|мастерск|центр\b")
 APPOINTMENT = re.compile(r"(?i)салон|студи|клиник|кабинет|барбер|маникюр|педикюр|массаж|стоматолог|косметолог|парикмахер|врач")
 
+PROJECT = re.compile(r"(?i)дизайн|агентств|разработк|продвижени|маркетинг|консалт|юрист|юридич|бухгалтер|автоматизац|веб\b|программ|архитектур|интерьер")
+VISIT = re.compile(r"(?i)салон|клиник|кабинет|барбер|маникюр|педикюр|массаж|стоматолог|косметолог|парикмахер|врач|ресниц|бров|ногт|груминг|тату|пирсинг")   # «дизайн ногтей»: это визит, а не проект
+
 CTA_SENTENCES = {
     "Записаться": "Запишитесь онлайн",
+    "Обсудить проект": "Обсудим ваш проект",
     "Играть": "Присоединяйтесь к игре",
     "Заказать": "Оформите заказ на сайте",
     "Попробовать": "Попробуйте сервис",
@@ -47,7 +51,9 @@ def profile(biz) -> dict:
     kind, description = field("kind"), field("description")
     online = bool(ONLINE.search(kind)) and not OFFLINE.search(kind)
     local = bool(not online and (field("maps_url") or available_location(description) or OFFLINE.search(kind)))
-    if APPOINTMENT.search(kind) and not online:
+    if PROJECT.search(kind) and not VISIT.search(kind):
+        cta = "Обсудить проект"   # дизайн, разработка, агентства: клиент не «записывается на сеанс», а обсуждает задачу
+    elif APPOINTMENT.search(kind) and not online:
         cta = "Записаться"
     elif online and re.search(r"(?i)игр", kind):
         cta = "Играть"

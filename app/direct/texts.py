@@ -79,12 +79,26 @@ def _first_sentence(description: str, limit: int) -> str:
     return fit(sentence, limit) if sentence else ""
 
 
+KIND_MAX = 40
+
+
+def short_kind(kind: str) -> str:
+    """Чем занимается бизнес, коротко. Владелец иногда пишет в этом поле целое предложение: в заголовок оно не влезает и режется на полуслове
+    («Дизайн студия помогающая бизнесу продвигаться и иметь»). Берём начало до запятой или пояснения («помогающая…», «для…»), иначе первые слова."""
+    kind = re.sub(r"\s+", " ", kind or "").strip()
+    if len(kind) <= KIND_MAX:
+        return kind
+    head = re.split(r"[,.;:—–(]|\s(?:помогающ\w*|которы\w*|для|чтобы|где|что|и)\s", kind, maxsplit=1)[0].strip() or kind
+    words = head.split()
+    return head if len(words) <= 5 and len(head) <= KIND_MAX else " ".join(words[:3])
+
+
 def draft_variants(biz, count: int = 6) -> list[dict]:
     """Запасные варианты объявлений без ИИ. Без выдуманных фактов: только данные владельца. Подбираются под тип бизнеса:
     для онлайн-проекта нет «рядом с вами» и «записи», кнопка и призыв по сути услуги."""
     from app.creative.angles import effective_description, is_nationwide, profile  # импорт здесь, чтобы не было круга
     pr = profile(biz)
-    name, kind = biz["name"].strip(), biz["kind"].strip()
+    name, kind = biz["name"].strip(), short_kind(biz["kind"])
     city = "" if is_nationwide(biz) else biz["city"].strip()   # показ по всей России: города в объявлении нет
     kind_l = kind[:1].lower() + kind[1:]
     own = _first_sentence(effective_description(biz), TEXT_MAX)
@@ -146,7 +160,7 @@ def near_variants(biz, count: int = 6) -> list[dict]:
     districts = districts_of(biz)
     if not districts or not needs_districts(biz):
         return []
-    act, name, kind = profile(biz)["cta_sentence"], biz["name"].strip(), biz["kind"].strip()
+    act, name, kind = profile(biz)["cta_sentence"], biz["name"].strip(), short_kind(biz["kind"])
     out = []
     for d in districts:
         out += [(f"{kind} {in_district(d)}", f"{name} рядом с вами. {act}"), (f"{kind} рядом: {d}", f"{name}, {d}. {act}")]
