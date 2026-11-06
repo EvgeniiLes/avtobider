@@ -32,6 +32,7 @@
       <span class="grp">Реклама</span>
       <button id="nav-home" title="Главная" class="active"><svg class="ic"><use href="#i-home"/></svg><span>Главная</span><span class="dot" id="nav-home-dot" hidden></span></button>
       <button id="nav-creatives" title="Объявления"><svg class="ic"><use href="#i-ads"/></svg><span class="long">Объявления</span><span class="short">Реклама</span></button>
+      <button id="nav-test" title="Объявления (тест)"><svg class="ic"><use href="#i-ads"/></svg><span class="long">Объявления (тест)</span><span class="short">Тест</span></button>
       <button id="nav-stats" title="Результаты"><svg class="ic"><use href="#i-stats"/></svg><span class="long">Результаты</span><span class="short">Итоги</span></button>
       <span class="grp" id="grp-media">Материалы</span>
       <button id="nav-media" title="Фото и баннеры"><svg class="ic"><use href="#i-media"/></svg><span class="long">Фото и баннеры</span><span class="short">Фото</span></button>
@@ -390,6 +391,19 @@
             <p></p>
             <button id="mk-save">Передать в Директ</button>
             <span id="mk-status" class="hint"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Объявления (тест): одно объявление рисуют три нейросети -->
+      <div id="page-test" hidden>
+        <div class="page-head"><h1>Объявления (тест)</h1></div>
+        <p class="hint">Одно и то же объявление (текст, фото, референс и задание) рисуют три нейросети: GPT Image 2, GPT Image 2.6 и Nano Banana 2.1. Сравните баннеры рядом и возьмите лучший на объявление. Каждая отрисовка платная, цена показана на кнопке.</p>
+        <p id="test-empty" class="hint" hidden>Сначала опишите бизнес на странице «Бизнес».</p>
+        <div id="test-body" hidden>
+          <div class="editor">
+            <div id="test-ads" class="ad-list"></div>
+            <div id="test-panel" class="ad-editor card"></div>
           </div>
         </div>
       </div>

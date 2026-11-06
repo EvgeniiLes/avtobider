@@ -6,6 +6,7 @@ import json
 import os
 import re
 import sqlite3
+import time
 from io import BytesIO
 from typing import Literal
 
@@ -67,6 +68,13 @@ def _row(r: sqlite3.Row, business_id: int) -> dict:
             made = {}
         meta = {"scene": scene_label(made.get("concept", "")), "audience": made.get("audience", ""), "logo": bool(made.get("logo")),
                 "score": made.get("score", 0)}
+    if r["kind"] == "test_banner":   # вкладка «Объявления (тест)»: какая модель рисовала и что нашла проверка
+        try:
+            made = json.loads(r["prompt"] or "{}")
+        except ValueError:
+            made = {}
+        meta = {"model": made.get("model", ""), "label": made.get("model_label", ""), "run": made.get("run", ""), "check": made.get("check") or {},
+                "score": made.get("score", 0), "issues": made.get("issues") or [], "ref": made.get("ref"), "prompt": made.get("prompt_text", "")}
     return {"meta": meta,
         "id": r["id"], "kind": r["kind"], "title": r["title"], "body": r["body"], "status": r["status"], "source": r["source"],
         "angle": r["angle"], "angle_label": angle_label(r["angle"]),
@@ -118,6 +126,28 @@ def _reject(conn, business_id: int, creative_id: int, message: str, transport, u
     conn.execute("UPDATE creatives SET status = 'failed', error = ?, asset_id = ? WHERE id = ?", (message, asset_id, creative_id))
 
 
+def _finish_test(conn, business_id: int, r: sqlite3.Row, url: str, key: str, transport) -> None:
+    """Готовый баннер теста: подпись добавляем, как у обычных, надписи и оценку записываем в данные баннера, но не бракуем."""
+    s = get_settings()
+    meta = json.loads(r["prompt"] or "{}")
+    try:
+        data = asyncio.run(fal.download(url, transport))
+        read = asyncio.run(read_image_text(url, key, s.fal_vision_model, transport))   # читаем до подписи: она не часть заданного текста
+        expected = meta.get("expect", [])
+        meta["check"] = {"missing": missing_phrases(expected, read), "extra": extra_words(expected, read)[:6], "read": read[:12]} if read is not None else {}
+        verdict = asyncio.run(review_banner(_bytes_url(data), meta["brief"], key, s.fal_vision_model, transport)) if meta.get("brief") else None
+        meta["score"] = verdict["score"] if verdict else 0
+        meta["issues"] = verdict["issues"] if verdict else []
+        if meta.get("caption"):
+            data = add_caption(data, meta["caption"])
+        asset_id = _save_asset(conn, business_id, "image", data, f"creative-{r['id']}")
+    except (fal.FalError, AssetError) as e:
+        conn.execute("UPDATE creatives SET status = 'failed', error = ? WHERE id = ?", (e.message if hasattr(e, "message") else str(e), r["id"]))
+        return
+    conn.execute("UPDATE creatives SET status = 'draft', asset_id = ?, external_id = '', prompt = ? WHERE id = ?",
+                 (asset_id, json.dumps(meta, ensure_ascii=False), r["id"]))
+
+
 def _refresh_working(conn, business_id: int, transport) -> None:
     """Забирает готовые картинки и видео у генератора. Вызывается при каждом открытии списка."""
     key = get_settings().fal_key
@@ -129,6 +159,9 @@ def _refresh_working(conn, business_id: int, transport) -> None:
             continue
         if state == "failed":
             conn.execute("UPDATE creatives SET status = 'failed', error = ? WHERE id = ?", (value, r["id"]))
+            continue
+        if r["kind"] == "test_banner":   # тест нейросетей: ничего не бракуем, а записываем, что нашла проверка, чтобы сравнивать модели
+            _finish_test(conn, business_id, r, value, key, transport)
             continue
         if r["kind"] == "ai_banner":  # нейросеть могла ошибиться в буквах: сверяем надписи с нужными, ошибочную не принимаем
             expected = json.loads(r["prompt"] or "{}").get("expect", [])
@@ -419,9 +452,28 @@ def _brief_for(conn, business_id: int, variant: dict):
                         (business_id, variant["title"], variant["text"])).fetchone()
 
 
-def _order_banner(conn, biz, variants: list[dict], index: int, key: str, transport, others: list[str], custom_prompt: str = "") -> str:
+def _submit_banner(conn, business_id: int, v: dict, meta: dict, prompt: str, images: list[str], key: str, transport, models: list[dict] | None) -> None:
+    """Отправляет задание генератору и записывает баннер. Обычный заказ: одна модель из настроек. Тест: то же задание каждой модели из списка,
+    баннеры пишутся отдельным видом (test_banner), чтобы не подменить настоящий баннер объявления."""
+    s = get_settings()
+    for target in models or [None]:
+        if target is not None and not images:
+            raise fal.FalError("Для теста нужен референс или фото: без них моделям нечего сравнивать.")
+        model = target["id"] if target else s.fal_banner_model
+        job = asyncio.run(fal.start_edit(prompt, images, key, model, transport)) if images else asyncio.run(fal.start_image(prompt, key, model, transport))
+        saved = dict(meta)
+        if target:
+            saved.update({"test": True, "model": target["id"], "model_label": target["label"], "run": target["run"]})
+        conn.execute("INSERT INTO creatives (business_id, kind, title, body, prompt, status, source, external_id, created_at) "   # дата с долями секунды: сравнивается с датой возврата версии
+                     "VALUES (?, ?, ?, ?, ?, 'working', 'fal', ?, strftime('%Y-%m-%d %H:%M:%f', 'now'))",
+                     (business_id, "test_banner" if target else "ai_banner", v["title"], v["text"], json.dumps(saved, ensure_ascii=False), json.dumps(job)))
+
+
+def _order_banner(conn, biz, variants: list[dict], index: int, key: str, transport, others: list[str], custom_prompt: str = "",
+                  models: list[dict] | None = None) -> str:
     """Заказывает один ИИ-баннер. Есть фото владельца: модель делает баннер из этого фото (оформление у каждого объявления своё).
-    Фото нет: арт-директор придумывает сцену, художник рисует с нуля. custom_prompt: промпт, который владелец поправил сам. Возвращает описание."""
+    Фото нет: арт-директор придумывает сцену, художник рисует с нуля. custom_prompt: промпт, который владелец поправил сам. Возвращает описание.
+    models: тест нейросетей, одно и то же задание (промпт и картинки) уходит каждой модели из списка."""
     business_id = biz["id"]
     v = variants[index]
     s = get_settings()
@@ -450,7 +502,6 @@ def _order_banner(conn, biz, variants: list[dict], index: int, key: str, transpo
             layout = asyncio.run(refs.layout_text(brief["ref_id"], key, s.fal_vision_model, transport))   # раскладка референса словами: к картинке добавляется подробное описание
             if layout and not custom_prompt and "Reference layout in words" not in prompt:
                 prompt += f" Reference layout in words (follow it for the design, put the business photo into it): {layout}"
-        job = asyncio.run(fal.start_edit(prompt, images, key, s.fal_banner_model, transport))
         what = f"фото «{PHOTO_TAGS.get(kind, kind)}», " + (f"по мотивам референса {brief['ref_id']}" if ref_bytes else f"оформление: {look}")
         meta = {"expect": expected, "caption": fal.caption_for(biz), "logo": False, "screen": False, "mode": "photo", "concept": kind, "look": look,
                 "look_no": look_no % len(fal.PHOTO_LOOKS), "photo_id": getattr(data, "asset_id", None), "varied": varied,
@@ -461,9 +512,7 @@ def _order_banner(conn, biz, variants: list[dict], index: int, key: str, transpo
                           + (f"Баннер сделан по мотивам приёма «{refs.note(brief['ref_id'])}»: цвета и подача определяются этим приёмом, а не словами «светлое» "
                              "или «тёмное»; огромный заголовок или слово, которое частично перекрывается объектом, это задумка, а не недостаток. "
                              if ref_bytes else f"Оформление: {look}. ") + f"{biz['kind']}.")}
-        conn.execute("INSERT INTO creatives (business_id, kind, title, body, prompt, status, source, external_id, created_at) "   # дата с долями секунды: сравнивается с датой возврата версии
-                     "VALUES (?, 'ai_banner', ?, ?, ?, 'working', 'fal', ?, strftime('%Y-%m-%d %H:%M:%f', 'now'))",
-                     (business_id, v["title"], v["text"], json.dumps(meta, ensure_ascii=False), json.dumps(job)))
+        _submit_banner(conn, business_id, v, meta, prompt, images, key, transport, models)
         return what
     # баннер с нуля: фото нет или владелец выбрал «без фото». Сцену придумывает арт-директор, подача по референсу идёт словами
     varied = ""
@@ -492,8 +541,6 @@ def _order_banner(conn, biz, variants: list[dict], index: int, key: str, transpo
                      "make an original design with your own scene and do not reuse any text, logo or character from it") if ref_id else ""
     prompt = custom_prompt or fal.banner_prompt(biz, v["title"], price, cta, logo_corner=use_logo, index=index + done_before, screen=screen,
                                                 logo_ratio=_logo_ratio(logo), scene=art["scene"], direction=direction)
-    job = (asyncio.run(fal.start_edit(prompt, [_bytes_url(ref_bytes, 900)], key, s.fal_banner_model, transport)) if ref_bytes
-           else asyncio.run(fal.start_image(prompt, key, s.fal_banner_model, transport)))
     meta = {"expect": expected, "caption": fal.caption_for(biz), "logo": use_logo, "screen": screen, "concept": art["concept"], "audience": art["audience"], "scene": art["scene"],
             "mode": "scratch", "ref": ref_id, "ref_img": bool(ref_bytes), "varied": varied,
             "logo_reason": art["logo_reason"], "prompt_text": prompt,
@@ -505,9 +552,7 @@ def _order_banner(conn, biz, variants: list[dict], index: int, key: str, transpo
                      + (f"Баннер сделан по мотивам приёма «{refs.note(ref_id)}»: подача, цвета и шрифт определяются этим приёмом, крупный заголовок это задумка, а не недостаток. "
                         if ref_id else "")
                      + f"{biz['kind']} «{biz['name']}». Сюжет: {art['label']}. {art['scene']}"}
-    conn.execute("INSERT INTO creatives (business_id, kind, title, body, prompt, status, source, external_id, created_at) "   # дата с долями секунды: сравнивается с датой возврата версии
-                     "VALUES (?, 'ai_banner', ?, ?, ?, 'working', 'fal', ?, strftime('%Y-%m-%d %H:%M:%f', 'now'))",
-                 (business_id, v["title"], v["text"], json.dumps(meta, ensure_ascii=False), json.dumps(job)))
+    _submit_banner(conn, business_id, v, meta, prompt, [_bytes_url(ref_bytes, 900)] if ref_bytes else [], key, transport, models)
     return art["scene"]
 
 
@@ -540,6 +585,44 @@ def make_ai_banner(business_id: int, index: int, data: BannerIn | None = None, u
     row = _ai_row(conn, business_id, variants[index])
     varied = json.loads(row["prompt"] or "{}").get("varied", "") if row is not None else ""
     return {"started": True, **({"varied": varied} if varied else {})}   # varied: какую подачу взяли вместо прежней
+
+
+@router.post("/ads/{index}/model-test")
+def model_test(business_id: int, index: int, user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connection = Depends(get_db),
+               transport=Depends(creative_transport)):
+    """Вкладка «Объявления (тест)»: одно и то же объявление (текст, фото, референс, задание) рисуют три модели, чтобы сравнить их рядом."""
+    biz = _own(conn, user, business_id)
+    key = _need_fal()
+    variants, _count, _pool = _ad_variants(conn, biz)
+    if not 0 <= index < len(variants):
+        raise HTTPException(400, detail={"message": "Такого объявления нет."})
+    v = variants[index]
+    if conn.execute("SELECT 1 FROM creatives WHERE business_id = ? AND kind = 'test_banner' AND title = ? AND body = ? AND status = 'working'",
+                    (business_id, v["title"], v["text"])).fetchone():
+        raise HTTPException(400, detail={"message": "Тест для этого объявления ещё идёт. Подождите минуту."})
+    run = str(int(time.time()))
+    models = [{**m, "run": run} for m in fal.TEST_MODELS]
+    for _ in models:
+        _charge(conn, business_id, "ai_banner")
+    try:
+        _order_banner(conn, biz, variants, index, key, transport, _other_scenes(conn, business_id, variants, index), "", models)
+    except fal.FalError as e:
+        conn.rollback()
+        raise HTTPException(502, detail={"message": e.message})
+    conn.commit()
+    return {"started": len(models), "run": run}
+
+
+@router.post("/{creative_id}/use-test")
+def use_test_banner(business_id: int, creative_id: int, user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connection = Depends(get_db)):
+    """Взять баннер из теста на объявление: он становится обычным и встаёт на карточку вместо прежнего (прежний остаётся в версиях)."""
+    _own(conn, user, business_id)
+    row = _own_creative(conn, business_id, creative_id)
+    if row["kind"] != "test_banner" or row["status"] != "draft" or not row["asset_id"]:
+        raise HTTPException(400, detail={"message": "Этот баннер нельзя взять на объявление."})
+    conn.execute("UPDATE creatives SET kind = 'ai_banner', picked_at = strftime('%Y-%m-%d %H:%M:%f', 'now') WHERE id = ?", (creative_id,))
+    conn.commit()
+    return {"ok": True}
 
 
 @router.post("/ads/{index}/rewrite")

@@ -278,7 +278,17 @@ def edit_model(model: str) -> str:
     return (model if "gpt-image" in model else "openai/gpt-image-2") + "/edit"
 
 
-def edit_payload(prompt: str, image_urls: list[str]) -> dict:
+# Модели для сравнения на вкладке «Объявления (тест)»: одно и то же задание уходит всем трём (схемы входа сверены по каталогу fal)
+TEST_MODELS = (
+    {"key": "gpt2", "id": "openai/gpt-image-2/edit", "label": "GPT Image 2"},
+    {"key": "gpt26", "id": "openai/gpt-image-2.6/sunburst/edit", "label": "GPT Image 2.6"},
+    {"key": "nb21", "id": "google/nano-banana-2.1/edit", "label": "Nano Banana 2.1"},
+)
+
+
+def edit_payload(prompt: str, image_urls: list[str], model: str = "") -> dict:
+    if "nano-banana" in model:   # у Google другие поля: пропорции вместо размера, разрешение 1K
+        return {"prompt": prompt, "image_urls": image_urls, "aspect_ratio": "4:3", "resolution": "1K", "num_images": 1, "output_format": "jpeg"}
     return {"prompt": prompt, "image_urls": image_urls, "image_size": "landscape_4_3", "quality": "medium", "num_images": 1, "output_format": "jpeg"}
 
 
@@ -297,7 +307,7 @@ async def start_image(prompt: str, key: str, model: str, transport=None) -> dict
 
 async def start_edit(prompt: str, image_urls: list[str], key: str, model: str, transport=None) -> dict:
     async with httpx.AsyncClient(timeout=90, transport=transport) as http:
-        return await _submit(http, edit_model(model), key, edit_payload(prompt, image_urls))
+        return await _submit(http, edit_model(model), key, edit_payload(prompt, image_urls, model))
 
 
 async def start_video(image_url: str, prompt: str, key: str, model: str, transport=None) -> dict:
