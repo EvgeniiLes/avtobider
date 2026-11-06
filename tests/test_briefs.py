@@ -57,13 +57,13 @@ def test_strategist_makes_different_ideas_and_the_chosen_one_becomes_an_ad(monke
 
 def test_reference_catalog_is_complete():
     from app.creative import refs
-    assert sorted(refs.REFS) == list(range(1, 94))
+    assert sorted(refs.REFS) == list(range(1, 101))
     assert all(niche in refs.NICHES and note for niche, note in refs.REFS.values())
     for n in refs.REFS:
         data = refs.load(n)
         assert data and data[:2] == b"\xff\xd8", n                                     # у каждого референса есть файл (JPEG)
     assert refs.load(999) is None and refs.note(None) == "" and "17" not in refs.catalog_text().split("\n")[0]
-    assert len(refs.catalog_text().split("\n")) == 93
+    assert len(refs.catalog_text().split("\n")) == 100
 
 
 def reference_ideas():
