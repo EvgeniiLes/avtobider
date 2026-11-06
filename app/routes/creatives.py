@@ -527,7 +527,7 @@ def _order_banner(conn, biz, variants: list[dict], index: int, key: str, transpo
     logo = logo_for(conn, biz) if extras else None
     screen = extras and _screenshot(conn, business_id) is not None
     art = asyncio.run(art_direction(biz, v, index, [x for x in others + own_scenes if x][-8:], _logo_info(conn, biz, logo), screen, key, s.fal_text_model, transport,
-                                    refs.note(ref_id) if ref_id else ""))
+                                    refs.note(ref_id) if ref_id else "", refs.load(ref_id) if ref_id else None))
     use_logo = bool(art["logo"]) and logo is not None
     # референс уходит модели картинкой: по одной строке слов сходства почти нет, а картинка задаёт композицию, цвет и шрифт
     ref_bytes = refs.load(ref_id) if ref_id else None

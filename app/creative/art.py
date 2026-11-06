@@ -51,9 +51,11 @@ ART_SYSTEM = (
 
 
 async def art_direction(biz, variant: dict, index: int, others: list[str], logo: dict | None, has_screen: bool,
-                        fal_key: str, model: str, transport: httpx.AsyncBaseTransport | None = None, ref_note: str = "") -> dict:
+                        fal_key: str, model: str, transport: httpx.AsyncBaseTransport | None = None, ref_note: str = "",
+                        ref_image: bytes | None = None) -> dict:
     """Сцена и решение про логотип для баннера под это объявление. Всегда возвращает результат (при сбое запасной).
-    ref_note: приём из референса, по которому рисуется баннер: сцена строится вокруг него, а не вокруг общего сюжета."""
+    ref_note: приём из референса, по которому рисуется баннер: сцена строится вокруг него, а не вокруг общего сюжета.
+    ref_image: сам референс картинкой: арт-директор смотрит на него и повторяет тип кадра (люди, рука, предмет), а не берёт «обязательный сюжет» по номеру объявления."""
     key = scene_key(index)
     label, brief = SCENES[key]
     fallback = {"concept": key, "label": label, "audience": "", "scene": brief, "logo": False, "logo_reason": "", "ai": False}
@@ -67,7 +69,9 @@ async def art_direction(biz, variant: dict, index: int, others: list[str], logo:
             + (f"Пожелание к картинкам: {biz['visual_hint']}\n" if _field(biz, "visual_hint") else "")
             + f"Заголовок объявления: {variant['title']}\n"
             + (f"Угол подачи: {variant.get('angle')}\n" if variant.get("angle") else "")
-            + f"Обязательный сюжет: {label} — {brief}\n"
+            + (f"Обязательный сюжет: {label} — {brief}\n" if ref_image is None else
+               "Сюжет определяет приложенный референс: внимательно посмотри на него и повтори тип кадра (есть ли в нём люди, рука, предмет, интерьер, сколько героев). "
+               "Если в референсе нет людей, людей в сцене быть не должно; если героя один предмет, рисуй один предмет в той же манере. Свой сюжет не добавляй.\n")
             + (f"Подача по референсу: {ref_note}. Это главное: герой кадра, композиция и настроение берутся из этого приёма, а сюжет выше подстраивается "
                "под него и ему не противоречит (если в приёме главный предмет, а не люди, рисуй предмет и не сажай за столик людей).\n" if ref_note else "")
             + "Раскладку (где будет текст) не задавай: это решит художник. В сцене оставь спокойную область, на которую можно положить крупный текст.\n"
@@ -77,6 +81,9 @@ async def art_direction(biz, variant: dict, index: int, others: list[str], logo:
             + (f"Сцены других баннеров (не повторяй): {' | '.join(others)}\n" if others else "")
             + logo_line)
     body = {"model": model, "max_tokens": 1500, "messages": [{"role": "system", "content": ART_SYSTEM}, {"role": "user", "content": user}]}
+    if ref_image is not None:   # референс картинкой (ту же схему «image_urls» использует чтение надписей на баннере)
+        import base64
+        body["image_urls"] = ["data:image/jpeg;base64," + base64.b64encode(ref_image).decode()]
     try:
         async with httpx.AsyncClient(timeout=60, transport=transport) as http:
             r = await http.post(FAL_CHAT_URL, json=body, headers={"Authorization": f"Key {fal_key}", "Content-Type": "application/json"})
