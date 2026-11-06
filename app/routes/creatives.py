@@ -320,7 +320,7 @@ def ads(business_id: int, user: sqlite3.Row = Depends(current_user), conn: sqlit
                 _brief_prompt(biz, v["title"], v["text"], i % len(fal.PHOTO_LOOKS), auto_ref) if auto_ref else fal.photo_banner_prompt(
                     biz, v["title"], find_price(v["title"], v["text"], fallback=effective_description(biz)), profile(biz)["cta"], brief["look"] if brief else i))
         if state == "ready":
-            banner = f"/api/businesses/{business_id}/creatives/ads/{i}/banner.jpg"   # готовый ИИ-баннер
+            banner = f"/api/businesses/{business_id}/creatives/ads/{i}/banner.jpg?v={row['id']}"   # готовый ИИ-баннер; v меняется при новом заказе, поэтому браузер хранит картинку и не качает её заново
         items.append({"index": i, "title": v["title"], "text": v["text"], "own": v["status"] == "approved",
                       "creative_id": v["creative_id"], "text_status": v["status"], "style": style, "ai": ai, "banner_url": banner,
                       "angle": v.get("angle", ""), "angle_label": angle_label(v.get("angle", "")),
@@ -658,11 +658,17 @@ def ad_banner(business_id: int, index: int, user: sqlite3.Row = Depends(current_
         if not ready:
             raise HTTPException(404, detail={"message": "ИИ-баннер ещё не готов."})
         row = ai_row
-        picture = prepare_for_direct(_asset_path(business_id, asset["stored_name"]).read_bytes())
-        made = json.loads(row["prompt"] or "{}")
-        if not made.get("baked") and "concept" not in made:  # только старые баннеры: у новых решение про логотип принято при заказе
-            picture = add_logo(picture, logo)
-        return Response(picture, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=60"})
+        cache_key = ("ai", business_id, asset["stored_name"], row["id"])
+        picture = _BANNERS.get(cache_key)
+        if picture is None:   # обработка картинки занимает время, а страницу открывают часто: готовый результат держим в памяти
+            picture = prepare_for_direct(_asset_path(business_id, asset["stored_name"]).read_bytes())
+            made = json.loads(row["prompt"] or "{}")
+            if not made.get("baked") and "concept" not in made:  # только старые баннеры: у новых решение про логотип принято при заказе
+                picture = add_logo(picture, logo)
+            if len(_BANNERS) >= 48:
+                _BANNERS.pop(next(iter(_BANNERS)))
+            _BANNERS[cache_key] = picture
+        return Response(picture, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=3600"})
     if not photos or not 0 <= index < len(variants):
         raise HTTPException(404, detail={"message": "Для этого объявления нет картинки."})
     photo = photo_for(photos, index)[1]

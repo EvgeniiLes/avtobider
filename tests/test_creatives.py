@@ -428,7 +428,7 @@ def test_ai_banner_is_ordered_checked_and_used(monkeypatch):
         fakes.claude_text = json.dumps([ad["title"], "Лотос", "ЗАПИСАТЬСЯ"], ensure_ascii=False)  # регистр и кавычки не важны
         http.get(base)
         ready = _ai_ad(http, bid)
-        assert ready["ai"]["status"] == "ready" and ready["banner_url"].endswith("/ads/4/banner.jpg")
+        assert ready["ai"]["status"] == "ready" and "/ads/4/banner.jpg?v=" in ready["banner_url"]
         banner = http.get(ready["banner_url"])
         assert banner.status_code == 200 and banner.headers["content-type"] == "image/jpeg"
         assert http.get(f"{base}/ads/4/banner.jpg").status_code == 200

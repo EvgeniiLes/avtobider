@@ -1,5 +1,15 @@
 const $ = (id) => document.getElementById(id);
 
+// Полоса сверху: пока сайт отвечает дольше трети секунды, видно, что запрос идёт
+let inflight = 0, busyTimer = null;
+function busy(delta) {
+  inflight = Math.max(0, inflight + delta);
+  clearTimeout(busyTimer);
+  const bar = document.getElementById("busy");
+  if (!bar) return;
+  if (inflight > 0) busyTimer = setTimeout(() => { bar.hidden = false; }, 300); else bar.hidden = true;
+}
+
 async function api(method, url, body) {
   const options = { method, headers: {} };
   if (body instanceof FormData) {
@@ -9,10 +19,13 @@ async function api(method, url, body) {
     options.body = JSON.stringify(body);
   }
   let response;
+  busy(1);
   try {
     response = await fetch(url, options);
   } catch (_) {
     return { ok: false, status: 0, data: { detail: { message: "Сайт не отвечает. Проверьте интернет и попробуйте ещё раз." } } };
+  } finally {
+    busy(-1);
   }
   let data = {};
   try { data = await response.json(); } catch (_) { /* пустой ответ */ }
@@ -877,7 +890,7 @@ function renderBannerStep(fromPoll = false) {
     const list = $("ads");
     list.replaceChildren(...lastAds.map((a, i) => {
       const [label, tone] = adStatus(a);
-      const pic = a.banner_url ? el("img", { className: "pic", src: `${a.banner_url}?t=${stamp}`, alt: "" }) : el("span", { className: "pic", textContent: a.ai && a.ai.status === "working" ? "…" : "нет" });
+      const pic = a.banner_url ? el("img", { className: "pic", src: a.banner_url, loading: "lazy", alt: "" }) : el("span", { className: "pic", textContent: a.ai && a.ai.status === "working" ? "…" : "нет" });
       const grip = el("span", { className: "grip", title: "Перетащите, чтобы поменять порядок: первые идут в рекламу, остальные запасные", textContent: "⋮⋮", tabIndex: 0 });
       grip.setAttribute("role", "button");
       grip.setAttribute("aria-label", `Поменять порядок объявления «${a.title}»`);
@@ -1108,7 +1121,7 @@ function adEditor(a) {
   const preview = el("div", { className: "ed-preview" + (working ? " busy" : "") });
   const rejected = a.ai && a.ai.status === "failed" && a.ai.rejected_url;   // не принятый проверкой баннер показываем, чтобы было видно, что не так
   if (rejected) preview.append(el("img", { src: `${a.ai.rejected_url}?t=${stamp}`, alt: `${a.title}: не принят` }));
-  else if (a.banner_url) preview.append(el("img", { src: `${a.banner_url}?t=${stamp}`, alt: a.title }));
+  else if (a.banner_url) preview.append(el("img", { src: a.banner_url, alt: a.title }));
   else if (a.ai && a.ai.status === "failed") preview.append(el("div", { textContent: a.ai.error || "Не получилось. Нарисуйте заново." }));
   else if (!working) preview.append(el("i", { className: "hint", textContent: "Баннера пока нет" }), el("div", { textContent: "Выберите фото и подачу справа, затем нажмите «Нарисовать баннер»." }));
   if (working) preview.append(el("div", { className: "busy-layer" }, el("div", { className: "spinner" }), el("div", { textContent: "Рисуем баннер… около минуты" })));
@@ -1318,7 +1331,7 @@ function renderLaunchStep() {
   $("launch-warn").textContent = `У объявлений без ИИ-баннера (${missing}) сервис соберёт обычную шаблонную картинку. Вернитесь к баннерам, если хотите нарисовать им баннеры.`;
   const row = (a, n) => {
     const [label, tone] = adStatus(a);
-    const pic = a.banner_url ? el("img", { className: "pic", src: `${a.banner_url}?t=${Date.now()}`, alt: "" }) : el("span", { className: "pic" });
+    const pic = a.banner_url ? el("img", { className: "pic", src: a.banner_url, loading: "lazy", alt: "" }) : el("span", { className: "pic" });
     const status = a.reserve ? el("span", { className: "st spare", textContent: "Запасное" }) : el("span", { className: `st ${tone}`, textContent: label });
     const edit = el("button", { className: "small secondary", type: "button", textContent: "Изменить" });
     edit.addEventListener("click", () => { selectedAd = adKey(a); renderBannerStep(); setStep("banners"); });
