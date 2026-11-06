@@ -67,7 +67,8 @@ def sync(db_path, bid, fake, today=None):
     conn = connect(db_path)
     try:
         biz = conn.execute("SELECT * FROM businesses WHERE id = ?", (bid,)).fetchone()
-        return sync_and_run(conn, biz, today or date.today().isoformat(), transport=fake.transport)
+        make_ai = app.dependency_overrides.get(creative_transport)
+        return sync_and_run(conn, biz, today or date.today().isoformat(), transport=fake.transport, ai_transport=make_ai() if make_ai else None)
     finally:
         conn.close()
 

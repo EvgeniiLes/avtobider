@@ -20,6 +20,7 @@ WASTE_SHARE = 0.5             # запрос потратил больше эт�
 MIN_WASTE_MICRO = 150 * MICRO # порог, если цена обращения не задана
 MAX_SHOWN = 40
 MAX_FOR_AI = 50
+AUTO_MINUS_LIMIT = 5          # сколько слов сервис ставит в минус сам за один раз
 MAX_KEYWORDS_AFTER = 50       # сколько фраз в группе после добавлений из запросов
 HISTORY = 20
 
@@ -157,9 +158,43 @@ async def classify(queries: list[dict], biz, profile: dict | None, fal_key: str,
         return None
 
 
+# ---------- автоматический минус ----------
+
+def auto_pick(groups: list[dict], conn: sqlite3.Connection, biz, profile: dict) -> list[str]:
+    """Какие из слов, предложенных ИИ, сервис ставит сам. Слово берём, только если оно не встречается ни в одном запросе, который приводил обращения,
+    и его ещё нет в минусах. Не больше AUTO_MINUS_LIMIT слов, сначала те, что потратили больше."""
+    have = set(profile.get("negatives", []))
+    good = [w for r in conn.execute("SELECT query FROM search_queries WHERE business_id = ? AND leads > 0", (biz["id"],)) for w in r["query"].lower().split()]
+    words = [g["word"] for g in groups if g["word"] not in have and not any(aud._same_word(g["word"], w) for w in good)]
+    return words[:AUTO_MINUS_LIMIT]
+
+
+async def auto_minus(client: DirectClient, conn: sqlite3.Connection, biz, today: str, fal_key: str, model: str,
+                     transport: httpx.AsyncBaseTransport | None = None) -> list[str]:
+    """Раз в день: запросы с расходом без обращений разбирает ИИ, и слова, которые он назвал и которые прошли проверку, сервис ставит в минус сам.
+    Шаг пишется в историю профиля с пометкой «auto», а владельцу уходит сообщение. Нет ключа ИИ, цели или профиля: ничего не делаем."""
+    if biz["auto_minus_day"] == today or not fal_key or not biz["metrika_goal_id"]:
+        return []
+    profile = aud.load(biz)
+    if profile is None:
+        return []
+    spent = waste(conn, biz)
+    if not spent:
+        return []
+    conn.execute("UPDATE businesses SET auto_minus_day = ? WHERE id = ?", (today, biz["id"]))   # день отмечаем сразу: сбой ИИ не должен повторяться каждым запуском
+    conn.commit()
+    groups = await classify(spent, biz, profile, fal_key, model, transport)
+    words = auto_pick(groups or [], conn, biz, profile)
+    if not words:
+        return []
+    result = await apply_changes(client, conn, biz, profile, words, [], today, auto=True)
+    return result["minus"]
+
+
 # ---------- применение ----------
 
-async def apply_changes(client: DirectClient, conn: sqlite3.Connection, biz, profile: dict, minus: list[str], keywords: list[str], today: str) -> dict:
+async def apply_changes(client: DirectClient, conn: sqlite3.Connection, biz, profile: dict, minus: list[str], keywords: list[str], today: str,
+                        auto: bool = False) -> dict:
     """Минус-слова и новые фразы в кабинет и в профиль. Всё, что не прошло проверку, возвращаем с причиной.
     Если Директ откажет на втором шаге, то, что уже принято на первом, остаётся в профиле."""
     units = conn.execute("SELECT DISTINCT external_campaign_id, external_group_id FROM ad_units WHERE business_id = ? AND external_campaign_id IS NOT NULL", (biz["id"],)).fetchall()
@@ -203,6 +238,6 @@ async def apply_changes(client: DirectClient, conn: sqlite3.Connection, biz, pro
         if not done["minus"]:
             updated["negatives"] = list(profile.get("negatives", []))   # Директ слова не принял: в профиле их тоже нет
         if done["minus"] or done["keywords"]:
-            updated["history"] = (list(profile.get("history", [])) + [{"day": today, "minus": done["minus"], "keywords": done["keywords"]}])[-HISTORY:]
+            updated["history"] = (list(profile.get("history", [])) + [{"day": today, "minus": done["minus"], "keywords": done["keywords"], **({"auto": True} if auto else {})}])[-HISTORY:]
             aud.save(conn, biz["id"], updated)
     return {**done, "skipped": skipped}

@@ -164,6 +164,10 @@ def alerts(conn: sqlite3.Connection, biz, today: str) -> list[dict]:
         did = "; ".join(step.get("did") or []) or "ничего менять не пришлось, ждём результата"
         found.append({"kind": "widened", "key": f"{step['step']}:{step['day']}", "cooldown": None,
                       "text": f"ℹ Показов у рекламы «{biz['name']}» не было, сервис расширил охват (шаг {step['step']} из 3): {did}. Результат будет виден через день-два."})
+    for step in ((_aud.load(biz) or {}).get("history") or [])[-1:]:   # сервис сам поставил минус-слова: сообщаем один раз
+        if step.get("auto") and step.get("minus"):
+            found.append({"kind": "auto_minus", "key": f"{step['day']}:{','.join(step['minus'])}", "cooldown": None,
+                          "text": f"ℹ Сервис исключил из показов «{biz['name']}» слова: {', '.join(step['minus'])}. По ним искали не вашу услугу, и они тратили деньги без обращений. Список виден в «Запросах»."})
     if biz["last_sync_error"]:
         found.append({"kind": "sync_error", "key": today, "cooldown": 1,
                       "text": f"⚠ Сервис не может получить данные из Директа: {biz['last_sync_error']}"})

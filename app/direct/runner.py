@@ -13,7 +13,7 @@ from app.direct.client import DirectClient, DirectError
 from app.direct.counter_health import check_counter
 from app.direct.goals import fetch_goals, save_goals
 from app.direct.launch import sync_units
-from app.direct.queries import sync_queries
+from app.direct.queries import auto_minus, sync_queries
 from app.direct.behavior import sync_behavior
 from app.direct.slices import sync_slices
 from app.engine.config import DIRECT_CONFIG
@@ -76,7 +76,7 @@ def account_token(conn: sqlite3.Connection, account_id: int) -> tuple[str, str]:
     return token, row["client_login"]
 
 
-def sync_and_run(conn: sqlite3.Connection, biz: sqlite3.Row, today: str | None = None, transport=None) -> dict:
+def sync_and_run(conn: sqlite3.Connection, biz: sqlite3.Row, today: str | None = None, transport=None, ai_transport=None) -> dict:
     """Обновляет данные из Директа и запускает цикл решений. Ошибка записывается в бизнес, чтобы её было видно."""
     today = today or date.today().isoformat()
     s = get_settings()
@@ -93,6 +93,11 @@ def sync_and_run(conn: sqlite3.Connection, biz: sqlite3.Row, today: str | None =
                 try:
                     await sync_queries(client, conn, biz, today)   # поисковые запросы раз в день; сбой этого отчёта не должен ломать остальное
                 except DirectError:
+                    pass
+                try:
+                    fresh = conn.execute("SELECT * FROM businesses WHERE id = ?", (biz["id"],)).fetchone()
+                    await auto_minus(client, conn, fresh, today, s.fal_key, s.fal_text_model, ai_transport)   # нецелевые запросы с расходом без обращений сервис отсекает сам
+                except (DirectError, EngineError, sqlite3.Error):
                     pass
                 try:
                     await sync_slices(client, conn, biz, today, token, transport)   # срезы по устройствам, полу, возрасту, часам и т. д.: тоже раз в день и тоже не ломают основное
