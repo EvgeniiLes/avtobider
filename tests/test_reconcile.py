@@ -34,6 +34,16 @@ def test_stats_match_the_cabinet_and_budget_is_not_exceeded(isolated, monkeypatc
         assert data["checked"] and data["stats_ok"] and data["budget_ok"] and "совпадают" in data["text"]
 
 
+def test_impressions_are_shown_per_ad_per_campaign_and_in_total(isolated, monkeypatch):
+    fake = FakeDirect()
+    with TestClient(app) as http:
+        bid = setup_stats(http, fake, isolated, monkeypatch, cost=100)
+        data = http.get(f"/api/businesses/{bid}/overview").json()
+        assert data["totals"]["impressions"] == 1000 and data["totals"]["clicks"] == 30
+        assert sum(u["impressions"] for u in data["units"]) == 1000
+        assert data["campaigns"][0]["impressions"] == 1000
+
+
 def test_a_difference_between_service_and_cabinet_is_reported(isolated, monkeypatch):
     fake = FakeDirect()
     with TestClient(app) as http:

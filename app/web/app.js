@@ -1765,7 +1765,7 @@ function renderHome(data) {
   } else if (data.real || data.example) {
     const t = data.totals;
     eyebrow.textContent = data.example ? "Пример" : "Реклама работает";
-    title.textContent = t && t.leads ? `${t.leads} ${plural(t.leads, "обращение", "обращения", "обращений")} за ${t.days} дней` : "Реклама запущена";
+    title.textContent = t && t.leads ? `${t.leads} ${plural(t.leads, "обращение", "обращения", "обращений")} за ${t.days} дней` : t && t.impressions ? `Показов за ${t.days} дней: ${t.impressions}` : "Реклама запущена";
     text.textContent = data.proposals
       ? `Есть предложения, которые ждут вашего решения: ${data.proposals}.`
       : data.real ? "Сервис следит за результатом и сам сообщит, если нужно ваше решение." : "Посмотрите, как сервис принимает решения, в разделе «Демонстрация» на странице «Результаты».";
@@ -2187,11 +2187,11 @@ function renderHomeAds(data) {
     const head = el("div", { className: "home-camp-head" },
       el("strong", { textContent: g.intent || (list.length > 1 ? `Группа ${i + 1}` : "Кампания") }),
       el("span", { className: `badge ${g.state}`, textContent: g.state_label }),
-      el("span", { className: "hint", textContent: `Расход ${money(g.spend)} · обращений ${g.leads}${g.weekly ? ` · бюджет ${money(g.weekly)} в неделю` : ""}` }));
+      el("span", { className: "hint", textContent: `Показов ${g.impressions || 0} · расход ${money(g.spend)} · обращений ${g.leads}${g.weekly ? ` · бюджет ${money(g.weekly)} в неделю` : ""}` }));
     const rows = (g.units || []).map((u) => el("li", {},
       el("span", { className: "home-ad-title", textContent: u.title }),
       el("span", { className: `badge ${u.verdict_code}`, textContent: u.verdict }),
-      el("span", { className: "hint", textContent: `расход ${money(u.spend)} · переходов ${u.clicks} · клик ${money(u.cost_per_click)}` })));
+      el("span", { className: "hint", textContent: `показов ${u.impressions || 0} · переходов ${u.clicks} · расход ${money(u.spend)} · клик ${money(u.cost_per_click)}` })));
     return el("section", { className: "home-camp" }, head, el("ul", { className: "home-ads-list" }, ...rows));
   }));
 }
@@ -2254,6 +2254,8 @@ async function loadStats() {
     const t = data.totals;
     $("stats-period").textContent = `За ${t.days} ${plural(t.days, "день", "дня", "дней")}`;
     tiles.append(
+      tile(String(t.impressions || 0), "Показы"),
+      tile(String(t.clicks || 0), "Переходы"),
       tile(money(t.spend), "Расход"),
       tile(String(t.leads), "Обращения"),
       tile(String(t.clients), t.clients_estimated ? "Клиенты (оценка)" : "Клиенты"),
@@ -2311,7 +2313,7 @@ function campaignGroup(g, several, number) {
   const title = el("h3", { textContent: g.intent ? `${g.intent}: ${what.toLowerCase()}` : several ? `Группа ${number}: ${what.toLowerCase()}` : what });
   const head = el("div", { className: "camp-head" }, title, el("span", { className: `badge ${g.state}`, textContent: g.state_label }));
   const group = el("section", { className: "camp-group" }, head);
-  if (several) head.append(el("span", { className: "camp-total", textContent: `Расход ${money(g.spend)} · обращений ${g.leads}` }));
+  if (several) head.append(el("span", { className: "camp-total", textContent: `Показов ${g.impressions || 0} · расход ${money(g.spend)} · обращений ${g.leads}` }));
   if (g.editable) {
     const budget = el("div", { className: "camp-budget" });
     const show = () => {
@@ -2346,7 +2348,7 @@ function campaignGroup(g, several, number) {
 
   const shared = g.editable;   // в общей кампании у объявления своего бюджета нет
   const cells = (names) => names.map((n) => el("th", { textContent: n }));
-  const head2 = el("tr", {}, ...cells(["Объявление", "", "Оценка", ...(shared ? [] : ["Бюджет в неделю"]), "Расход", "Переходы", "Цена клика", "Обращения", "Клиенты", "Цена клиента"]));
+  const head2 = el("tr", {}, ...cells(["Объявление", "", "Оценка", ...(shared ? [] : ["Бюджет в неделю"]), "Показы", "Расход", "Переходы", "Цена клика", "Обращения", "Клиенты", "Цена клиента"]));
   const body = el("tbody");
   for (const u of g.units) {
     const name = el("td", { className: "ad-name", textContent: u.title });
@@ -2377,7 +2379,7 @@ function campaignGroup(g, several, number) {
     const verdict = el("td", {}, badge);
     verdict.setAttribute("data-label", "Оценка");
     const row = el("tr", { className: u.active ? "" : "off" }, name, pauseCell, verdict, ...(shared ? [] : [cell(money(u.weekly_budget), "Бюджет в неделю", true)]),
-      cell(money(u.spend), "Расход"), cell(String(u.clicks), "Переходы"), cell(money(u.cost_per_click), "Цена клика"),
+      cell(String(u.impressions || 0), "Показы"), cell(money(u.spend), "Расход"), cell(String(u.clicks), "Переходы"), cell(money(u.cost_per_click), "Цена клика"),
       cell(String(u.leads), "Обращения", true), cell(String(u.clients), "Клиенты", true), cell(money(u.cost_per_client), "Цена клиента", true));
     const toggle = el("td", { className: "ad-toggle" }, el("button", { type: "button", className: "small secondary", textContent: "Подробнее" }));
     toggle.firstChild.addEventListener("click", () => {

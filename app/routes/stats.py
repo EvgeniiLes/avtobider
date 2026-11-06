@@ -120,7 +120,7 @@ def _campaign_groups(conn: sqlite3.Connection, business_id: int, entries: list[d
         group = {
             "id": camp["id"], "name": camp["name"], "intent": camp["intent"] if "intent" in camp.keys() else "", "created_day": camp["created_day"], "editable": shared,
             "state": state, "state_label": STATE_LABELS.get(state, "Остановлено"),
-            "spend": round(sum(e["spend"] for e in mine), 2), "leads": sum(e["leads"] for e in mine),
+            "spend": round(sum(e["spend"] for e in mine), 2), "impressions": sum(e["impressions"] for e in mine), "leads": sum(e["leads"] for e in mine),
             "clients": sum(e["clients"] for e in mine), "units": mine,
         }
         if shared:
@@ -162,7 +162,7 @@ def overview(business_id: int, user: sqlite3.Row = Depends(current_user), conn: 
     result["conversions"] = conversions
     start = day_add(today, -(cfg.window_days - 1))
     units = conn.execute("SELECT * FROM ad_units WHERE business_id = ? ORDER BY id", (business_id,)).fetchall()
-    total = {"spend": 0, "clicks": 0, "leads": 0, "clients": 0}
+    total = {"spend": 0, "impressions": 0, "clicks": 0, "leads": 0, "clients": 0}
     in_test = {
         uid for r in conn.execute("SELECT unit_a, unit_b FROM experiments WHERE business_id = ? AND status = 'running'", (business_id,))
         for uid in (r["unit_a"], r["unit_b"])
@@ -191,6 +191,7 @@ def overview(business_id: int, user: sqlite3.Row = Depends(current_user), conn: 
             "in_test": u["id"] in in_test,
             "weekly_budget": None if camp is not None else _rub(u["budget_micro"]),   # в общей кампании у объявления своего бюджета нет
             "spend": _rub(s["spend"]),
+            "impressions": s["impressions"],
             "clicks": s["clicks"],
             "cost_per_click": _ratio(s["spend"], s["clicks"]),
             "can_pause": u["state"] in ("active", "moderation", "unpaid"),
@@ -213,6 +214,7 @@ def overview(business_id: int, user: sqlite3.Row = Depends(current_user), conn: 
         total["clients"] = marks["n"]  # точное число от владельца вместо оценки
     result["totals"] = {
         "spend": _rub(total["spend"]),
+        "impressions": total["impressions"],
         "clicks": total["clicks"],
         "leads": total["leads"],
         "clients": total["clients"],
