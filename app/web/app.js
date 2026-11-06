@@ -1319,7 +1319,7 @@ function adEditor(a) {
     el("div", {}, el("span", { className: "lab", textContent: "Фото" }), photoBox),
     ...(a.no_photo ? [el("p", { className: "hint ed-note", textContent: "Баннер нарисуется с нуля по описанию бизнеса: сцену придумает арт-директор, ваши фото в нём не используются." })] : []),
     el("div", {}, el("span", { className: "lab", textContent: "Подача" }), chips,
-      el("p", { className: "hint ed-note", textContent: "Подача сохраняется сразу, но баннер меняется после «Нарисовать». Если подачу не менять, «Нарисовать заново» сам берёт следующую подачу из ниши, чтобы вариант отличался." })));
+      el("p", { className: "hint ed-note", textContent: "Подача сохраняется сразу, но баннер меняется после «Нарисовать». «Нарисовать заново» оставляет прежний референс: результат получается новым, а подача та же. Другой референс выберите сами." })));
   const box = el("div", {}, top, el("div", { className: "ed-grid" }, el("div", {}, preview, strip, ...failedNote, motionBlock(a, ready)), fields), actions);
   if (a.ai && a.ai.prompt) {   // промпт для тех, кто хочет править сам
     const area = el("textarea", { rows: 7, maxLength: 4000, value: a.ai.prompt });

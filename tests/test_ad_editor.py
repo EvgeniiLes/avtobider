@@ -76,7 +76,7 @@ def test_photo_and_style_are_saved_per_ad_and_change_the_prompt(monkeypatch):
         assert "SECOND attached image" not in ads()["ads"][0]["ai"]["prompt"] and "photo-hero" in ads()["ads"][0]["ai"]["prompt"]
 
 
-def test_redrawing_without_changes_takes_the_next_style_and_keeps_the_old_banner_visible(monkeypatch):
+def test_redrawing_without_changes_keeps_the_same_reference_and_the_old_banner_visible(monkeypatch):
     monkeypatch.setenv("FAL_KEY", "fal-test")
     fakes = Fakes(fal_done=True)
     fakes.keep = 10 ** 8
@@ -96,9 +96,9 @@ def test_redrawing_without_changes_takes_the_next_style_and_keeps_the_old_banner
         ready_picture = http.get(f"{base}/creatives/ads/0/banner.jpg").content
 
         again = http.post(f"{base}/creatives/ads/0/ai-banner").json()                               # «Нарисовать заново» без правок
-        assert again["varied"]
+        assert not again.get("varied")
         ad = ads()["ads"][0]
-        assert ad["ai"]["status"] == "working" and ad["ref_id"] != first_ref                         # подача сменилась и сохранилась на карточке
+        assert ad["ai"]["status"] == "working" and ad["ref_id"] == first_ref                         # референс остался прежним
         assert http.get(f"{base}/creatives/ads/0/banner.jpg").content == ready_picture               # пока рисуется, виден прежний баннер, а не шаблон
 
         http.get(f"{base}/creatives")
@@ -135,8 +135,8 @@ def test_ad_without_a_photo_is_drawn_from_scratch_and_the_reference_works_in_wor
         ad = ads()["ads"][0]
         assert ad["ai"]["status"] == "ready" and ad["ai"]["prompt"] and ad["ref_id"] == ref and ad["no_photo"] is True
 
-        again = http.post(f"{base}/creatives/ads/0/ai-banner").json()                               # повтор без правок: следующий референс
-        assert again["varied"] and ads()["ads"][0]["ref_id"] != ref and ads()["ads"][0]["no_photo"] is True
+        again = http.post(f"{base}/creatives/ads/0/ai-banner").json()                               # повтор без правок: тот же референс
+        assert not again.get("varied") and ads()["ads"][0]["ref_id"] == ref and ads()["ads"][0]["no_photo"] is True
         http.get(f"{base}/creatives")
 
         assert put({"asset_id": photo}).status_code == 200                                           # выбрали фото: снова баннер из фото
@@ -179,7 +179,7 @@ def _draw(http, base, fakes, ad):
     return started
 
 
-def test_redrawing_never_drops_the_reference_when_neighbours_use_all_of_them(monkeypatch):
+def test_redrawing_keeps_the_reference_even_when_neighbours_use_all_of_them(monkeypatch):
     monkeypatch.setenv("FAL_KEY", "fal-test")
     monkeypatch.setattr(refs, "NEIGHBOR_NICHES", {})      # только своя ниша: шесть приёмов барбершопа на шесть объявлений, свободных нет
     monkeypatch.setattr(refs, "GENERIC_REFS", ())
@@ -196,14 +196,14 @@ def test_redrawing_never_drops_the_reference_when_neighbours_use_all_of_them(mon
         assert len(taken) == 6
         before = ads()[0]["ref_id"]
 
-        first = _draw(http, base, fakes, ads()[0])                              # свободных приёмов нет, соседи заняли все: лучше повтор приёма соседа, чем рисунок без референса
-        assert first["varied"] and first["varied"] != "без референса" and ads()[0]["ref_id"] in taken - {before}
-        second = _draw(http, base, fakes, ads()[0])                             # и дальше идёт по кругу, а не теряет приём
-        assert second["varied"] != "без референса" and ads()[0]["ref_id"] in taken
+        first = _draw(http, base, fakes, ads()[0])                              # перерисовка не меняет референс
+        assert not first.get("varied") and ads()[0]["ref_id"] == before
+        second = _draw(http, base, fakes, ads()[0])
+        assert not second.get("varied") and ads()[0]["ref_id"] == before
         assert {a["ref_id"] for a in ads()[1:]} == taken - {before}              # у соседей приёмы остались свои
 
 
-def test_redrawing_prefers_a_free_reference_over_one_a_neighbour_uses(monkeypatch):
+def test_redrawing_keeps_the_own_reference_while_others_are_free(monkeypatch):
     monkeypatch.setenv("FAL_KEY", "fal-test")
     fakes = Fakes(fal_done=True)
     with TestClient(app) as http:
@@ -214,8 +214,8 @@ def test_redrawing_prefers_a_free_reference_over_one_a_neighbour_uses(monkeypatc
             _draw(http, base, fakes, ads()[i])
         mine, neighbour = ads()[0]["ref_id"], ads()[1]["ref_id"]
         assert mine and neighbour and mine != neighbour
-        assert _draw(http, base, fakes, ads()[0])["varied"]
-        assert ads()[0]["ref_id"] not in (mine, neighbour)                        # новый приём: не прежний и не занятый соседом
+        assert not _draw(http, base, fakes, ads()[0]).get("varied")
+        assert ads()[0]["ref_id"] == mine and ads()[1]["ref_id"] == neighbour     # референсы остаются на своих местах
 
 
 def test_renaming_the_text_keeps_the_photo_and_style_with_the_ad(monkeypatch):
@@ -298,7 +298,7 @@ def test_redraw_all_redraws_every_live_ad_with_a_new_style_and_skips_the_ones_st
         refs_before = [a["ref_id"] for a in ads()[:3]]
         assert http.post(f"{base}/ads/ai-banners?redo=true").json() == {"started": 3}     # три готовых заново, остальные три уже рисуются и пропущены
         assert [a["ai"]["status"] for a in ads()] == ["working"] * 6
-        assert all(a["ref_id"] != before for a, before in zip(ads()[:3], refs_before))      # каждое взяло другую подачу
+        assert all(a["ref_id"] == before for a, before in zip(ads()[:3], refs_before))      # у каждого референс прежний
         assert http.post(f"{base}/ads/ai-banners?redo=true").json() == {"started": 0}     # пока рисуются, второй раз не заказываем
         versions = [c for c in http.get(f"{base}").json()["creatives"] if c["kind"] == "ai_banner" and c["status"] in ("draft", "approved")]
         assert len(versions) >= 3                                                           # прежние версии остались, их можно вернуть

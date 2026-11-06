@@ -436,15 +436,7 @@ def _order_banner(conn, biz, variants: list[dict], index: int, key: str, transpo
         varied = ""
         if _wants_auto_ref(brief, index) and not custom_prompt:   # подача не выбрана: берём приём из ниши, у соседних объявлений разные
             brief = _auto_style(conn, biz, v, index, getattr(photo_for(photos, index)[1], "asset_id", None), brief) or brief
-        if not custom_prompt:   # повторный заказ без правок подачи: берём другую подачу, чтобы вариант отличался от прежних
-            pick = _vary_style(conn, biz, v, brief, index)
-            if pick:
-                ref_pick, look_pick = pick
-                asset = brief["asset_id"] if brief and brief["asset_id"] else getattr(photo_for(photos, index)[1], "asset_id", None)
-                look_keep = look_pick if look_pick is not None else (brief["look"] if brief else index % len(fal.PHOTO_LOOKS))
-                _apply_style(conn, biz, v, brief, asset, look_keep, ref_pick)
-                brief = _brief_for(conn, business_id, v)
-                varied = refs.note(ref_pick) if ref_pick else f"оформление «{fal.PHOTO_LOOKS[look_keep][0]}»"
+        # повторный заказ подачу не меняет: референс остаётся тем же, пока владелец сам не выберет другой (результат всё равно получается новым)
         kind, data = photo_for(photos, index)
         if brief and brief["asset_id"]:
             kind, data = next(((k, d) for k, d in photos if getattr(d, "asset_id", None) == brief["asset_id"]), (kind, data))
@@ -474,13 +466,6 @@ def _order_banner(conn, biz, variants: list[dict], index: int, key: str, transpo
     varied = ""
     if _wants_auto_ref(brief, index) and not extras and not custom_prompt:   # подача не выбрана: берём приём из ниши
         brief = _auto_style(conn, biz, v, index, None, brief) or brief
-    if not extras and not custom_prompt:   # повторный заказ без правок подачи берёт следующий референс
-        pick = _vary_style(conn, biz, v, brief, index, scratch=True)
-        if pick:
-            ref_pick = pick[0]
-            _apply_style(conn, biz, v, brief, None, brief["look"] if brief else index % len(fal.PHOTO_LOOKS), ref_pick, no_photo=no_photo)
-            brief = _brief_for(conn, business_id, v)
-            varied = refs.note(ref_pick) if ref_pick else "без референса"
     ref_id = brief["ref_id"] if brief and not extras else None
     done_before = len(_used_styles(conn, business_id, v, scratch=True))   # от этого зависит, какое из стандартных оформлений возьмём
     earlier = [json.loads(r["prompt"] or "{}") for r in conn.execute(
