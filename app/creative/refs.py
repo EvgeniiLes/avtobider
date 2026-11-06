@@ -3,6 +3,7 @@
 Картинки лежат в app/refs (уменьшенные копии, наружу не отдаются). Модель получает референс вторым изображением и использует его
 только как вдохновение (композиция, цвет, подача), а не копирует. Подробный разбор: рефы/README.md.
 """
+import re
 from pathlib import Path
 
 DIR = Path(__file__).resolve().parent.parent / "refs"
@@ -186,7 +187,15 @@ LAYOUT_ASK = ("Describe ONLY the layout and visual design of this advertising ba
               "recreate the same design for another business: the background colors and shapes; where the main photo or subject sits (position, size, shape, "
               "any overlap with text); where the headline sits and how it looks (size, case, weight, color, whether it overlaps the subject); panels, ribbons, "
               "badges, buttons and frames (position, shape, color); overlays and effects. Do NOT mention the brand, the product, the words written on it or the "
-              "people's identities. Answer with the description only.")
+              "people's identities, and do not mention small print, contact lines, phone or location icons, social icons, footers or logos. Answer with the description only.")
+
+_NOT_LAYOUT = re.compile(r"(?i)phone|icon|pin\b|contact|small print|fine print|small\b[^.]{0,30}\btext|tiny|text blocks|footer|logo|social|e-?mail|website|url|qr|handle|address")
+
+
+def clean_layout(text: str) -> str:
+    """Из описания раскладки убираем всё про мелкий текст, контакты и значки (иконка телефона в описании превращалась в телефон на баннере)."""
+    sentences = re.split(r"(?<=[.!?])\s+", text or "")
+    return " ".join(s for s in sentences if not _NOT_LAYOUT.search(s)).strip()
 
 
 def _cache_file():
@@ -211,7 +220,7 @@ async def layout_text(ref_id: int, fal_key: str, model: str, transport=None) -> 
     import httpx
     if not fal_key:
         return ""
-    found = cached_layout(ref_id)
+    found = clean_layout(cached_layout(ref_id))
     if found:
         return found
     data = load(ref_id)
@@ -237,4 +246,4 @@ async def layout_text(ref_id: int, fal_key: str, model: str, transport=None) -> 
         path.write_text(json.dumps(stored, ensure_ascii=False, indent=1), encoding="utf-8")
     except (OSError, ValueError):
         pass
-    return text
+    return clean_layout(text)

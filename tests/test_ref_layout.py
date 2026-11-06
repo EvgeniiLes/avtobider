@@ -6,6 +6,15 @@ import httpx
 from app.creative import refs
 
 
+def test_layout_words_drop_small_print_phones_and_icons_so_they_do_not_appear_on_the_banner():
+    raw = ("The background is saturated blue. The headline is huge and cream. Small white text blocks sit in the top right. "
+           "Contact information appears in small white print at the bottom, with phone icons on the left and a location pin icon on the right. "
+           "A small yellow accent sits below the headline.")
+    cleaned = refs.clean_layout(raw)
+    assert "blue" in cleaned and "headline" in cleaned and "yellow accent" in cleaned
+    assert not any(w in cleaned.lower() for w in ("phone", "icon", "contact", "print", "text blocks"))
+
+
 def test_reference_layout_is_described_once_and_then_remembered(tmp_path, monkeypatch):
     monkeypatch.setattr(refs, "_cache_file", lambda: tmp_path / "ref_layouts.json")
     calls = []
