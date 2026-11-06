@@ -2714,6 +2714,15 @@ async function submitAccount(event) {
 /* ---------- Запуск ---------- */
 
 async function start() {
+  $("reconcile-go").addEventListener("click", async () => {
+    if (!currentBusiness) return;
+    const button = $("reconcile-go"), text = $("reconcile-text");
+    button.disabled = true; button.textContent = "Сверяем…";
+    const r = await api("POST", `/api/businesses/${currentBusiness.id}/reconcile`);
+    button.disabled = false; button.textContent = "Сверить с кабинетом";
+    text.hidden = false;
+    text.textContent = r.ok ? r.data.text : errorText(r);
+  });
   $("tab-login").addEventListener("click", () => setAuthMode("login"));
   $("tab-register").addEventListener("click", () => setAuthMode("register"));
   $("auth-form").addEventListener("submit", submitAuth);

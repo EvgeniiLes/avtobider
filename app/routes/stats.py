@@ -25,6 +25,7 @@ from app.direct.client import DirectError
 from app.direct.counter_health import load_health
 from app.reports import week_report
 from app.deps import client_factory
+from app.direct.reconcile import reconcile, summary as reconcile_summary
 from app.direct import audience as aud
 from app.direct import extras as ad_extras
 from app.direct.launch import MIN_WEEKLY, STATE_LABELS, tagged_href
@@ -558,6 +559,26 @@ def change_unit_pause(business_id: int, unit_id: int, data: PauseIn, user: sqlit
     except (EngineError, DirectError) as e:
         raise _fail(e)
     return {"ok": True}
+
+
+@router.post("/reconcile")
+def reconcile_with_direct(business_id: int, user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connection = Depends(get_db),
+                          factory=Depends(client_factory)):
+    """Сверка статистики сервиса с кабинетом Директа (отдельным отчётом по кампаниям) и проверка недельного расхода против лимита."""
+    biz = _own(conn, user, business_id)
+    if not biz["account_id"]:
+        raise HTTPException(400, detail={"message": "К бизнесу не подключён рекламный кабинет."})
+    try:
+        token, login = account_token(conn, biz["account_id"])
+
+        async def go():
+            async with factory(token, api_version=get_settings().direct_api_version, login=login) as client:
+                return await reconcile(client, conn, biz, date.today().isoformat())
+
+        result = asyncio.run(go())
+    except (EngineError, DirectError) as e:
+        raise _fail(e)
+    return {**result, "text": reconcile_summary(result)}
 
 
 @router.get("/units/{unit_id}/details")
