@@ -2181,7 +2181,6 @@ function renderHomeAds(data) {
   const list = (data && data.campaigns) || [];
   $("home-ads-empty").hidden = list.length > 0;
   $("home-ads-more").hidden = list.length === 0;
-  $("home-ads-refresh").hidden = $("home-ads-refresh-hint").hidden = list.length === 0 || !(data && data.real);
   const box = $("home-ads");
   box.replaceChildren(...list.map((g, i) => {
     const head = el("div", { className: "home-camp-head" },
@@ -2194,17 +2193,6 @@ function renderHomeAds(data) {
       el("span", { className: "hint", textContent: `расход ${money(u.spend)} · переходов ${u.clicks} · клик ${money(u.cost_per_click)}` })));
     return el("section", { className: "home-camp" }, head, el("ul", { className: "home-ads-list" }, ...rows));
   }));
-}
-
-async function refreshCampaigns() {
-  const button = $("home-ads-refresh");
-  button.disabled = true; button.textContent = "Обновляем в Директе…";
-  const r = await api("POST", `/api/businesses/${currentBusiness.id}/refresh-campaigns`);
-  button.disabled = false; button.textContent = "Применить изменения в Директе";
-  if (!r.ok) { say(errorText(r), "err"); return; }
-  if (r.data.message) say(r.data.message, "ok");
-  for (const p of r.data.problems || []) say(p, "err");
-  await loadStats();
 }
 
 async function loadStats() {
@@ -2741,7 +2729,6 @@ async function start() {
   $("land-cta").addEventListener("click", () => goToAuth("register"));
   const toAds = (step) => () => { showPage("creatives"); setStep(step); };
   $("home-ads-more").addEventListener("click", () => showPage("stats"));
-  $("home-ads-refresh").addEventListener("click", refreshCampaigns);
   $("launch-responsive").addEventListener("change", openLaunch);   // формат поменяли: план (число групп, объявлений и бюджет) пересчитывается
   $("chip-banner").addEventListener("click", toAds("banners"));
   $("chip-ideas").addEventListener("click", toAds("ideas"));
