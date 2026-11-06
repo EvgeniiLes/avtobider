@@ -14,7 +14,7 @@ from app.direct import audience as aud
 from app.direct import extras as ad_extras
 from app.direct.bids import ensure_bids
 from app.direct.client import DirectError
-from app.direct.launch import (STATE_LABELS, add_ads, ai_banners_for, existing_campaign, group_sizes, launch, new_campaigns_for, new_variants, plan_launch,
+from app.direct.launch import (STATE_LABELS, add_ads, existing_campaign, group_sizes, launch, new_campaigns_for, new_variants, plan_launch,
                                tagged_href, text_candidates)
 from app.direct.refresh import refresh_campaigns
 from app.direct.runner import account_token, sync_and_run
@@ -77,7 +77,8 @@ def _plan_for(conn, user, biz, account_id, factory, transport=None, ad_format: s
     custom = text_candidates(conn, biz)
     plan = plan_launch(biz, region, custom=custom, audience=aud.load(biz), district_ids=district_ids, responsive=(ad_format or biz["ad_format"]) == "responsive", **kwargs)
     _with_extras(conn, biz, plan, transport)
-    drawn = ai_banners_for(conn, biz)
+    drawn = {(r["title"], r["body"]) for r in conn.execute(   # только проверка по базе: сами картинки открывать не нужно, это долго
+        "SELECT title, body FROM creatives WHERE business_id = ? AND kind = 'ai_banner' AND status IN ('draft', 'approved') AND asset_id IS NOT NULL", (biz["id"],))}
     missing = [v for v in plan.variants[:plan.count] if (v["title"], v["text"]) not in drawn]
     if missing:   # шаблонные баннеры в рекламу не идут: без нарисованного баннера объявление уйдёт без картинки
         plan.warnings = [*plan.warnings, f"У {len(missing)} из {plan.count} объявлений нет баннера. Нарисуйте их на шаге «Баннеры» (кнопка «Нарисовать»), иначе они пойдут без картинки."]
