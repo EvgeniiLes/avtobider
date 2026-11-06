@@ -2396,19 +2396,25 @@ function campaignGroup(g, several, number) {
       toggle.firstChild.textContent = open ? "Скрыть" : "Подробнее";
     });
     row.append(toggle);
-    const more = el("button", { type: "button", className: "link-btn", textContent: "Что в объявлении" });
-    name.append(more);
-    let detailRow = null;
-    more.addEventListener("click", async () => {
-      if (detailRow) { detailRow.remove(); detailRow = null; more.textContent = "Что в объявлении"; return; }
-      more.disabled = true;
+    // вся строка объявления открывает подробности (кнопки и ссылки внутри работают как раньше)
+    let detailRow = null, loading = false;
+    row.classList.add("clickable");
+    row.tabIndex = 0;
+    row.setAttribute("aria-expanded", "false");
+    const toggleDetails = async () => {
+      if (detailRow) { detailRow.remove(); detailRow = null; row.classList.remove("expanded"); row.setAttribute("aria-expanded", "false"); return; }
+      if (loading) return;
+      loading = true;
       const result = await api("GET", `/api/businesses/${currentBusiness.id}/units/${u.id}/details`);
-      more.disabled = false;
+      loading = false;
       if (!result.ok) { say(errorText(result), "err"); return; }
       detailRow = el("tr", { className: "ad-details" }, el("td", { colSpan: 12 }, adDetails(result.data)));
       row.after(detailRow);
-      more.textContent = "Скрыть подробности";
-    });
+      row.classList.add("expanded");
+      row.setAttribute("aria-expanded", "true");
+    };
+    row.addEventListener("click", (e) => { if (!e.target.closest("button, a, input")) toggleDetails(); });
+    row.addEventListener("keydown", (e) => { if ((e.key === "Enter" || e.key === " ") && e.target === row) { e.preventDefault(); toggleDetails(); } });
     body.append(row);
   }
   group.append(el("div", { className: "table-wrap" }, el("table", {}, el("thead", {}, head2), body)));

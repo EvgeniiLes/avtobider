@@ -293,7 +293,11 @@ tbody tr:last-child td { border-bottom: 0; }
 .camp-budget input[type=number] { width: 130px; }
 .camp-sum { font-weight: 600; }
 .camp-group > .hint { margin: 4px 0 8px; }
-.link-btn { display: block; margin-top: 6px; padding: 0; border: 0; background: none; color: var(--accent, #3b6cf6); font: inherit; font-size: 13px; cursor: pointer; text-decoration: underline; }
+tr.clickable { cursor: pointer; transition: background .15s; }
+tr.clickable:hover td, tr.clickable.expanded td { background: rgba(0, 0, 0, .06); }
+tr.clickable:focus-visible { outline: 2px solid var(--accent, #3b6cf6); outline-offset: -2px; }
+tr.clickable button, tr.clickable a { cursor: pointer; }
+@media (prefers-color-scheme: dark) { tr.clickable:hover td, tr.clickable.expanded td { background: rgba(255, 255, 255, .08); } }
 .ad-details td { background: var(--bg-soft, rgba(127,127,127,.06)); }
 .ad-detail-box { display: grid; gap: 12px; padding: 6px 2px; text-align: left; }
 .ad-detail-box h4 { margin: 0 0 4px; font-size: 13px; color: var(--muted); font-weight: 500; }
