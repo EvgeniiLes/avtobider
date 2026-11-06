@@ -293,6 +293,15 @@ tbody tr:last-child td { border-bottom: 0; }
 .camp-budget input[type=number] { width: 130px; }
 .camp-sum { font-weight: 600; }
 .camp-group > .hint { margin: 4px 0 8px; }
+.link-btn { display: block; margin-top: 6px; padding: 0; border: 0; background: none; color: var(--accent, #3b6cf6); font: inherit; font-size: 13px; cursor: pointer; text-decoration: underline; }
+.ad-details td { background: var(--bg-soft, rgba(127,127,127,.06)); }
+.ad-detail-box { display: grid; gap: 12px; padding: 6px 2px; text-align: left; }
+.ad-detail-box h4 { margin: 0 0 4px; font-size: 13px; color: var(--muted); font-weight: 500; }
+.ad-detail-box p, .ad-detail-box ul { margin: 0; }
+.ad-detail-box ul { padding-left: 18px; }
+.ad-detail-box .ad-link { word-break: break-all; font-size: 13px; }
+.ad-pics { display: flex; flex-wrap: wrap; gap: 10px; }
+.ad-pics img { max-width: 220px; max-height: 220px; border-radius: 10px; border: 1px solid var(--line); object-fit: cover; }
 
 /* ----- график ----- */
 .chart { width: 100%; height: auto; display: block; }
@@ -572,6 +581,8 @@ body.no-biz #nav-creatives, body.no-biz #nav-media, body.no-biz #nav-stats, body
   .camp-group tr.open td.ad-more { display: flex; }
   .camp-group td.ad-toggle { display: block; text-align: left; }
   .camp-group td.ad-toggle::before { content: none; }
+  .camp-group tr.ad-details td { display: block; text-align: left; }
+  .camp-group tr.ad-details td::before { content: none; }
 }
 @media (min-width: 701px) { .camp-group td.ad-toggle { display: none; } }
 /* Экран загрузки: вместо белой страницы, пока скрипт не решил, что показать (вход или кабинет) */

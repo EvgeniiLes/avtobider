@@ -24,7 +24,11 @@ from app.config import get_settings
 from app.direct.client import DirectError
 from app.direct.counter_health import load_health
 from app.reports import week_report
-from app.direct.launch import MIN_WEEKLY, STATE_LABELS
+from app.deps import client_factory
+from app.direct import audience as aud
+from app.direct import extras as ad_extras
+from app.direct.launch import MIN_WEEKLY, STATE_LABELS, tagged_href
+from app.routes.creatives import _ad_variants
 from app.direct.runner import account_token
 from app.platforms.direct import DirectPlatform
 from app.engine.util import EngineError, MICRO, day_add, days_between
@@ -554,6 +558,57 @@ def change_unit_pause(business_id: int, unit_id: int, data: PauseIn, user: sqlit
     except (EngineError, DirectError) as e:
         raise _fail(e)
     return {"ok": True}
+
+
+@router.get("/units/{unit_id}/details")
+def unit_details(business_id: int, unit_id: int, user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connection = Depends(get_db),
+                 factory=Depends(client_factory)):
+    """Что в объявлении: тексты, картинки, ключевые фразы группы, минус-слова, ссылка и уточнения. Фразы берём из Директа, если он отвечает."""
+    biz = _own(conn, user, business_id)
+    unit = conn.execute("SELECT u.*, c.intent, c.name AS campaign_name FROM ad_units u JOIN campaigns c ON c.id = u.campaign_id WHERE u.id = ? AND u.business_id = ?",
+                        (unit_id, business_id)).fetchone()
+    if unit is None:
+        raise HTTPException(404, detail={"message": "Такого объявления нет."})
+    profile, extras = aud.load(biz), ad_extras.load(biz)
+    try:
+        parts = json.loads(unit["variants_json"] or "{}")
+    except ValueError:
+        parts = {}
+    titles = parts.get("titles") or [unit["title"]]
+    texts = parts.get("texts") or [unit["body"]]
+    second = [t for t in (ad_extras.title2_for(extras, t) for t in titles) if t] if unit["ad_kind"] != "responsive" else []
+    keywords, live = [], False
+    if unit["external_group_id"] and biz["account_id"]:
+        try:
+            token, login = account_token(conn, biz["account_id"])
+
+            async def go():
+                async with factory(token, api_version=get_settings().direct_api_version, login=login) as client:
+                    return await client.group_keywords([unit["external_group_id"]])
+
+            keywords, live = sorted(asyncio.run(go()).get(unit["external_group_id"], set())), True
+        except (EngineError, DirectError):
+            keywords = []
+    if not keywords:   # Директ не ответил: показываем фразы профиля для этого намерения
+        groups = aud.intents_for(profile)
+        mine = next((g for g in groups if g["name"] == unit["intent"]), None)
+        keywords = list(mine["keywords"] if mine else (profile or {}).get("keywords", []))
+    pictures = []
+    try:
+        variants = _ad_variants(conn, biz)[0]
+        for title in titles:
+            index = next((i for i, v in enumerate(variants) if v["title"].lower() == title.lower()), None)
+            if index is not None:
+                pictures.append({"title": title, "url": f"/api/businesses/{business_id}/creatives/ads/{index}/banner.jpg"})
+    except HTTPException:
+        pass
+    return {
+        "title": unit["title"], "titles": titles, "texts": texts, "second_titles": second, "responsive": unit["ad_kind"] == "responsive",
+        "state": STATE_LABELS.get(unit["state"], unit["state"]), "note": unit["status_note"] or "", "campaign": unit["campaign_name"],
+        "intent": unit["intent"] or "", "link": tagged_href(biz["site_url"] or ""), "display_path": ad_extras.fit_path(extras),
+        "callouts": list((extras or {}).get("callouts") or []), "keywords": keywords, "keywords_live": live,
+        "negatives": aud.effective_negatives(biz, profile), "pictures": pictures, "created": unit["created_day"],
+    }
 
 
 class BudgetIn(BaseModel):

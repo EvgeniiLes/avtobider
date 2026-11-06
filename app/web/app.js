@@ -2297,6 +2297,25 @@ function campaignHint(g) {
   return parts.join(" ");
 }
 
+// Подробности объявления: как оно выглядит, на какие фразы показывается, куда ведёт
+function adDetails(d) {
+  const block = (title, ...content) => el("div", { className: "ad-block" }, el("h4", { textContent: title }), ...content);
+  const list = (items) => el("ul", {}, ...items.map((t) => el("li", { textContent: t })));
+  const box = el("div", { className: "ad-detail-box" });
+  if (d.pictures.length) box.append(el("div", { className: "ad-pics" }, ...d.pictures.map((p) => el("img", { src: p.url, alt: `Баннер «${p.title}»`, loading: "lazy" }))));
+  box.append(block(d.responsive ? "Заголовки (Яндекс подбирает сочетания)" : "Заголовок", list(d.titles)));
+  if (d.second_titles.length) box.append(block("Второй заголовок", list(d.second_titles)));
+  box.append(block(d.responsive ? "Тексты" : "Текст", list(d.texts)));
+  if (d.callouts.length) box.append(block("Уточнения под объявлением", el("p", { textContent: d.callouts.join(" · ") })));
+  const where = [d.intent ? `Услуга: ${d.intent}` : "", d.campaign ? `Кампания: ${d.campaign}` : "", `Статус: ${d.state}`].filter(Boolean).join(" · ");
+  box.append(block("Где показывается", el("p", { textContent: where }), ...(d.note ? [el("p", { className: "hint" }, ...withLinks(d.note))] : [])));
+  box.append(block(`Ключевые фразы (${d.keywords.length})${d.keywords_live ? "" : ", из профиля"}`,
+    d.keywords.length ? el("p", { textContent: d.keywords.join("; ") }) : el("p", { className: "hint", textContent: "Фраз нет: запросы подбирает автотаргетинг." })));
+  box.append(block(`Минус-слова (${d.negatives.length})`, el("p", { textContent: d.negatives.join(", ") })));
+  if (d.link) box.append(block("Ведёт на", el("p", { className: "ad-link", textContent: d.link + (d.display_path ? `  (показывается как …/${d.display_path})` : "") })));
+  return box;
+}
+
 function campaignGroup(g, several, number) {
   const started = g.created_day ? new Date(g.created_day).toLocaleDateString("ru-RU") : "";
   const what = started ? `Запуск от ${started}` : "Кампания";
@@ -2377,6 +2396,19 @@ function campaignGroup(g, several, number) {
       toggle.firstChild.textContent = open ? "Скрыть" : "Подробнее";
     });
     row.append(toggle);
+    const more = el("button", { type: "button", className: "link-btn", textContent: "Что в объявлении" });
+    name.append(more);
+    let detailRow = null;
+    more.addEventListener("click", async () => {
+      if (detailRow) { detailRow.remove(); detailRow = null; more.textContent = "Что в объявлении"; return; }
+      more.disabled = true;
+      const result = await api("GET", `/api/businesses/${currentBusiness.id}/units/${u.id}/details`);
+      more.disabled = false;
+      if (!result.ok) { say(errorText(result), "err"); return; }
+      detailRow = el("tr", { className: "ad-details" }, el("td", { colSpan: 12 }, adDetails(result.data)));
+      row.after(detailRow);
+      more.textContent = "Скрыть подробности";
+    });
     body.append(row);
   }
   group.append(el("div", { className: "table-wrap" }, el("table", {}, el("thead", {}, head2), body)));
