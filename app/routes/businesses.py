@@ -266,6 +266,39 @@ def create_business(data: BusinessIn, user: sqlite3.Row = Depends(current_user),
     return _business(_own(conn, user, cur.lastrowid), [])
 
 
+COPIED_FIELDS = ("kind", "description", "city", "site_url", "maps_url", "tone", "color_main", "color_extra", "avg_check_micro", "target_cpa_micro",
+                 "weekly_budget_micro", "client_share", "mode", "visual_hint", "address", "allow_promo", "nationwide", "districts", "ads_live", "ad_format", "account_id")
+
+
+@router.post("/{business_id}/copy")
+def copy_business(business_id: int, user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connection = Depends(get_db)):
+    """Новый бизнес «такой же»: все настройки, кабинет, фото и логотип. Реклама, кампании, идеи, Метрика и профиль аудитории не копируются:
+    у нового бизнеса они свои. Название получает пометку «(копия)», адрес и районы владелец меняет сам."""
+    src = _own(conn, user, business_id)
+    if conn.execute("SELECT COUNT(*) FROM businesses WHERE user_id = ?", (user["id"],)).fetchone()[0] >= MAX_BUSINESSES:
+        raise HTTPException(400, detail={"message": f"Можно добавить не больше {MAX_BUSINESSES} бизнесов."})
+    name = f"{src['name']} (копия)"[:100]
+    fields = ("user_id", "name", *COPIED_FIELDS)
+    values = (user["id"], name, *(src[f] for f in COPIED_FIELDS))
+    cur = conn.execute(f"INSERT INTO businesses ({', '.join(fields)}) VALUES ({', '.join('?' for _ in fields)})", values)
+    new_id = cur.lastrowid
+    target = get_settings().uploads_dir / str(new_id)
+    for a in conn.execute("SELECT * FROM business_assets WHERE business_id = ? AND kind IN ('photo', 'logo') ORDER BY id", (business_id,)).fetchall():
+        source = _asset_path(business_id, a["stored_name"])
+        if not source.is_file():
+            continue
+        stored = f"{secrets.token_hex(16)}{Path(a['stored_name']).suffix}"
+        target.mkdir(parents=True, exist_ok=True)
+        shutil.copy(source, target / stored)
+        conn.execute(
+            "INSERT INTO business_assets (business_id, kind, tag, caption, stored_name, orig_name, mime, size_bytes, width, height, ai_type, ai_score, ai_note, ai_brand, ai_fx, ai_fy) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (new_id, a["kind"], a["tag"], a["caption"], stored, a["orig_name"], a["mime"], a["size_bytes"], a["width"], a["height"],
+             a["ai_type"], a["ai_score"], a["ai_note"], a["ai_brand"], a["ai_fx"], a["ai_fy"]))
+    conn.commit()
+    return _business(_own(conn, user, new_id), _assets_of(conn, new_id))
+
+
 @router.get("/{business_id}")
 def get_business(business_id: int, user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connection = Depends(get_db)):
     row = _own(conn, user, business_id)

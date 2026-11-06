@@ -285,6 +285,7 @@ function fillForm(b) {
   $(b && b.mode === "auto" ? "mode-auto" : "mode-ask").checked = true;
   $("business-title").textContent = b ? `Бизнес: ${b.name}` : "Расскажите о бизнесе";
   $("business-delete").hidden = !b;
+  $("business-copy").hidden = !b;
   setStatus("business-status", "");
   setStatus("files-status", "");
   setWizard(!b);
@@ -551,6 +552,21 @@ async function saveBusiness(event) {
   if (isNew) openWizardPhotos();
   if (guessed) say(`Район определён по адресу: ${result.data.districts}. Проверьте его в поле «Районы».`);
   if (renamed) api("POST", `/api/businesses/${currentBusiness.id}/creatives/photos/check`).then(refreshAssets);   // забракованные фото ИИ посмотрит заново: вывеска с новым названием своя
+}
+
+async function copyBusiness() {
+  if (!currentBusiness) return;
+  const button = $("business-copy");
+  button.disabled = true;
+  setStatus("business-status", "Создаём копию…");
+  const r = await api("POST", `/api/businesses/${currentBusiness.id}/copy`);
+  button.disabled = false;
+  if (!r.ok) { setStatus("business-status", errorText(r), "err"); return; }
+  currentBusiness = r.data;
+  await loadBusinesses(r.data.id);
+  setStatus("business-status", "");
+  say("Копия создана вместе с фото и логотипом. Поменяйте название, адрес и районы и нажмите «Сохранить». Реклама, идеи и Метрика у копии свои.");
+  window.scrollTo(0, 0);
 }
 
 async function deleteBusiness() {
@@ -2790,6 +2806,7 @@ async function start() {
   $("business-form").addEventListener("submit", saveBusiness);
   $("business-new").addEventListener("click", newBusiness);
   $("business-delete").addEventListener("click", deleteBusiness);
+  $("business-copy").addEventListener("click", copyBusiness);
   for (const id of ["b-color-main", "b-color-extra"]) {
     $(id).addEventListener("input", () => { $(id).dataset.empty = "0"; });
   }
