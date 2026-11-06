@@ -484,9 +484,8 @@ def _order_banner(conn, biz, variants: list[dict], index: int, key: str, transpo
     ref_bytes = refs.load(ref_id) if ref_id else None
     if ref_bytes:
         _charge(conn, business_id, "ref_extra")
-        direction = (f"the attached image is the DESIGN REFERENCE ({refs.note(ref_id)}). Recreate its design closely: the same composition and framing, the same size, weight, case "
-                     "and position of the headline (including a huge headline that overlaps the subject), the same color palette, background, panels and effects, the same kind of "
-                     "hero subject placement. Replace its subject with the scene above. Do not reuse its own text, logo, people or characters, "
+        direction = (f"the attached image is ONLY a style inspiration (the idea of its composition, color mood, typography weight and feel: {refs.note(ref_id)}). "
+                     "Follow that layout idea closely, but make a new original banner with the scene above: do not copy or reuse its text, logo, products, people or characters, "
                      "and do not recreate its small print, captions, lists, badges, footer or contact lines: the only text on the banner is the text given below")
     else:
         direction = (f"{refs.note(ref_id)}. Take this advertising idea only as inspiration for the layout, color mood and type weight; "

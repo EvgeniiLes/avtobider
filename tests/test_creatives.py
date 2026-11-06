@@ -420,7 +420,7 @@ def test_ai_banner_is_ordered_checked_and_used(monkeypatch):
         assert http.post(f"{base}/ads/4/ai-banner").status_code == 400      # второй раз, пока рисуется, нельзя
         host, path, body = next(r for r in fakes.requests if r[0] == "queue.fal.run")   # перед рисованием арт-директор придумывает сцену
         assert "gpt-image-2" in path
-        assert b"Visual direction" in body and b"DESIGN REFERENCE" not in body     # у объявления есть приём (свой или соседней ниши): референс уходит картинкой, размер и качество стоят после неё и в запомненную часть тела не входят
+        assert b"Visual direction" in body and b"ONLY a style inspiration" not in body      # у объявления есть приём (свой или соседней ниши): референс уходит картинкой, размер и качество стоят после неё и в запомненную часть тела не входят
         http.get(base)
         assert _ai_ad(http, bid)["ai"]["status"] == "working"
 
@@ -535,7 +535,7 @@ def test_all_ai_banners_are_ordered_once_each_with_different_directions(monkeypa
         assert http.post(f"{base}/ads/ai-banners").json() == {"started": 0}        # повторно не платим за то, что уже рисуется
         prompts = [b.decode(errors="ignore") for h, _, b in fakes.requests if h == "queue.fal.run"]
         assert len(prompts) == 6 and len({p.split("Visual direction:")[1][:170] for p in prompts}) == 6   # у каждого баннера своё направление
-        assert sum("DESIGN REFERENCE" in p for p in prompts) == 3                                     # у маникюра в каталоге два приёма, ещё берутся приёмы соседних ниш: у каждого объявления свой референс
+        assert sum("ONLY a style inspiration" in p for p in prompts) == 3                                       # у маникюра в каталоге два приёма, ещё берутся приёмы соседних ниш: у каждого объявления свой референс
         ads = http.get(f"{base}/ads").json()["ads"]
         assert [a["ai"]["status"] for a in ads] == ["working"] * 6 and [a["reserve"] for a in ads] == [False] * 3 + [True] * 3
         assert http.get(base).json()["spend"]["spent_usd"] == 0.48     # шесть баннеров и три референса картинкой
