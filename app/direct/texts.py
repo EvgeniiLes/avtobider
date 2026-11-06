@@ -7,6 +7,7 @@ import re
 
 TITLE_MAX = 56  # заголовок объявления (документация Директа)
 TEXT_MAX = 81   # текст объявления
+HOOK_MAX = 40   # короткий текст на баннере (2-5 слов): чем короче, тем меньше ошибок в буквах на картинке
 WORD_MAX_TITLE = 22
 WORD_MAX_TEXT = 23
 
@@ -33,6 +34,18 @@ def check(title: str, text: str) -> list[str]:
         problems.append("В заголовке слишком длинное слово.")
     if any(len(w) > WORD_MAX_TEXT for w in text.split()):
         problems.append("В тексте слишком длинное слово.")
+    return problems
+
+
+def check_hook(hook: str) -> list[str]:
+    """Замечания к тексту на баннере. Пустой список, если всё в порядке."""
+    problems = []
+    if len(hook) > HOOK_MAX:
+        problems.append(f"Текст на баннере длиннее {HOOK_MAX} символов.")
+    if "!" in hook:
+        problems.append("В тексте на баннере не нужны восклицательные знаки.")
+    if any(len(w) > WORD_MAX_TITLE for w in hook.split()):
+        problems.append("В тексте на баннере слишком длинное слово.")
     return problems
 
 

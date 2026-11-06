@@ -8,10 +8,12 @@
 import asyncio
 import json
 import sqlite3
+from datetime import date
 
 from app.creative import fal
 from app.creative.texts_ai import generate_texts
 from app.direct.launch import MAX_VARIANTS, choose_variants, text_candidates
+from app.direct.textctx import texts_context
 from app.engine.cycle import approve, log_change, unit_stats
 from app.engine.util import EngineError, day_add, days_between, plural
 
@@ -105,7 +107,7 @@ def challenger(conn: sqlite3.Connection, biz, pair: dict, settings, transport=No
     if not (settings.anthropic_api_key or settings.fal_key):
         return None
     fresh = asyncio.run(generate_texts(biz, 3, settings.anthropic_api_key, settings.anthropic_model, data_hint(conn, biz, pair), transport,
-                                       settings.fal_key, settings.fal_text_model))
+                                       settings.fal_key, settings.fal_text_model, texts_context(conn, biz, date.today().isoformat())))
     conn.execute("INSERT INTO generations (business_id, kind, cents) VALUES (?, 'text', ?)", (biz["id"], fal.COST_CENTS["text"]))
     taken = {r["title"].lower() for r in conn.execute("SELECT title FROM ad_units WHERE business_id = ?", (biz["id"],))}
     fresh = [v for v in fresh if v["title"].lower() not in taken]

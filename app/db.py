@@ -341,6 +341,8 @@ ADDED_COLUMNS = [
     ("users", "telegram_code_at", "TEXT NOT NULL DEFAULT ''"),
     ("users", "notify_on", "INTEGER NOT NULL DEFAULT 1"),             # 0: отчёты и тревоги выключены
     ("businesses", "counter_health", "TEXT NOT NULL DEFAULT ''"),    # результат последней проверки счётчика Метрики (JSON), см. app/direct/counter_health.py
+    ("creatives", "hook", "TEXT NOT NULL DEFAULT ''"),                              # короткий текст на баннере (2-5 слов); пусто: на баннере заголовок объявления
+    ("briefs", "hook", "TEXT NOT NULL DEFAULT ''"),
     ("businesses", "auto_minus_day", "TEXT NOT NULL DEFAULT ''"),                  # день, когда сервис последний раз сам разбирал запросы и ставил минус-слова
     ("businesses", "queries_day", "TEXT NOT NULL DEFAULT ''"),       # день, когда последний раз загружали поисковые запросы
     ("businesses", "slices_day", "TEXT NOT NULL DEFAULT ''"),        # день, когда последний раз загружали срезы (app/direct/slices.py)

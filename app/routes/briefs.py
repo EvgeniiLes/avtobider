@@ -1,6 +1,7 @@
 """Стратег: несколько разных идей объявлений для A/B-теста (гипотеза, аудитория, текст, фото и оформление баннера)."""
 import asyncio
 import sqlite3
+from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -15,6 +16,7 @@ from app.creative.texts_ai import facts_of
 from app.db import get_db
 from app.deps import creative_transport, current_user
 from app.direct.launch import usable_photos
+from app.direct.textctx import texts_context
 from app.direct.texts import check, unsupported_claims
 from app.routes.businesses import _own
 from app.routes.creatives import _ad_variants, _charge, _need_fal
@@ -37,7 +39,7 @@ def _public(conn, biz, r: sqlite3.Row, variants: list[dict]) -> dict:
     index = next((i for i, v in enumerate(variants) if v["title"] == r["title"] and v["text"] == r["body"]), None)
     return {
         "id": r["id"], "hypothesis": r["hypothesis"], "audience": r["audience"], "angle": r["angle"], "angle_label": angle_label(r["angle"]),
-        "title": r["title"], "text": r["body"], "look": LOOKS[r["look"] % len(LOOKS)], "prompt": r["prompt"], "status": r["status"],
+        "title": r["title"], "text": r["body"], "hook": r["hook"], "look": LOOKS[r["look"] % len(LOOKS)], "prompt": r["prompt"], "status": r["status"],
         "inspiration": refs.note(r["ref_id"]),   # какой приём референса взят за основу (картинку референса пользователю не показываем)
         "photo_url": f"/api/businesses/{biz['id']}/assets/{asset['id']}/file" if asset else "",
         "ad_index": index,   # номер объявления, если идея уже в рекламе (и помещается в бюджет)
@@ -69,7 +71,7 @@ def generate(business_id: int, data: GenerateIn, user: sqlite3.Row = Depends(cur
     photos = [{"asset_id": r["id"], "label": PHOTO_TAGS.get(r["ai_type"] or r["tag"], "Фото"), "score": r["ai_score"], "note": (r["ai_note"] or "")[:160]}
               for r in rows]
     _charge(conn, business_id, "strategist")
-    found = asyncio.run(plan_briefs(biz, photos, data.count, key, get_settings().fal_text_model, transport))
+    found = asyncio.run(plan_briefs(biz, photos, data.count, key, get_settings().fal_text_model, transport, texts_context(conn, biz, date.today().isoformat())))
     if not found:
         conn.execute("DELETE FROM generations WHERE id = (SELECT MAX(id) FROM generations WHERE business_id = ? AND kind = 'strategist')", (business_id,))
         conn.commit()
@@ -83,11 +85,11 @@ def generate(business_id: int, data: GenerateIn, user: sqlite3.Row = Depends(cur
         if not asset_id:
             prompt = ""
         elif ref_id:   # по мотивам референса: фото владельца плюс референс как вдохновение
-            prompt = fal.reference_banner_prompt(biz, b["title"], price, cta, b["direction"] or f"take inspiration from this idea: {refs.note(ref_id)}")
+            prompt = fal.reference_banner_prompt(biz, b.get("hook") or b["title"], price, cta, b["direction"] or f"take inspiration from this idea: {refs.note(ref_id)}")
         else:
-            prompt = fal.photo_banner_prompt(biz, b["title"], price, cta, b["look"], b["mood"])
-        conn.execute("INSERT INTO briefs (business_id, hypothesis, audience, angle, title, body, asset_id, look, prompt, ref_id) VALUES (?,?,?,?,?,?,?,?,?,?)",
-                     (business_id, b["hypothesis"], b["audience"], b["angle"], b["title"], b["text"], asset_id, b["look"], prompt, ref_id))
+            prompt = fal.photo_banner_prompt(biz, b.get("hook") or b["title"], price, cta, b["look"], b["mood"])
+        conn.execute("INSERT INTO briefs (business_id, hypothesis, audience, angle, title, body, asset_id, look, prompt, ref_id, hook) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                     (business_id, b["hypothesis"], b["audience"], b["angle"], b["title"], b["text"], asset_id, b["look"], prompt, ref_id, b.get("hook", "")))
     conn.commit()
     return list_briefs(business_id, user, conn)
 
@@ -118,10 +120,10 @@ def use(business_id: int, brief_id: int, user: sqlite3.Row = Depends(current_use
     existing = conn.execute("SELECT id FROM creatives WHERE business_id = ? AND kind = 'text' AND title = ? AND body = ? ORDER BY id DESC LIMIT 1",
                             (business_id, row["title"], row["body"])).fetchone()
     if existing:
-        conn.execute("UPDATE creatives SET status = 'approved' WHERE id = ?", (existing["id"],))
+        conn.execute("UPDATE creatives SET status = 'approved', hook = CASE WHEN hook = '' THEN ? ELSE hook END WHERE id = ?", (row["hook"], existing["id"]))
     else:
-        conn.execute("INSERT INTO creatives (business_id, kind, title, body, source, angle, status) VALUES (?, 'text', ?, ?, 'claude', ?, 'approved')",
-                     (business_id, row["title"], row["body"], row["angle"]))
+        conn.execute("INSERT INTO creatives (business_id, kind, title, body, source, angle, status, hook) VALUES (?, 'text', ?, ?, 'claude', ?, 'approved', ?)",
+                     (business_id, row["title"], row["body"], row["angle"], row["hook"]))
     conn.execute("UPDATE briefs SET status = 'used' WHERE id = ?", (brief_id,))
     conn.commit()
     variants, _count, _pool = _ad_variants(conn, biz)

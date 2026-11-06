@@ -6,7 +6,7 @@ import httpx
 
 from app.creative.angles import ANGLES, business_block, districts_of, effective_description, prompt_block, where_text
 from app.direct.audience import for_prompt as audience_prompt, load as load_audience
-from app.direct.texts import TEXT_MAX, TITLE_MAX, check, fit, unsupported_claims
+from app.direct.texts import TEXT_MAX, TITLE_MAX, check, check_hook, fit, unsupported_claims
 
 API_URL = "https://api.anthropic.com/v1/messages"
 
@@ -18,10 +18,29 @@ SYSTEM = (
     "Запрещены слова «лучший», «самый», «№1», «100%». Без эмодзи и восклицательных знаков. "
     "Заголовок понятен без картинки и без названия бизнеса: в нём или в тексте названо, что именно предлагают (услуга или товар), "
     "а не только «пилот», «аудит» или «разбор» без пояснения. "
-    "Каждый вариант пиши под свой угол подачи из списка в запросе, углы не повторяй. Заголовок должен цеплять сразу: "
+    "Каждый вариант пиши под свой угол подачи из списка в запросе. Заголовок должен цеплять сразу: "
     "конкретный результат, цена, удобство или вопрос к клиенту, а не общие слова. "
-    "Ответ: только JSON-массив объектов {\"title\": \"...\", \"text\": \"...\", \"angle\": \"id угла из списка\"}, без пояснений."
+    "Пиши как сильный маркетолог и специалист по Директу: "
+    "заголовок содержит слова из запросов клиента (ключевые фразы из данных ниже), потому что Директ выделяет их жирным; "
+    "текст объявления сообщает конкретную выгоду из фактов и заканчивается ясным действием; "
+    "конкретика вместо общих слов («керамика для кузова», а не «качественные услуги»); не повторяй в тексте то, что уже сказано в заголовке; "
+    "у каждого варианта свой приём: проблема и решение, конкретная выгода, снятие возражения, удобство и расположение, вопрос клиенту. "
+    "Отдельно придумай «hook»: короткий текст для баннера из 2-5 слов, не длиннее 40 символов, который понятен без остального, без точки и знаков в конце "
+    "(например «Керамика для кузова»); это крючок для картинки, а не копия заголовка. "
+    "Если даны данные рекламы (что сработало и что нет), повторяй то, что работает, и не повторяй слабое. "
+    "Ответ: только JSON-массив объектов {\"title\": \"...\", \"text\": \"...\", \"hook\": \"...\", \"angle\": \"id угла из списка\", "
+    "\"why\": \"одна короткая фраза по-русски: на какой запрос и приём ставка\"}, без пояснений."
 )
+
+JUDGE_SYSTEM = (
+    "Ты старший специалист по Яндекс Директу и редактор рекламных текстов. Тебе дают бизнес, данные рекламы и пронумерованные варианты объявлений. "
+    "Оцени каждый от 1 до 10 по чек-листу: попадает ли заголовок в запросы клиента и содержит ли их слова; есть ли конкретная выгода вместо общих слов; "
+    "понятно ли действие; нет ли запрещённого («лучший», «100%», лишние знаки, выдуманные факты); использованы ли длины; не повторяет ли текст заголовок; "
+    "годится ли hook для баннера (коротко, понятно, не копия заголовка). Верни только JSON-массив объектов "
+    "{\"i\": номер варианта, \"score\": число, \"why\": \"одна короткая фраза по-русски, почему такая оценка\"} для каждого варианта."
+)
+
+HOOK_NOTE = "Короткий текст для баннера придумывает тот же автор текстов: он пишется отдельно от заголовка и держится в 40 знаках."
 
 
 def facts_of(biz) -> str:
@@ -34,7 +53,7 @@ def facts_of(biz) -> str:
     return f"{effective_description(biz)} {address}{' Район: ' + ', '.join(districts) if districts else ''}".strip()   # слово «район» открывает угол «Расположение»
 
 
-def build_prompt(biz, count: int, hint: str = "") -> str:
+def build_prompt(biz, count: int, hint: str = "", context: str = "") -> str:
     parts = [
         f"Бизнес: {biz['name']}", f"Чем занимается: {biz['kind']}", f"Где показываем рекламу: {where_text(biz)}",
         f"Описание от владельца: {effective_description(biz) or 'нет'}",
@@ -59,13 +78,16 @@ def build_prompt(biz, count: int, hint: str = "") -> str:
         parts.append(who)
     parts.append(business_block(biz))
     parts.append(prompt_block(facts_of(biz)))
+    if context.strip():   # запросы и результаты рекламы: заголовки пишутся под них и учатся на том, что сработало
+        parts.append("Данные рекламы этого бизнеса:\n" + context.strip()[:2500])
     parts.append(f"Нужно вариантов: {count}.")
     return "\n".join(parts)
 
 
-def parse_variants(raw: str, facts: str = "") -> list[dict]:
+def parse_variants(raw: str, facts: str = "", unique_angles: bool = True) -> list[dict]:
     """Достаёт JSON-массив из ответа модели и оставляет только объявления, прошедшие проверку.
-    facts: описание владельца, по нему решаем, какие обещания и числа допустимы."""
+    facts: описание владельца, по нему решаем, какие обещания и числа допустимы.
+    unique_angles: второй вариант с тем же углом пропускается (для набора кандидатов выключаем: разнообразие обеспечит отбор)."""
     match = re.search(r"\[.*\]", raw, re.S)
     if not match:
         return []
@@ -82,20 +104,23 @@ def parse_variants(raw: str, facts: str = "") -> list[dict]:
         angle = angle if angle in ANGLES else ""
         if check(title, text) or unsupported_claims(title + " " + text, facts) or "!" in title + text or title.lower() in seen:
             continue
-        if angle and angle in seen_angles:  # для сравнения нужны разные углы: второй текст с тем же углом пропускаем
+        if unique_angles and angle and angle in seen_angles:  # для сравнения нужны разные углы: второй текст с тем же углом пропускаем
             continue
+        hook = " ".join(str(item.get("hook", "")).split()).strip(" .,;:—-")
+        if hook and (check_hook(hook) or unsupported_claims(hook, facts)):   # плохой текст для баннера не бракует объявление: на баннере будет заголовок
+            hook = ""
         seen.add(title.lower())
         seen_angles.add(angle)
-        good.append({"title": title, "text": text, "angle": angle})
+        good.append({"title": title, "text": text, "angle": angle, "hook": hook, "why": " ".join(str(item.get("why", "")).split())[:160]})
     return good
 
 
 FAL_CHAT_URL = "https://fal.run/openrouter/router/openai/v1/chat/completions"
 
 
-async def _ask_anthropic(http: httpx.AsyncClient, prompt: str, api_key: str, model: str) -> str:
+async def _ask_anthropic(http: httpx.AsyncClient, prompt: str, api_key: str, model: str, system: str = SYSTEM) -> str:
     # Запас большой: модель может «подумать» перед ответом, и мысли тоже считаются в лимит.
-    body = {"model": model, "max_tokens": 8000, "system": SYSTEM, "messages": [{"role": "user", "content": prompt}]}
+    body = {"model": model, "max_tokens": 8000, "system": system, "messages": [{"role": "user", "content": prompt}]}
     r = await http.post(API_URL, json=body, headers={
         "x-api-key": api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"})
     if r.status_code != 200:
@@ -103,10 +128,10 @@ async def _ask_anthropic(http: httpx.AsyncClient, prompt: str, api_key: str, mod
     return "".join(block.get("text", "") for block in r.json().get("content", []))
 
 
-async def _ask_fal(http: httpx.AsyncClient, prompt: str, fal_key: str, model: str) -> str:
+async def _ask_fal(http: httpx.AsyncClient, prompt: str, fal_key: str, model: str, system: str = SYSTEM) -> str:
     """Тот же Claude, но через fal.ai: Anthropic не принимает запросы с российских серверов, fal принимает."""
     body = {"model": model, "max_tokens": 8000,
-            "messages": [{"role": "system", "content": SYSTEM}, {"role": "user", "content": prompt}]}
+            "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}]}
     r = await http.post(FAL_CHAT_URL, json=body, headers={"Authorization": f"Key {fal_key}", "Content-Type": "application/json"})
     if r.status_code != 200:
         return ""
@@ -322,24 +347,87 @@ def extra_words(expected: list[str], read: list[str]) -> list[str]:
     return extra
 
 
+async def _ask_any(http: httpx.AsyncClient, prompt: str, system: str, api_key: str, model: str, fal_key: str, fal_model: str) -> str:
+    """Один запрос к Claude: сначала напрямую, при отказе (или без ключа Anthropic) через fal.ai. Пустая строка, если не ответили."""
+    for ask, key, name in ((_ask_anthropic, api_key, model), (_ask_fal, fal_key, fal_model)):
+        if not key:
+            continue
+        try:
+            raw = await ask(http, prompt, key, name, system)
+        except (httpx.HTTPError, ValueError, KeyError, IndexError):
+            raw = ""
+        if raw:
+            return raw
+    return ""
+
+
+def pick_best(candidates: list[dict], scores: dict[int, tuple[float, str]], count: int) -> list[dict]:
+    """Лучшие по оценке судьи, но с разными углами подачи, пока это возможно (углы отсутствуют: не различаем). Нет оценок: порядок кандидатов."""
+    order = sorted(range(len(candidates)), key=lambda i: (-scores.get(i, (0, ""))[0], i)) if scores else list(range(len(candidates)))
+    chosen, used = [], set()
+    for i in order:
+        angle = candidates[i].get("angle", "")
+        if angle and angle in used:
+            continue
+        chosen.append(i)
+        used.add(angle)
+        if len(chosen) >= count:
+            break
+    for i in order:   # углов мало: добираем лучшими из оставшихся
+        if len(chosen) >= count:
+            break
+        if i not in chosen:
+            chosen.append(i)
+    result = []
+    for i in chosen:
+        item = dict(candidates[i])
+        why = scores.get(i, (0, ""))[1]
+        if why:
+            item["why"] = why[:160]
+        result.append(item)
+    return result
+
+
+def parse_scores(raw: str, n: int) -> dict[int, tuple[float, str]]:
+    """Оценки судьи: {номер кандидата с нуля: (балл, пояснение)}. Пусто, если ответ не разобрать (тогда берутся первые)."""
+    match = re.search(r"\[.*\]", raw or "", re.S)
+    if not match:
+        return {}
+    try:
+        items = json.loads(match.group(0))
+    except ValueError:
+        return {}
+    scores: dict[int, tuple[float, str]] = {}
+    for item in items if isinstance(items, list) else []:
+        if not isinstance(item, dict):
+            continue
+        try:
+            i, score = int(item["i"]) - 1, float(item["score"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if 0 <= i < n:
+            scores[i] = (score, " ".join(str(item.get("why", "")).split()))
+    return scores
+
+
 async def generate_texts(biz, count: int, api_key: str, model: str, hint: str = "",
                          transport: httpx.AsyncBaseTransport | None = None,
-                         fal_key: str = "", fal_model: str = "") -> list[dict]:
-    """Просит у Claude варианты: сначала напрямую, при отказе (или без ключа Anthropic) через fal.ai.
-    Возвращает только годные; пустой список, если сервис недоступен или все отбракованы."""
-    prompt = build_prompt(biz, count, hint)
-    raw = ""
+                         fal_key: str = "", fal_model: str = "", context: str = "") -> list[dict]:
+    """Тексты как у маркетолога: сначала набор кандидатов (в два раза больше нужного, разные приёмы), затем «старший специалист» оценивает каждый
+    по чек-листу, и остаются лучшие с разными углами. context: запросы клиентов и результаты рекламы. Возвращает только годные (с hook и пометкой why);
+    пустой список, если сервис недоступен или все отбракованы."""
+    pool = min(10, max(count + 2, count * 2))
+    prompt = build_prompt(biz, pool, hint, context)
+    facts = facts_of(biz)
     async with httpx.AsyncClient(timeout=90, transport=transport) as http:
-        for ask, key, name in ((_ask_anthropic, api_key, model), (_ask_fal, fal_key, fal_model)):
-            if not key:
-                continue
-            try:
-                raw = await ask(http, prompt, key, name)
-            except (httpx.HTTPError, ValueError, KeyError, IndexError):
-                raw = ""
-            if raw:
-                break
-    return parse_variants(raw, facts_of(biz)) if raw else []
+        raw = await _ask_any(http, prompt, SYSTEM, api_key, model, fal_key, fal_model)
+        candidates = parse_variants(raw, facts, unique_angles=False) if raw else []
+        if len(candidates) <= 1:
+            return candidates
+        listing = "\n".join(f"{i + 1}. заголовок: {c['title']} | текст: {c['text']} | hook: {c['hook'] or '—'} | угол: {c['angle'] or '—'}" for i, c in enumerate(candidates))
+        judge = f"Бизнес: {biz['name']}, {biz['kind']}.\nФакты: {facts[:700]}\n" + (f"Данные рекламы:\n{context.strip()[:1500]}\n" if context.strip() else "") + f"Варианты:\n{listing}"
+        verdict = await _ask_any(http, judge, JUDGE_SYSTEM, api_key, model, fal_key, fal_model)
+    return pick_best(candidates, parse_scores(verdict, len(candidates)), count)
 
 ALT_SYSTEM = (
     "Ты копирайтер Яндекс Директа для малого бизнеса. Тебе дают бизнес, заголовок объявления и его текущий текст. Предложи 4 других текста к ЭТОМУ ЖЕ заголовку: "

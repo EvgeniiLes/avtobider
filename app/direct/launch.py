@@ -95,9 +95,9 @@ def text_candidates(conn: sqlite3.Connection, biz) -> list[dict]:
     """Тексты для объявлений по порядку: сначала одобренные владельцем, затем предложенные ИИ (по одному на угол подачи), потом шаблоны.
     Отклонённые не берём. Так новые тексты от ИИ попадают в рекламу, не дожидаясь одобрения, а владелец может их убрать."""
     rows = conn.execute(
-        "SELECT id, title, body, angle, status, source, position FROM creatives WHERE business_id = ? AND kind = 'text' "
+        "SELECT id, title, body, angle, hook, status, source, position FROM creatives WHERE business_id = ? AND kind = 'text' "
         "AND status IN ('approved', 'draft') ORDER BY id", (biz["id"],)).fetchall()
-    chosen = [{"id": r["id"], "title": r["title"], "text": r["body"], "angle": r["angle"], "status": "approved", "position": r["position"]}
+    chosen = [{"id": r["id"], "title": r["title"], "text": r["body"], "angle": r["angle"], "hook": r["hook"], "status": "approved", "position": r["position"]}
               for r in rows if r["status"] == "approved"]
     # шаблонный текст, сохранённый ради места в списке, угол не занимает: иначе он вытесняет черновики ИИ с тем же углом
     angles = {r["angle"] for r in rows if r["status"] == "approved" and r["angle"] and r["source"] != "template"}
@@ -110,7 +110,7 @@ def text_candidates(conn: sqlite3.Connection, biz) -> list[dict]:
         if unsupported_claims(f"{r['title']} {r['body']}", facts):   # старый черновик со скидкой, когда скидки выключены, в рекламу не идёт
             continue
         angles.add(r["angle"])
-        chosen.append({"id": r["id"], "title": r["title"], "text": r["body"], "angle": r["angle"], "status": "draft", "position": r["position"]})
+        chosen.append({"id": r["id"], "title": r["title"], "text": r["body"], "angle": r["angle"], "hook": r["hook"], "status": "draft", "position": r["position"]})
     chosen.sort(key=lambda c: c["position"] if c["position"] is not None else 1 << 30)   # порядок, который владелец задал перетаскиванием; остальные следом в прежнем порядке
     return chosen
 
@@ -136,7 +136,7 @@ def start_split(biz, min_weekly_micro: int = MIN_WEEKLY) -> tuple[int, int]:
 
 def choose_variants(biz, custom: list[dict] | None, count: int) -> tuple[list[dict], int]:
     """Сначала тексты, которые владелец одобрил; недостающие добираем из шаблонов без повторов. Второе число: сколько своих."""
-    variants = [{"title": c["title"], "text": c["text"], "angle": c.get("angle", "")}
+    variants = [{"title": c["title"], "text": c["text"], "angle": c.get("angle", ""), "hook": c.get("hook", "")}
                 for c in (custom or []) if not check(c["title"], c["text"])][:count]
     own = len(variants)
     for v in draft_variants(biz, MAX_VARIANTS):

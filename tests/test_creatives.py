@@ -151,7 +151,7 @@ def test_texts_fall_back_to_claude_through_fal(monkeypatch):
         bid = setup(http)
         r = http.post(f"/api/businesses/{bid}/creatives/texts/generate", json={"count": 2}).json()
         assert r["ai"] == 2 and "с помощью ИИ" in r["message"]
-        assert [h for h, _, _ in fakes.requests] == ["api.anthropic.com", "fal.run"]
+        assert [h for h, _, _ in fakes.requests] == ["api.anthropic.com", "fal.run", "api.anthropic.com", "fal.run"]   # набор кандидатов и отбор судьёй: оба раз сначала напрямую, затем через fal
 
 
 def test_thinking_blocks_and_big_token_budget(monkeypatch):

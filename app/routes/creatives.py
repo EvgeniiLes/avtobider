@@ -7,6 +7,7 @@ import os
 import re
 import sqlite3
 import time
+from datetime import date
 from io import BytesIO
 from typing import Literal
 
@@ -28,7 +29,8 @@ from app.creative.texts_ai import (EXTRA_WORDS_OK, alt_texts, check_facts, check
 from app.db import get_db
 from app.deps import creative_transport, current_user
 from app.direct.launch import MAX_VARIANTS, ads_for_budget, banner_layout, choose_variants, existing_campaign, group_sizes, logo_for, media_typed, photo_for, render_banner, start_split, text_candidates, usable_photos
-from app.direct.texts import TEXT_MAX, TITLE_MAX, check, draft_variants
+from app.direct.textctx import texts_context
+from app.direct.texts import HOOK_MAX, TEXT_MAX, TITLE_MAX, check, check_hook, draft_variants
 from app.routes.businesses import _asset_path, _own
 
 import secrets
@@ -77,7 +79,7 @@ def _row(r: sqlite3.Row, business_id: int) -> dict:
                 "model": made.get("model", ""), "label": made.get("model_label", ""), "run": made.get("run", ""), "check": made.get("check") or {},
                 "score": made.get("score", 0), "issues": made.get("issues") or [], "ref": made.get("ref"), "prompt": made.get("prompt_text", "")}
     return {"meta": meta,
-        "id": r["id"], "kind": r["kind"], "title": r["title"], "body": r["body"], "status": r["status"], "source": r["source"],
+        "id": r["id"], "kind": r["kind"], "title": r["title"], "body": r["body"], "hook": r["hook"] if "hook" in r.keys() else "", "status": r["status"], "source": r["source"],
         "angle": r["angle"], "angle_label": angle_label(r["angle"]),
         "error": r["error"], "prompt": r["prompt"],
         "url": f"/api/businesses/{business_id}/assets/{r['asset_id']}/file" if r["asset_id"] else "",
@@ -275,7 +277,7 @@ def generate(business_id: int, data: TextsIn, user: sqlite3.Row = Depends(curren
     if s.anthropic_api_key or s.fal_key:
         _charge(conn, business_id, "text")
         for v in asyncio.run(generate_texts(biz, data.count, s.anthropic_api_key, s.anthropic_model, data.hint, transport,
-                                            s.fal_key, s.fal_text_model)):
+                                            s.fal_key, s.fal_text_model, texts_context(conn, biz, date.today().isoformat()))):
             if v["title"].lower() not in existing:
                 made.append((v, "claude"))
     ai_count = len(made)
@@ -287,8 +289,8 @@ def generate(business_id: int, data: TextsIn, user: sqlite3.Row = Depends(curren
     added = 0
     for v, source in made[:data.count]:
         existing.add(v["title"].lower())
-        conn.execute("INSERT INTO creatives (business_id, kind, title, body, source, angle) VALUES (?, 'text', ?, ?, ?, ?)",
-                     (business_id, v["title"], v["text"], source, v.get("angle", "")))
+        conn.execute("INSERT INTO creatives (business_id, kind, title, body, source, angle, hook) VALUES (?, 'text', ?, ?, ?, ?, ?)",
+                     (business_id, v["title"], v["text"], source, v.get("angle", ""), v.get("hook", "")))
         added += 1
     conn.commit()
     has_ai = bool(s.anthropic_api_key or s.fal_key)
@@ -351,11 +353,11 @@ def ads(business_id: int, user: sqlite3.Row = Depends(current_user), conn: sqlit
                 ai["prompt"] = meta["prompt_text"]
         elif photos and not _extras():   # промпт, по которому рисуется баннер из фото: виден и правится на карточке
             ai["prompt"] = (brief["prompt"] if brief and brief["prompt"] else None) or meta.get("prompt_text") or (
-                _brief_prompt(biz, v["title"], v["text"], i % len(fal.PHOTO_LOOKS), auto_ref) if auto_ref else fal.photo_banner_prompt(
-                    biz, v["title"], find_price(v["title"], v["text"], fallback=effective_description(biz)), profile(biz)["cta"], brief["look"] if brief else i))
+                _brief_prompt(biz, _headline(v), v["text"], i % len(fal.PHOTO_LOOKS), auto_ref) if auto_ref else fal.photo_banner_prompt(
+                    biz, _headline(v), find_price(v["title"], v["text"], fallback=effective_description(biz)), profile(biz)["cta"], brief["look"] if brief else i))
         if state == "ready":
             banner = f"/api/businesses/{business_id}/creatives/ads/{i}/banner.jpg?v={row['id']}"   # готовый ИИ-баннер; v меняется при новом заказе, поэтому браузер хранит картинку и не качает её заново
-        items.append({"index": i, "title": v["title"], "text": v["text"], "own": v["status"] == "approved",
+        items.append({"index": i, "title": v["title"], "text": v["text"], "hook": v.get("hook", ""), "own": v["status"] == "approved",
                       "creative_id": v["creative_id"], "text_status": v["status"], "style": style, "ai": ai, "banner_url": banner,
                       "angle": v.get("angle", ""), "angle_label": angle_label(v.get("angle", "")),
                       "photo_type": photo_type, "photo_label": PHOTO_TAGS.get(photo_type) or scene_label(photo_type),
@@ -480,7 +482,7 @@ def _order_banner(conn, biz, variants: list[dict], index: int, key: str, transpo
     s = get_settings()
     price = find_price(v["title"], v["text"], fallback=biz["description"])
     cta = profile(biz)["cta"]
-    expected = [v["title"], cta] + ([price] if price else [])   # на баннере только заголовок, кнопка и цена: подписи с названием нет
+    expected = [_headline(v), cta] + ([price] if price else [])   # на баннере только заголовок, кнопка и цена: подписи с названием нет
     extras = _extras()   # экран со скриншотом и логотип в слоте: пока выключены, сначала добиваемся хорошего базового баннера
     photos, _logo = media_typed(conn, biz)
     brief = _brief_for(conn, business_id, v)   # идея стратега или выбор владельца в редакторе: фото, оформление, референс, промпт
@@ -496,7 +498,7 @@ def _order_banner(conn, biz, variants: list[dict], index: int, key: str, transpo
             kind, data = next(((k, d) for k, d in photos if getattr(d, "asset_id", None) == brief["asset_id"]), (kind, data))
         look_no = brief["look"] if brief else index
         look = fal.PHOTO_LOOKS[look_no % len(fal.PHOTO_LOOKS)][0]
-        prompt = custom_prompt or (brief["prompt"] if brief and brief["prompt"] else fal.photo_banner_prompt(biz, v["title"], price, cta, look_no))
+        prompt = custom_prompt or (brief["prompt"] if brief and brief["prompt"] else fal.photo_banner_prompt(biz, _headline(v), price, cta, look_no))
         ref_bytes = refs.load(brief["ref_id"]) if brief and brief["ref_id"] else None   # референс-вдохновение идёт второй картинкой
         images = [_bytes_url(data, 1280)] + ([_bytes_url(ref_bytes, 900)] if ref_bytes else [])
         if ref_bytes:
@@ -557,7 +559,7 @@ def _order_banner(conn, biz, variants: list[dict], index: int, key: str, transpo
     else:
         direction = (f"{refs.note(ref_id)}. Take this advertising idea only as inspiration for the layout, color mood and type weight; "
                      "make an original design with your own scene and do not reuse any text, logo or character from it") if ref_id else ""
-    prompt = custom_prompt or fal.banner_prompt(biz, v["title"], price, cta, logo_corner=use_logo, index=index + done_before, screen=screen,
+    prompt = custom_prompt or fal.banner_prompt(biz, _headline(v), price, cta, logo_corner=use_logo, index=index + done_before, screen=screen,
                                                 logo_ratio=_logo_ratio(logo), scene=art["scene"], direction=direction)
     meta = {"scheme": scheme or ("free" if free else "direct"), "layout": layout[1] if layout else "",
             "expect": expected, "caption": fal.caption_for(biz), "logo": use_logo, "screen": screen, "concept": art["concept"], "audience": art["audience"], "scene": art["scene"],
@@ -667,7 +669,8 @@ def rewrite_text(business_id: int, index: int, user: sqlite3.Row = Depends(curre
     _charge(conn, business_id, "text")
     hint = (f"Нужен новый вариант взамен этого, не повторяй его мысль и слова: «{old['title']}». "
             + (f"Угол подачи: {old['angle']}." if old.get("angle") else ""))
-    fresh = asyncio.run(generate_texts(biz, 4, s.anthropic_api_key, s.anthropic_model, hint, transport, s.fal_key, s.fal_text_model))
+    fresh = asyncio.run(generate_texts(biz, 4, s.anthropic_api_key, s.anthropic_model, hint, transport, s.fal_key, s.fal_text_model,
+                                       texts_context(conn, biz, date.today().isoformat())))
     fresh = [v for v in fresh if v["title"].lower() not in used]
     same = [v for v in fresh if old.get("angle") and v["angle"] == old["angle"]]
     pick = (same or fresh or [None])[0]
@@ -676,13 +679,13 @@ def rewrite_text(business_id: int, index: int, user: sqlite3.Row = Depends(curre
         conn.commit()
         raise HTTPException(502, detail={"message": "ИИ не предложил подходящий новый вариант. Попробуйте ещё раз."})
     if old.get("creative_id"):   # тот же номер в списке: объявление не прыгает на другое место
-        conn.execute("UPDATE creatives SET title = ?, body = ?, angle = ?, status = 'approved', source = 'claude' WHERE id = ?",
-                     (pick["title"], pick["text"], pick.get("angle", ""), old["creative_id"]))
+        conn.execute("UPDATE creatives SET title = ?, body = ?, angle = ?, hook = ?, status = 'approved', source = 'claude' WHERE id = ?",
+                     (pick["title"], pick["text"], pick.get("angle", ""), pick.get("hook", ""), old["creative_id"]))
     else:
-        conn.execute("INSERT INTO creatives (business_id, kind, title, body, source, angle, status) VALUES (?, 'text', ?, ?, 'claude', ?, 'approved')",
-                     (business_id, pick["title"], pick["text"], pick.get("angle", "")))
+        conn.execute("INSERT INTO creatives (business_id, kind, title, body, source, angle, status, hook) VALUES (?, 'text', ?, ?, 'claude', ?, 'approved', ?)",
+                     (business_id, pick["title"], pick["text"], pick.get("angle", ""), pick.get("hook", "")))
     conn.commit()
-    return {"title": pick["title"], "text": pick["text"], "angle": pick.get("angle", "")}
+    return {"title": pick["title"], "text": pick["text"], "angle": pick.get("angle", ""), "hook": pick.get("hook", ""), "why": pick.get("why", "")}
 
 
 @router.post("/ads/{index}/text-options")
@@ -909,6 +912,7 @@ def check_photos(business_id: int, force: bool = False, user: sqlite3.Row = Depe
 class TextIn(BaseModel):
     title: str = Field(max_length=200)
     body: str = Field(max_length=400)
+    hook: str = Field(default="", max_length=120)   # короткий текст на баннере; пусто: на баннере заголовок
 
 
 @router.post("/texts")
@@ -917,10 +921,18 @@ def add_text(business_id: int, data: TextIn, user: sqlite3.Row = Depends(current
     problems = check(data.title.strip(), data.body.strip())
     if problems:
         raise HTTPException(400, detail={"message": " ".join(problems)})
-    cur = conn.execute("INSERT INTO creatives (business_id, kind, title, body, source, status) VALUES (?, 'text', ?, ?, 'user', 'draft')",
-                       (business_id, data.title.strip(), data.body.strip()))
+    hook_problems = check_hook(data.hook.strip())
+    if hook_problems:
+        raise HTTPException(400, detail={"message": " ".join(hook_problems)})
+    cur = conn.execute("INSERT INTO creatives (business_id, kind, title, body, source, status, hook) VALUES (?, 'text', ?, ?, 'user', 'draft', ?)",
+                       (business_id, data.title.strip(), data.body.strip(), data.hook.strip()))
     conn.commit()
     return _row(conn.execute("SELECT * FROM creatives WHERE id = ?", (cur.lastrowid,)).fetchone(), business_id)
+
+
+def _headline(v: dict) -> str:
+    """Что написано на баннере: короткий текст для баннера (hook), а если его нет, заголовок объявления."""
+    return (v.get("hook") or "").strip() or v["title"]
 
 
 def _brief_prompt(biz, title: str, text: str, look: int, ref_id: int | None) -> str:
@@ -936,7 +948,7 @@ def _apply_style(conn, biz, v: dict, brief, asset_id: int | None, look: int, ref
     """Сохраняет фото и подачу объявления как идею (brief): по ней потом рисуется баннер.
     no_photo: баннер без готового фото, ИИ рисует всю сцену с нуля (промпт тогда строится при заказе).
     chosen: подачу выбрал сам владелец, автоподбор референса её потом не трогает."""
-    prompt = _brief_prompt(biz, v["title"], v["text"], look, ref_id) if asset_id and not no_photo else ""
+    prompt = _brief_prompt(biz, _headline(v), v["text"], look, ref_id) if asset_id and not no_photo else ""
     if keep_prompt and prompt:   # промпт идеи стратега (настроение, подача) не теряем: к нему добавляется только указание про референс
         prompt = (f"{keep_prompt} Layout: the SECOND attached image is the design reference: follow its layout closely (composition, size, weight and position of the headline, colors, panels and effects) "
                   f"and put the business photo (the FIRST image) into it as the main subject. Do NOT reuse its text, small print, lists, badges, logo, products, animals or characters. Direction: take inspiration from this idea: {refs.note(ref_id)}.")
@@ -1142,6 +1154,7 @@ def ads_live(business_id: int, data: LiveIn, user: sqlite3.Row = Depends(current
 class CreativeIn(BaseModel):
     title: str | None = Field(default=None, max_length=200)
     body: str | None = Field(default=None, max_length=400)
+    hook: str | None = Field(default=None, max_length=120)
     status: Literal["draft", "approved", "rejected"] | None = None
 
 
@@ -1158,8 +1171,11 @@ def update(business_id: int, creative_id: int, data: CreativeIn, user: sqlite3.R
             raise HTTPException(400, detail={"message": " ".join(problems)})
     elif row["status"] in ("working", "failed") and data.status == "approved":
         raise HTTPException(400, detail={"message": "Этот файл ещё не готов."})
-    conn.execute("UPDATE creatives SET title = ?, body = ?, status = ? WHERE id = ?",
-                 (title, body, data.status or row["status"], creative_id))
+    hook = row["hook"] if data.hook is None else data.hook.strip()
+    if row["kind"] == "text" and data.hook is not None and check_hook(hook):
+        raise HTTPException(400, detail={"message": " ".join(check_hook(hook))})
+    conn.execute("UPDATE creatives SET title = ?, body = ?, hook = ?, status = ? WHERE id = ?",
+                 (title, body, hook, data.status or row["status"], creative_id))
     if row["kind"] == "text" and (title, body) != (row["title"], row["body"]):   # идея и её фото с подачей остаются с объявлением, а промпт получает новый заголовок
         for b in conn.execute("SELECT id, prompt FROM briefs WHERE business_id = ? AND title = ? AND body = ?", (business_id, row["title"], row["body"])).fetchall():
             conn.execute("UPDATE briefs SET title = ?, body = ?, prompt = ? WHERE id = ?", (title, body, (b["prompt"] or "").replace(row["title"], title), b["id"]))

@@ -1289,14 +1289,17 @@ function adEditor(a) {
   // текст
   const titleIn = el("input", { type: "text", value: a.title, maxLength: 80 });
   const textIn = el("input", { type: "text", value: a.text, maxLength: 120 });
+  const hookIn = el("input", { type: "text", value: a.hook || "", maxLength: 60, placeholder: "Если пусто, на баннере будет заголовок" });   // короткий текст на самом баннере
   const saveBtn = el("button", { className: "small secondary", textContent: "Сохранить текст", hidden: true });
-  const changed = () => { saveBtn.hidden = titleIn.value === a.title && textIn.value === a.text; };
+  const same = () => titleIn.value === a.title && textIn.value === a.text && hookIn.value === (a.hook || "");
+  const changed = () => { saveBtn.hidden = same(); };
   titleIn.addEventListener("input", changed);
   textIn.addEventListener("input", changed);
+  hookIn.addEventListener("input", changed);
   // Сохраняет правку заголовка и текста. Возвращает номер объявления после сохранения (он может сдвинуться), null при ошибке.
   // Все кнопки редактора (нарисовать, другая подача, другой текст) вызывают это первым делом: иначе несохранённая правка теряется, и рисуется прежний текст.
   const commitText = async () => {
-    if (titleIn.value === a.title && textIn.value === a.text) return a.index;
+    if (same()) return a.index;
     saveBtn.disabled = true;
     let id = a.creative_id;
     if (!id) {   // шаблонный текст сначала сохраняем как свой
@@ -1304,7 +1307,7 @@ function adEditor(a) {
       if (!added.ok) { say(errorText(added), "err"); saveBtn.disabled = false; return null; }
       id = added.data.id;
     }
-    const r = await creativeCall("PUT", `/${id}`, { title: titleIn.value, body: textIn.value, status: "approved" });
+    const r = await creativeCall("PUT", `/${id}`, { title: titleIn.value, body: textIn.value, hook: hookIn.value, status: "approved" });
     if (!r.ok) { say(errorText(r), "err"); saveBtn.disabled = false; return null; }
     selectedAd = `${r.data.title}\u0000${r.data.body}`;
     await loadAds();
@@ -1430,7 +1433,8 @@ function adEditor(a) {
     ...(a.ai && a.ai.inspiration ? [el("span", { className: "hint", textContent: `Вдохновение: ${a.ai.inspiration}` })] : []),
     ...(a.ai && a.ai.ref_sent !== undefined ? [el("span", { className: "hint", textContent: a.ai.ref_sent ? `В последний заказ ушёл референс №${a.ai.ref_sent}: ${a.ai.ref_note}` : "В последний заказ референс не ушёл: баннер нарисован без него" })] : []));
   const fields = el("div", { className: "ed-fields" },
-    el("div", {}, el("span", { className: "lab", textContent: "Заголовок на баннере" }), titleIn, counterEl(titleIn, creativeLimits.title)),
+    el("div", {}, el("span", { className: "lab", textContent: "Заголовок объявления" }), titleIn, counterEl(titleIn, creativeLimits.title)),
+    el("div", {}, el("span", { className: "lab", textContent: "Текст на баннере (коротко, 2-5 слов)" }), hookIn, counterEl(hookIn, 40)),
     el("div", {}, el("span", { className: "lab", textContent: "Текст объявления" }), textIn, counterEl(textIn, creativeLimits.text), saveBtn, optBtn, optBox),
     el("div", {}, el("span", { className: "lab", textContent: "Фото" }), photoBox),
     ...(a.no_photo ? [el("p", { className: "hint ed-note", textContent: "Баннер нарисуется с нуля по описанию бизнеса: сцену придумает арт-директор, ваши фото в нём не используются." })] : []),
@@ -1504,6 +1508,7 @@ async function loadBriefs() {
       el("div", { className: "hint", textContent: b.audience ? `Для кого: ${b.audience}` : "Идея для проверки" }),
       el("div", { className: "brief-title", textContent: b.title }),
       el("div", { textContent: b.text }),
+      ...(b.hook ? [el("div", { className: "hint", textContent: `Текст на баннере: ${b.hook}` })] : []),
       ...(b.hypothesis ? [el("div", { className: "hint", textContent: `Проверяем: ${b.hypothesis}` })] : []),
       ...tags.map((t) => el("div", { className: "hint", textContent: t })));
     const toggle = el("button", { className: "small" + (used ? "" : " secondary"), textContent: used ? "Берём в рекламу ✓" : "Взять в рекламу" });
