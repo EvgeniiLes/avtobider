@@ -93,10 +93,12 @@ def _maps_id(biz) -> int | None:
 
 def text_candidates(conn: sqlite3.Connection, biz) -> list[dict]:
     """Тексты для объявлений по порядку: одобренные владельцем (взятые идеи и свои варианты), потом шаблоны.
-    Неодобренные черновики (старые тексты, которые ИИ писал раньше отдельным списком) в рекламу не идут: тексты берутся только из идей."""
+    Неодобренные черновики (старые тексты, которые ИИ писал раньше отдельным списком) в рекламу не идут: тексты берутся только из идей.
+    Исключение: черновик, под который уже нарисован баннер (владелец потратил на него деньги), остаётся, иначе баннер пропадёт из списка."""
     rows = conn.execute(
-        "SELECT id, title, body, angle, status, source, position FROM creatives WHERE business_id = ? AND kind = 'text' "
-        "AND status = 'approved' ORDER BY id", (biz["id"],)).fetchall()
+        "SELECT t.id, t.title, t.body, t.angle, t.status, t.source, t.position FROM creatives t WHERE t.business_id = ? AND t.kind = 'text' "
+        "AND (t.status = 'approved' OR (t.status = 'draft' AND EXISTS (SELECT 1 FROM creatives b WHERE b.business_id = t.business_id AND b.kind = 'ai_banner' "
+        "AND b.title = t.title AND b.body = t.body AND b.status IN ('draft', 'approved', 'working')))) ORDER BY t.id", (biz["id"],)).fetchall()
     chosen = [{"id": r["id"], "title": r["title"], "text": r["body"], "angle": r["angle"], "status": "approved", "position": r["position"]}
               for r in rows]
     chosen.sort(key=lambda c: c["position"] if c["position"] is not None else 1 << 30)   # порядок, который владелец задал перетаскиванием; остальные следом в прежнем порядке
