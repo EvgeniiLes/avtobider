@@ -5,7 +5,7 @@ let inflight = 0, busyTimer = null;
 function busy(delta) {
   inflight = Math.max(0, inflight + delta);
   clearTimeout(busyTimer);
-  const bar = document.getElementById("busy");
+  const bar = document.getElementById("net-bar");
   if (!bar) return;
   if (inflight > 0) busyTimer = setTimeout(() => { bar.hidden = false; }, 300); else bar.hidden = true;
 }

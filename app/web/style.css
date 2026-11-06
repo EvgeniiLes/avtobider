@@ -592,9 +592,9 @@ body.no-biz #nav-creatives, body.no-biz #nav-media, body.no-biz #nav-stats, body
 /* Экран загрузки: вместо белой страницы, пока скрипт не решил, что показать (вход или кабинет) */
 .boot { position: fixed; inset: 0; z-index: 100; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; align-content: center; gap: 12px 14px; background: var(--bg); font-weight: 600; }
 .boot[hidden] { display: none; }
-.busy { position: fixed; top: 0; left: 0; right: 0; height: 3px; z-index: 9999; background: linear-gradient(90deg, transparent 0, var(--text) 50%, transparent 100%) 0 0 / 40% 100% no-repeat; animation: busy-run 1s linear infinite; }
-.busy[hidden] { display: none; }
-@keyframes busy-run { from { background-position: -40% 0; } to { background-position: 140% 0; } }
+.net-bar { position: fixed; top: 0; left: 0; right: 0; height: 3px; z-index: 9999; background: linear-gradient(90deg, transparent 0, var(--text) 50%, transparent 100%) 0 0 / 40% 100% no-repeat; animation: net-bar-run 1s linear infinite; }
+.net-bar[hidden] { display: none; }
+@keyframes net-bar-run { from { background-position: -40% 0; } to { background-position: 140% 0; } }
 .boot-late { flex-basis: 100%; text-align: center; font-weight: 400; font-size: 13px; color: var(--muted); opacity: 0; animation: boot-late 0s 12s forwards; }
 @keyframes boot-late { to { opacity: 1; } }
 /* Новый бизнес вносится в шесть шагов; у существующего форма целиком */
