@@ -552,7 +552,7 @@ async function deleteBusiness() {
 
 let creativeTimer = null;
 let creativeLimits = { title: 56, text: 81 };
-const autoTexts = new Set();
+const autoIdeas = new Set();
 let creativePrices = { image: 0.08, video: 0.7, strategist: 0.03 };
 let usdRub = 95;   // курс приходит с сервера: генерация оплачивается в долларах, а человеку цену показываем в рублях
 const usd = (v) => {   // имя прежнее, но возвращает рубли
@@ -584,23 +584,19 @@ async function loadCreatives() {
   $("media-body").hidden = !has;
   if (!has) return;
   const result = await creativeCall("GET", "");
-  if (!result.ok) { setStatus("cr-texts-status", errorText(result), "err"); return; }
+  if (!result.ok) { setStatus("briefs-status", errorText(result), "err"); return; }
   const { creatives, caps, spend, limits, prices_usd, usd_rub } = result.data;
   creativeLimits = limits;
   if (prices_usd) creativePrices = prices_usd;
   if (usd_rub) usdRub = usd_rub;
   $("briefs-gen").textContent = `Предложить идеи · ${usd(creativePrices.strategist)}`;
 
-  const note = $("cr-ai-note");
-  note.hidden = caps.text_ai;
-  note.textContent = "ИИ для текстов пока не подключён на сервере, поэтому варианты собираются по шаблону. Их можно править и писать свои.";
   $("cr-image-note").hidden = caps.image_ai;
   $("cr-image-note").textContent = "Создание картинок и видео пока не подключено на сервере. Свои фото можно загрузить выше, в этом же разделе.";
   $("cr-image-form").hidden = !caps.image_ai;
   $("cr-spend").textContent = caps.image_ai || caps.text_ai
     ? `Потрачено на создание в этом месяце: ${usd(spend.spent_usd)} из ${usd(spend.limit_usd)}, всего с начала: ${usd(spend.total_usd ?? spend.spent_usd)}. Больше лимита сервис не потратит, 1-го числа он обнуляется. Сумма пересчитана по курсу ${usdRub} ₽ за доллар, это примерно.` : "";
 
-  renderTexts(creatives.filter((c) => c.kind === "text").reverse());  // старые сверху, новые снизу
   const images = creatives.filter((c) => c.kind === "image");
   const videos = creatives.filter((c) => c.kind === "video");
   renderMedia($("cr-images"), images, caps.video_ai);
@@ -612,11 +608,6 @@ async function loadCreatives() {
   loadBriefs();
   $("cr-videos-empty").hidden = videos.length > 0;
   loadAds();
-  const hasAiText = creatives.some((c) => c.kind === "text" && c.source === "claude");
-  if (caps.text_ai && !hasAiText && !autoTexts.has(currentBusiness.id) && (currentBusiness.description || "").trim().length >= 40) {
-    autoTexts.add(currentBusiness.id);  // один раз на бизнес: ИИ пишет тексты сам, чтобы вместо шаблонов были настоящие варианты
-    generateTexts(true);
-  }
   if (creatives.some((c) => c.status === "working")) creativeTimer = setTimeout(loadCreatives, 6000);
 }
 
@@ -1350,35 +1341,6 @@ function updateIdeasCount() {
     : "";
 }
 
-const SOURCE_LABEL = { claude: "ИИ", template: "шаблон", user: "ваш" };
-const STATUS_LABEL = { approved: "Одобрено", rejected: "Не используем", draft: "Ждёт решения" };
-
-function renderTexts(items) {
-  const list = $("cr-texts");
-  list.replaceChildren();
-  if (!items.length) list.append(el("li", { className: "hint", textContent: "Вариантов пока нет. Нажмите «Придумать тексты»." }));
-  for (const c of items) {
-    const title = el("input", { type: "text", value: c.title, maxLength: 80 });
-    const body = el("input", { type: "text", value: c.body, maxLength: 120 });
-    const meta = el("div", { className: "meta" }, counterEl(title, creativeLimits.title), counterEl(body, creativeLimits.text),
-      el("span", { className: "pill", textContent: `${STATUS_LABEL[c.status] || c.status}, ${SOURCE_LABEL[c.source] || c.source}` }),
-      ...(c.angle_label ? [el("span", { className: "pill", textContent: `Угол: ${c.angle_label}` })] : []));
-    const save = async (status) => {
-      const r = await creativeCall("PUT", `/${c.id}`, { title: title.value, body: body.value, status });
-      if (!r.ok) { setStatus("cr-texts-status", errorText(r), "err"); return; }
-      setStatus("cr-texts-status", "");
-      await loadCreatives();
-    };
-    const approve = el("button", { className: "small", textContent: c.status === "approved" ? "Сохранить" : "Использовать" });
-    approve.addEventListener("click", () => save("approved"));
-    const skip = el("button", { className: "small secondary", textContent: "Не использовать" });
-    skip.addEventListener("click", () => save("rejected"));
-    const del = el("button", { className: "small secondary", textContent: "Удалить" });
-    del.addEventListener("click", async () => { await creativeCall("DELETE", `/${c.id}`); await loadCreatives(); });
-    list.append(el("li", { className: c.status }, title, body, meta, el("div", { className: "btns" }, approve, skip, del)));
-  }
-}
-
 // Стратег: несколько разных идей для A/B-теста; взятая в рекламу идея становится объявлением со своими фото и подачей.
 let ideasState = [];
 
@@ -1410,12 +1372,16 @@ async function loadBriefs() {
     return el("div", { className: "brief" + (used ? " used" : "") }, b.photo_url ? el("img", { src: b.photo_url, alt: b.title }) : "", body, acts);
   }));
   updateIdeasCount();
+  if (!ideasState.length && caps_text_ai && !autoIdeas.has(currentBusiness.id) && (currentBusiness.description || "").trim().length >= 40) {
+    autoIdeas.add(currentBusiness.id);   // один раз на бизнес: ИИ предлагает идеи сам, чтобы вместо шаблонов были настоящие тексты
+    generateBriefs(true);
+  }
 }
 
-async function generateBriefs() {
+async function generateBriefs(auto = false) {
   const button = $("briefs-gen");
   button.disabled = true;
-  setStatus("briefs-status", "Придумываю идеи… около полминуты");
+  setStatus("briefs-status", auto === true ? "Пишем первые идеи… около полминуты" : "Придумываю идеи… около полминуты");
   const r = await api("POST", `/api/businesses/${currentBusiness.id}/briefs/generate`, { count: Number($("briefs-count").value) });
   button.disabled = false;
   setStatus("briefs-status", r.ok ? `Готово, идей: ${r.data.briefs.length}. Выберите подходящие.` : errorText(r), r.ok ? "ok" : "err");
@@ -1496,16 +1462,6 @@ function renderMedia(grid, items, canMakeVideo) {
   }
 }
 
-async function generateTexts(auto = false) {
-  const button = $("cr-gen-texts");
-  button.disabled = true;
-  setStatus("cr-texts-status", auto === true ? "Пишем первые варианты…" : "Придумываем…");
-  const r = await creativeCall("POST", "/texts/generate", { count: 6, hint: $("cr-hint").value });
-  button.disabled = false;
-  setStatus("cr-texts-status", r.ok ? r.data.message : errorText(r), r.ok ? "ok" : "err");
-  await loadCreatives();
-}
-
 async function generateImages() {
   const button = $("cr-gen-images");
   const count = Number($("cr-image-count").value);
@@ -1519,10 +1475,10 @@ async function generateImages() {
 
 async function addOwnText() {
   const r = await creativeCall("POST", "/texts", { title: $("cr-own-title").value, body: $("cr-own-body").value });
-  if (!r.ok) { setStatus("cr-texts-status", errorText(r), "err"); return; }
+  if (!r.ok) { setStatus("briefs-status", errorText(r), "err"); return; }
   $("cr-own-title").value = "";
   $("cr-own-body").value = "";
-  setStatus("cr-texts-status", "Вариант добавлен. Нажмите «Использовать», чтобы он попал в рекламу.", "ok");
+  setStatus("briefs-status", "Свой вариант добавлен и пойдёт в рекламу.", "ok");
   await loadCreatives();
 }
 
@@ -2783,7 +2739,6 @@ async function start() {
   $("ads-launch").addEventListener("click", () => { showPage("home"); openLaunch(); });
   $("ads-ai-all").addEventListener("click", makeAllBanners);
   $("ads-ai-redo").addEventListener("click", redrawAllBanners);
-  $("cr-gen-texts").addEventListener("click", () => generateTexts());
   $("photos-check").addEventListener("click", checkPhotos);
   $("insights-ai").addEventListener("click", analyzeResults);
   $("cr-gen-images").addEventListener("click", generateImages);
