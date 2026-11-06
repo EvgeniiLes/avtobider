@@ -466,8 +466,7 @@ async def attach_banners(client: DirectClient, biz, created: list[dict], photos:
             hashes = []
             for variant, place in zip(c["variants"], c["indexes"]):
                 try:
-                    ready = (ai or {}).get((variant["title"], variant["text"]))
-                    banner = ready if ready is not None else (render_banner(biz, variant, photo_for(photos, place)[1], logo, place) if photos else None)
+                    banner = (ai or {}).get((variant["title"], variant["text"]))   # только баннер, нарисованный нейросетью: шаблонные в рекламу не идут
                     if banner is not None:
                         hashes.append(await client.upload_image(banner, f"autobider-{biz['id']}-{place + 1}-{c['ad_id']}.jpg"))
                 except DirectError as e:
@@ -484,12 +483,9 @@ async def attach_banners(client: DirectClient, biz, created: list[dict], photos:
         try:
             place = c.get("index", i)   # номер в списке объявлений: от него зависят шаблон и фото баннера
             ready = (ai or {}).get((c["variant"]["title"], c["variant"]["text"]))
-            if ready is not None:
-                banner = ready  # ИИ-баннер целиком
-            elif photos:
-                banner = render_banner(biz, c["variant"], photo_for(photos, place)[1], logo, place)
-            else:
-                continue
+            if ready is None:
+                continue   # баннер ещё не нарисован: объявление идёт без картинки, шаблонную заглушку не ставим
+            banner = ready  # ИИ-баннер целиком
             image_hash = await client.upload_image(banner, f"autobider-{biz['id']}-{place + 1}-{c['ad_id']}.jpg")
             await client.attach_image(c["ad_id"], image_hash)
             c["image_hash"] = image_hash

@@ -95,7 +95,12 @@ class DirectPlatform:
 
         async def go(c: DirectClient) -> list[str]:
             await c.update_text_ad(ad_id, title, text, title2 or None)
-            problems = await attach_banners(c, biz, created, photos, logo, ai) if (photos or ai) else []
+            problems = await attach_banners(c, biz, created, photos, logo, ai) if ai else []
+            if (title, text) not in ai:   # у нового текста нет нарисованного баннера, а на прежнем написан старый: убираем картинку, пока не нарисуют новую
+                try:
+                    await c.detach_image(ad_id)
+                except DirectError:
+                    problems.append("прежний баннер остался: нарисуйте новый для этого текста")
             try:
                 await c.moderate_ads([ad_id])   # правка принятого объявления уходит на проверку сама; если нет, отправляем
             except DirectError:

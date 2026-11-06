@@ -436,6 +436,11 @@ class DirectClient:
         result = await self.call("ads", "update", {"Ads": [{"Id": ad_id, "TextAd": ad}]})
         self._result_item(result, "UpdateResults")
 
+    async def detach_image(self, ad_id: int) -> None:
+        """Убирает картинку у объявления (у нового текста старый баннер с прежней надписью не нужен)."""
+        result = await self.call("ads", "update", {"Ads": [{"Id": ad_id, "TextAd": {"AdImageHash": None}}]})
+        self._result_item(result, "UpdateResults")
+
     async def attach_image(self, ad_id: int, image_hash: str) -> None:
         """Привязывает загруженную картинку к объявлению (у объявления может быть одна)."""
         result = await self.call("ads", "update", {"Ads": [{"Id": ad_id, "TextAd": {"AdImageHash": image_hash}}]})

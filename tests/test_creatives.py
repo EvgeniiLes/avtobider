@@ -306,10 +306,8 @@ def test_ready_ads_pair_text_with_banner():
         data = http.get(f"{base}/ads").json()
         first = data["ads"][0]
         assert first["title"] == "Маникюр в центре Москвы" and first["own"] is True and first["creative_id"] == text["id"]
-        assert data["has_images"] is True and first["banner_url"].endswith("/ads/0/banner.jpg")
-        banner = http.get(first["banner_url"])
-        assert banner.status_code == 200 and banner.headers["content-type"] == "image/jpeg"
-        assert Image.open(BytesIO(banner.content)).size[0] > 300
+        assert data["has_images"] is True and first["banner_url"] == ""   # шаблонный баннер из фото не показываем: сервис просит нарисовать баннер кнопкой
+        assert first["ai"]["status"] == "none"
         assert http.get(f"{base}/ads/99/banner.jpg").status_code == 404
     with TestClient(app) as other:
         other.post("/api/auth/register", json={"email": "x@example.com", "password": "password123"})

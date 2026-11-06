@@ -292,7 +292,7 @@ def ads(business_id: int, user: sqlite3.Row = Depends(current_user), conn: sqlit
         style = style_for(i)
         ai = None
         photo_type = photo_for(photos, i)[0] if photos and style != "ai" else ""
-        banner = f"/api/businesses/{business_id}/creatives/ads/{i}/banner.jpg" if photos else ""
+        banner = ""   # шаблонные баннеры, собранные кодом, не показываем и не отправляем в рекламу: баннер появляется, когда его нарисовала нейросеть
         row = _ai_row(conn, business_id, v)
         state = "none" if row is None else "working" if row["status"] == "working" else "failed" if row["status"] == "failed" else "ready"
         ai = {"status": state, "error": row["error"] if row is not None and state == "failed" else ""}
@@ -320,9 +320,7 @@ def ads(business_id: int, user: sqlite3.Row = Depends(current_user), conn: sqlit
                 _brief_prompt(biz, v["title"], v["text"], i % len(fal.PHOTO_LOOKS), auto_ref) if auto_ref else fal.photo_banner_prompt(
                     biz, v["title"], find_price(v["title"], v["text"], fallback=effective_description(biz)), profile(biz)["cta"], brief["look"] if brief else i))
         if state == "ready":
-            banner = f"/api/businesses/{business_id}/creatives/ads/{i}/banner.jpg"   # готовый ИИ-баннер важнее шаблона
-        elif style == "ai":
-            banner = ""
+            banner = f"/api/businesses/{business_id}/creatives/ads/{i}/banner.jpg"   # готовый ИИ-баннер
         items.append({"index": i, "title": v["title"], "text": v["text"], "own": v["status"] == "approved",
                       "creative_id": v["creative_id"], "text_status": v["status"], "style": style, "ai": ai, "banner_url": banner,
                       "angle": v.get("angle", ""), "angle_label": angle_label(v.get("angle", "")),

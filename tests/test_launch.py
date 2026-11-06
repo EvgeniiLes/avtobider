@@ -62,7 +62,7 @@ def test_preview_shows_what_will_be_created(isolated):
         assert plan["weekly"] <= BUDGET * 0.9 * 0.7 + 6 and plan["total"] == plan["weekly"]   # одна кампания, один недельный лимит
         assert all(len(v["title"]) <= 56 and len(v["text"]) <= 81 for v in plan["variants"])
         assert len({v["title"] for v in plan["variants"]}) == 3
-        assert [w for w in plan["warnings"] if "Профиль аудитории" not in w] == []
+        assert [w for w in plan["warnings"] if "Профиль аудитории" not in w and "нет баннера" not in w] == []
         assert any("Профиль аудитории не составлен" in w for w in plan["warnings"]) and plan["keywords"] == [] and plan["audience"] is None
         assert plan["autotargeting"]["categories"] == ["Целевые", "Узкие"] and "Запросы с брендами конкурентов" not in plan["autotargeting"]["brands"]
         assert fake.campaigns == {}  # просмотр ничего не создаёт
@@ -87,7 +87,7 @@ def test_online_business_is_shown_across_russia_and_needs_no_city(isolated):
         bid = setup(http, fake, isolated, city="", nationwide=True, description="Онлайн-консультации по всей стране. Запись на сайте.")
         assert http.get(f"/api/businesses/{bid}").json()["nationwide"] is True
         plan = http.get(f"/api/businesses/{bid}/launch/preview").json()
-        assert plan["city"] == "вся Россия" and [w for w in plan["warnings"] if "Профиль аудитории" not in w] == []
+        assert plan["city"] == "вся Россия" and [w for w in plan["warnings"] if "Профиль аудитории" not in w and "нет баннера" not in w] == []
         steps = {s["key"]: s for s in http.get(f"/api/businesses/{bid}/overview").json()["checklist"]}
         assert steps["described"]["done"] is True                                  # города нет, а бизнес описан
         assert http.post(f"/api/businesses/{bid}/launch", json={"marking_confirmed": True}).status_code == 200
@@ -223,7 +223,7 @@ def test_more_than_three_ads_at_launch_go_into_several_campaigns_each_with_its_o
         assert ov["budget"]["weekly"] == biz_budget * 2 // MICRO                       # на счётчике бюджет всей рекламы: группа × число групп
 
 
-def test_launch_adds_banners_from_uploaded_photos_and_logo(isolated):
+def test_launch_does_not_add_code_made_banners_and_asks_to_draw_them(isolated):
     from io import BytesIO
     from PIL import Image
     def png(color):
@@ -236,10 +236,10 @@ def test_launch_adds_banners_from_uploaded_photos_and_logo(isolated):
         for kind, color in (("photo", (200, 100, 50)), ("photo", (50, 100, 200)), ("logo", (255, 255, 255))):
             r = http.post(f"/api/businesses/{bid}/assets", data={"kind": kind, "tag": "work"}, files={"file": ("a.png", png(color), "image/png")})
             assert r.status_code == 200, r.text
+        plan = http.get(f"/api/businesses/{bid}/launch/preview").json()
+        assert any("нет баннера" in w for w in plan["warnings"])                       # сервис просит нарисовать баннеры, а не ставит шаблонные
         assert http.post(f"/api/businesses/{bid}/launch", json={"marking_confirmed": True}).status_code == 200
-        assert len(fake.images) == 3 and fake.images[0].startswith("autobider-")
-        attached = [a["ad"].get("AdImageHash") for a in fake.ads.values()]
-        assert all(h and h.startswith("hash") for h in attached) and len(set(attached)) == 3  # у каждого объявления свой баннер
+        assert fake.images == [] and not any(a["ad"].get("AdImageHash") for a in fake.ads.values())   # шаблонные баннеры из фото в рекламу не уходят
 
 
 def test_launch_without_photos_has_no_banners(isolated):
