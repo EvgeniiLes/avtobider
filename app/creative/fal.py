@@ -103,9 +103,7 @@ LOGO_RULE = (" The company logo is part of the layout: reserve one clean, flat, 
 ONE_BANNER = "Generate only ONE finished banner (not a mockup, not a collage, not a presentation board). "
 AVOID = ("Avoid: any other text or invented words, the business name, website addresses, domain names, phone numbers, logos, emblems, icons, mascots, "
          "watermarks; decorative frames, ornaments, golden dust, sparkles, glow or lens flare (they make the banner look cheap); 3D or glossy lettering "
-         "effects (the text must stay flat and readable); distorted hands or extra fingers, plastic skin, warped, blurred or duplicated letters; "
-         "impossible object geometry: every part must sit where it belongs (wheels only at the bottom of a vehicle, never inside a door or body panel; mirrors, handles, legs and other parts "
-         "in their real places), no merged, duplicated or missing parts.")
+         "effects (the text must stay flat and readable); distorted hands or extra fingers, plastic skin, warped, blurred or duplicated letters.")
 
 
 _URLISH = re.compile(r"https?://|www\.|\.(?:ru|com|net|org|io|рф)\b", re.IGNORECASE)
