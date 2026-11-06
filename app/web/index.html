@@ -225,11 +225,12 @@
 
         <form id="business-form">
           <div id="wizard-bar" class="wizard-bar" hidden>
-            <span id="wizard-label"></span>
-            <div class="wizard-dots" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+            <ol id="wizard-stepper" class="stepper" aria-label="Шаги заполнения"></ol>
+            <p id="wizard-label" class="wizard-label"></p>
           </div>
           <fieldset class="card" data-step="1">
             <legend id="business-title">Расскажите о бизнесе</legend>
+            <p class="step-intro">Название и описание: по ним нейросеть пишет тексты объявлений и рисует баннеры.</p>
             <label for="b-name">Название</label>
             <input type="text" id="b-name" maxlength="100" required placeholder="Например, Салон «Лотос»">
 
@@ -253,6 +254,7 @@
 
           <fieldset class="card" data-step="2">
             <legend>Где показывать</legend>
+            <p class="step-intro">Город и район, где живут ваши клиенты, адрес и ссылки на сайт и Карты.</p>
             <label class="check"><input type="checkbox" id="b-nationwide"> Показывать по всей России (онлайн-услуга, города нет)</label>
             <p class="hint">Отметьте, если клиенты могут быть откуда угодно: сервис покажет рекламу по всей России и не будет писать город в объявлениях.</p>
 
@@ -280,6 +282,7 @@
 
           <fieldset class="card" data-step="3">
             <legend>Деньги</legend>
+            <p class="step-intro">Сколько тратить и сколько стоит клиент: по этому сервис решает, какая реклама окупается.</p>
             <label for="b-budget">Сколько тратить в неделю на каждые три объявления, ₽</label>
             <input type="number" id="b-budget" min="0" step="1" inputmode="numeric" placeholder="Например, 5000">
             <p class="hint">Объявления идут группами по три, у каждой группы свой бюджет, и больше него она за неделю не потратит. Три объявления на 5 000 ₽ потратят вместе не больше 5 000 ₽. Если объявлений станет четыре и больше, групп будет две, и расход удвоится.</p>
@@ -302,9 +305,9 @@
               <span><strong>Делать самому</strong><br><span class="hint">Сервис сам меняет рекламу и записывает всё в историю. Любое изменение можно отменить.</span></span></label>
           </fieldset>
 
-          <fieldset class="card" data-step="3">
-            <details id="b-style-box" open>
-            <summary class="legend-like">Стиль картинок <span class="hint">(необязательно)</span></summary>
+          <fieldset class="card" data-step="4">
+            <legend>Оформление картинок <span class="hint">(необязательно)</span></legend>
+            <p class="step-intro">Если ничего не выбирать, сервис подберёт стиль сам. Шаг можно пропустить.</p>
             <label for="b-visual">Что показывать на картинках <span class="hint">(необязательно)</span></label>
             <textarea id="b-visual" rows="2" maxlength="300" placeholder="Например: игра идёт в телефоне, на картинках смартфон в руках. Бумажных карт быть не должно."></textarea>
             <p class="hint">Нейросеть рисует по описанию бизнеса, но иногда понимает смысл не так. Здесь вы можете прямо сказать, что должно быть на картинках и чего не должно.</p>
@@ -322,13 +325,12 @@
               </div>
             </div>
             <p class="hint">Цвета и логотип помогут сделать картинки в вашем стиле.</p>
-            </details>
           </fieldset>
 
           <div id="wizard-nav" class="wizard-nav" hidden>
             <button type="button" id="wizard-back" class="secondary">Назад</button>
             <button type="button" id="wizard-next">Дальше</button>
-            <button type="button" id="wizard-done" hidden>Готово, к следующему шагу</button>
+            <button type="button" id="wizard-done" hidden>Готово, к рекламе</button>
           </div>
 
           <div class="savebar">
@@ -338,6 +340,7 @@
           </div>
         </form>
         <div id="wizard-files"></div>
+        <p id="wizard-connect-intro" class="notice">Последний шаг: подключения. Метрика покажет, какие объявления приводят обращения, а данные рекламодателя нужны Директу по закону о рекламе. Всё это можно пропустить и вернуться позже на странице «Бизнес».</p>
 
         <div class="card" id="metrika-card" hidden>
           <h2>Обращения с сайта (Яндекс Метрика)</h2>

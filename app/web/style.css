@@ -594,21 +594,35 @@ body.no-biz #nav-creatives, body.no-biz #nav-media, body.no-biz #nav-stats, body
 .boot[hidden] { display: none; }
 .boot-late { flex-basis: 100%; text-align: center; font-weight: 400; font-size: 13px; color: var(--muted); opacity: 0; animation: boot-late 0s 12s forwards; }
 @keyframes boot-late { to { opacity: 1; } }
-/* Новый бизнес вносится в три шага; у существующего форма целиком */
-.wizard-bar { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin: 0 0 12px; font-weight: 600; }
+/* Новый бизнес вносится в шесть шагов; у существующего форма целиком */
+.wizard-bar { margin: 0 0 14px; }
 .wizard-bar[hidden], .wizard-nav[hidden] { display: none; }
-.wizard-dots { display: flex; gap: 6px; }
-.wizard-dots i { width: 28px; height: 6px; border-radius: 999px; background: var(--line); }
-#business-form[data-wstep="1"] .wizard-dots i:nth-child(-n+1), #business-form[data-wstep="2"] .wizard-dots i:nth-child(-n+2), #business-form[data-wstep="3"] .wizard-dots i { background: var(--text); }
+.stepper { display: flex; gap: 6px; list-style: none; margin: 0; padding: 0; }
+.stepper li { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 6px; padding-top: 10px; border-top: 4px solid var(--line); color: var(--muted); font-size: 13px; line-height: 1.25; }
+.stepper li.done { border-top-color: var(--text); }
+.stepper li.current { border-top-color: var(--text); color: var(--text); font-weight: 700; }
+.stepper .n { width: 24px; height: 24px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; background: var(--line); color: var(--text); }
+.stepper li.done .n, .stepper li.current .n { background: var(--text); color: var(--surface); }
+.wizard-label { display: none; margin: 10px 0 0; font-weight: 700; }
+.step-intro { display: none; margin: 0 0 14px; color: var(--muted); }
+.wizard .step-intro { display: block; }
 .wizard-nav { display: flex; gap: 10px; margin: 6px 0 12px; }
-#business-form.wizard[data-wstep="1"] fieldset:not([data-step="1"]), #business-form.wizard[data-wstep="2"] fieldset:not([data-step="2"]), #business-form.wizard[data-wstep="3"] fieldset:not([data-step="3"]) { display: none; }
-#business-form.wizard:not([data-wstep="3"]) .savebar { display: none; }
-summary.legend-like { font-weight: 700; cursor: pointer; margin-bottom: 6px; }
-/* Шаг 4 мастера: карточка загрузки фото и видео временно переезжает под форму */
+#business-form.wizard fieldset { display: none; }
+#business-form.wizard[data-wstep="1"] fieldset[data-step="1"], #business-form.wizard[data-wstep="2"] fieldset[data-step="2"],
+#business-form.wizard[data-wstep="3"] fieldset[data-step="3"], #business-form.wizard[data-wstep="4"] fieldset[data-step="4"] { display: block; }
+#business-form.wizard:not([data-wstep="4"]) .savebar { display: none; }
+/* Шаг 5 мастера: карточка загрузки фото и видео временно переезжает под форму */
 #wizard-files { display: none; }
-#business-form[data-wstep="4"] + #wizard-files { display: block; }
-#business-form.wizard[data-wstep="4"] fieldset { display: none; }
-#business-form[data-wstep="4"] .wizard-dots i { background: var(--text); }
+#business-form[data-wstep="5"] + #wizard-files { display: block; }
+/* Шаг 6: подключения (Метрика и данные рекламодателя); пока идёт заполнение, раньше их не показываем */
+#wizard-connect-intro { display: none; }
+#business-form[data-wstep="6"] ~ #wizard-connect-intro { display: block; }
+#business-form.wizard:not([data-wstep="6"]) ~ #metrika-card, #business-form.wizard:not([data-wstep="6"]) ~ #marking-card { display: none; }
+@media (max-width: 700px) {
+  .stepper .t { display: none; }
+  .stepper li { padding-top: 8px; }
+  .wizard-label { display: block; }
+}
 /* Описание референса показываем целиком, с переносом строк */
 .chip.wrap { white-space: normal; text-align: left; border-radius: 18px; max-width: 100%; line-height: 1.35; }
 

@@ -278,14 +278,15 @@ function fillForm(b) {
   loadAdvice();
 }
 
-// Новый бизнес вносится в четыре шага: что за бизнес, где показывать, сколько тратить, фото и видео. У существующего форма целиком.
-const WIZARD_LABELS = ["О бизнесе", "Где показывать", "Деньги", "Фото и видео"];   // на четвёртом шаге бизнес уже сохранён
+// Новый бизнес вносится в шесть шагов: что за бизнес, где показывать, деньги, оформление, фото и видео, подключения. У существующего форма целиком.
+// Бизнес сохраняется на четвёртом шаге, поэтому на пятом и шестом форма уже недоступна.
+const WIZARD_LABELS = ["О бизнесе", "Где показывать", "Деньги", "Оформление", "Фото и видео", "Подключения"];
+const WIZARD_SAVE_STEP = 4;
 let wizardStep = 1;
 
 function setWizard(on) {
   $("business-form").classList.toggle("wizard", on);
   $("wizard-bar").hidden = $("wizard-nav").hidden = !on;
-  $("b-style-box").open = !on;   // стиль картинок необязателен: новичку не мешает
   $("business-save").textContent = on ? "Сохранить и перейти к фото" : "Сохранить";
   if (on) showWizardStep(1); else { delete $("business-form").dataset.wstep; moveFilesCard(false); }
 }
@@ -298,7 +299,7 @@ function moveFilesCard(toWizard) {
 
 function openWizardPhotos() {
   setWizard(true);
-  showWizardStep(4);
+  showWizardStep(WIZARD_SAVE_STEP + 1);
   moveFilesCard(true);
   renderFiles();
   window.scrollTo(0, 0);
@@ -312,10 +313,13 @@ function finishWizard() {
 function showWizardStep(n) {
   wizardStep = n;
   $("business-form").dataset.wstep = String(n);
+  $("wizard-stepper").replaceChildren(...WIZARD_LABELS.map((label, i) => el("li", { className: i + 1 < n ? "done" : i + 1 === n ? "current" : "" },
+    el("span", { className: "n", textContent: i + 1 < n ? "✓" : String(i + 1) }), el("span", { className: "t", textContent: label }))));
   $("wizard-label").textContent = `Шаг ${n} из ${WIZARD_LABELS.length}: ${WIZARD_LABELS[n - 1]}`;
-  $("wizard-back").hidden = n === 1 || n === 4;   // бизнес уже сохранён: назад к форме нельзя
-  $("wizard-next").hidden = n >= 3;   // на третьем шаге вместо «Дальше» кнопка сохранения
-  $("wizard-done").hidden = n !== 4;
+  $("wizard-back").hidden = n === 1 || n === WIZARD_SAVE_STEP + 1;   // бизнес уже сохранён: назад к форме нельзя
+  $("wizard-next").hidden = n === WIZARD_SAVE_STEP || n === WIZARD_LABELS.length;   // на последнем шаге формы вместо «Дальше» кнопка сохранения
+  $("wizard-next").textContent = n === WIZARD_SAVE_STEP + 1 ? "Дальше: подключения" : "Дальше";
+  $("wizard-done").hidden = n !== WIZARD_LABELS.length;
 }
 
 function wizardNext() {
@@ -478,6 +482,7 @@ async function refreshNav() {
 function newBusiness() {
   currentBusiness = null;
   updateNav(false, false);
+  $("metrika-card").hidden = $("marking-card").hidden = true;   // от прежнего бизнеса: у нового их нет, пока он не сохранён
   fillForm(null);
   renderFiles();
   $("stopbar").hidden = true;
@@ -512,7 +517,7 @@ function readForm() {
 
 async function saveBusiness(event) {
   event.preventDefault();
-  if ($("business-form").classList.contains("wizard") && wizardStep < 3) { wizardNext(); return; }   // Enter на первых шагах ведёт дальше, а не сохраняет недописанное
+  if ($("business-form").classList.contains("wizard") && wizardStep < WIZARD_SAVE_STEP) { wizardNext(); return; }   // Enter на первых шагах ведёт дальше, а не сохраняет недописанное
   const button = $("business-save");
   button.disabled = true;
   setStatus("business-status", "Сохраняем…");
