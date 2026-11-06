@@ -134,8 +134,9 @@ def in_district(name: str) -> str:
     low = d.lower()
     if not d or " " in d or "-" in d or any(ch.isdigit() for ch in d):
         return f"в районе {d}"
-    if low.endswith(("ый", "ой", "ий")):
-        return f"в {d[:-2]}{'ом' if low.endswith(('ый', 'ой')) else 'ем'} районе"
+    if low.endswith(("ый", "ой", "ий")):   # Центральный → в Центральном, Выборгский → в Выборгском; мягкий «-ий» (Крайний) → в Крайнем
+        hard = low.endswith(("ый", "ой")) or low.endswith(("ский", "цкий", "кий", "гий", "хий"))
+        return f"в {d[:-2]}{'ом' if hard else 'ем'} районе"
     if low.endswith(("ая", "яя", "ое", "ее")):
         return f"в районе {d}"
     if low.endswith(("ы", "и")):

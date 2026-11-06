@@ -389,6 +389,11 @@ def init_db(db_path: Path) -> None:
     try:
         conn.executescript(SCHEMA)
         _add_missing_columns(conn)
+        # Раньше «Выборгский» склонялся как «в Выборгскем районе»: поправляем в сохранённых текстах и в сделанных под них баннерах одновременно,
+        # чтобы заголовок и баннер остались одной парой (по ней баннер находит своё объявление)
+        for table in ("creatives", "briefs"):
+            conn.execute(f"UPDATE {table} SET title = REPLACE(title, 'скем районе', 'ском районе'), body = REPLACE(body, 'скем районе', 'ском районе') "
+                         "WHERE title LIKE '%скем районе%' OR body LIKE '%скем районе%'")
         conn.execute(
             "INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?)",
             (str(SCHEMA_VERSION),),

@@ -6,4 +6,6 @@ def test_district_names_are_declined_for_ad_texts():
     assert in_district("Хамовники") == "в Хамовниках" and in_district("Черёмушки") == "в Черёмушках"
     assert in_district("Хоста") == "в Хосте" and in_district("Строгино") == "в Строгино"
     assert in_district("Центральный") == "в Центральном районе"
+    assert in_district("Выборгский") == "в Выборгском районе" and in_district("Московский") == "в Московском районе"   # не «в Выборгскем»
+    assert in_district("Крайний") == "в Крайнем районе"                                                                  # мягкое «-ий»
     assert in_district("Красная Поляна") == "в районе Красная Поляна"   # не уверены: говорим со словом «район»

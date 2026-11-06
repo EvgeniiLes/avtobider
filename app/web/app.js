@@ -1154,14 +1154,15 @@ function adEditor(a) {
     ? [el("div", { className: "notice" }, el("p", { textContent: rejected
       ? `Сервис не принял этот баннер: ${why || "не прошёл проверку"}. Он показан, чтобы вы видели, что не так. На объявлении остаётся прежний, если он был.`
       : `Новый баннер не вышел: ${why || "попробуйте ещё раз"}. Пока показан прежний.` }), ...(rejected ? [acceptBtn] : []))] : [];
-  const versions = lastCreatives.filter((c) => c.kind === "ai_banner" && c.title === a.title && c.body === a.text && (c.status === "draft" || c.status === "approved") && c.url)
-    .sort((x, y) => y.id - x.id).slice(0, 8);
+  const versions = lastCreatives.filter((c) => c.kind === "ai_banner" && c.title === a.title && c.body === a.text && (c.status === "draft" || c.status === "approved" || c.status === "failed") && c.url)
+    .sort((x, y) => y.id - x.id).slice(0, 8);   // и не принятые проверкой: видно всё, что нарисовано
   const strip = el("div", { className: "versions" });
   if (versions.length > 1) {
     strip.append("Версии:");
     versions.forEach((v, i) => {
-      const img = el("img", { src: v.url, alt: `Версия ${versions.length - i}`, title: v.current ? "Сейчас на объявлении" : "Вернуть эту версию", className: v.current ? "cur" : "" });
-      if (!v.current) img.addEventListener("click", async () => {
+      const bad = v.status === "failed";
+      const img = el("img", { src: v.url, alt: `Версия ${versions.length - i}`, title: bad ? `Не принят проверкой: ${v.error || "ошибка"}` : v.current ? "Сейчас на объявлении" : "Вернуть эту версию", className: v.current ? "cur" : bad ? "bad" : "" });
+      if (!v.current && !bad) img.addEventListener("click", async () => {
         const r = await creativeCall("POST", `/${v.id}/restore`);
         say(r.ok ? "Версия возвращена." : errorText(r), r.ok ? "ok" : "err");
         await loadCreatives();
@@ -1435,7 +1436,8 @@ function renderBannerHistory(banners) {
     if (c.status === "working") tile.append(el("div", { className: "wait" }, el("div", { className: "spinner" }), el("div", { textContent: "Рисуем… около минуты" })));
     else if (c.status === "failed") {
       const why = c.error || "Не получилось.";
-      tile.append(el("div", { className: "wait", title: why, textContent: why.length > 150 ? `${why.slice(0, 147)}…` : why }));
+      if (c.url) tile.append(el("img", { src: c.url, alt: c.title, title: `Не принят проверкой: ${why}` }));   // забракованный баннер виден, чтобы можно было сравнить
+      tile.append(el("div", { className: c.url ? "hint" : "wait", title: why, textContent: why.length > 150 ? `${why.slice(0, 147)}…` : why }));
     } else tile.append(el("img", { src: c.url, alt: c.title }));
     const m = c.meta || {};
     const current = !!c.current;
