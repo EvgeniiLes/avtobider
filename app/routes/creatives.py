@@ -21,7 +21,7 @@ from app.creative import fal, motion, refs
 from app.creative.angles import effective_description, label as angle_label, profile
 from app.assets import PHOTO_TAGS
 from app.creative.compose import add_caption, add_logo, find_price, prepare_for_direct, style_for
-from app.creative.art import art_direction, review_banner, scene_label, smart_placement
+from app.creative.art import art_direction, layout_for, palette_hint, review_banner, scene_label, smart_placement
 from app.creative.screen import insert_logo, insert_screenshot
 from app.creative.texts_ai import (EXTRA_WORDS_OK, alt_texts, check_facts, check_photo, extra_words, facts_of, foreign_prices, generate_texts, invented_links,
                                    missing_phrases, read_image_text)
@@ -73,7 +73,7 @@ def _row(r: sqlite3.Row, business_id: int) -> dict:
             made = json.loads(r["prompt"] or "{}")
         except ValueError:
             made = {}
-        meta = {"scheme": made.get("scheme") or "direct", "placement": made.get("placement", ""),
+        meta = {"scheme": made.get("scheme") or "direct", "placement": made.get("placement", ""), "layout": made.get("layout", ""), "scene": made.get("scene", ""),
                 "model": made.get("model", ""), "label": made.get("model_label", ""), "run": made.get("run", ""), "check": made.get("check") or {},
                 "score": made.get("score", 0), "issues": made.get("issues") or [], "ref": made.get("ref"), "prompt": made.get("prompt_text", "")}
     return {"meta": meta,
@@ -458,7 +458,7 @@ def _submit_banner(conn, business_id: int, v: dict, meta: dict, prompt: str, ima
     баннеры пишутся отдельным видом (test_banner), чтобы не подменить настоящий баннер объявления."""
     s = get_settings()
     for target in models or [None]:
-        if target is not None and not images:
+        if target is not None and not images and not target.get("text_only"):
             raise fal.FalError("Для теста нужен референс или фото: без них моделям нечего сравнивать.")
         model = target["id"] if target else s.fal_banner_model
         job = asyncio.run(fal.start_edit(prompt, images, key, model, transport)) if images else asyncio.run(fal.start_image(prompt, key, model, transport))
@@ -485,7 +485,8 @@ def _order_banner(conn, biz, variants: list[dict], index: int, key: str, transpo
     photos, _logo = media_typed(conn, biz)
     brief = _brief_for(conn, business_id, v)   # идея стратега или выбор владельца в редакторе: фото, оформление, референс, промпт
     no_photo = bool(brief and brief["no_photo"])   # владелец выбрал «без фото»: ИИ рисует всю сцену сам
-    if photos and not extras and not no_photo:   # главный путь: настоящее фото владельца отдаётся модели вместе с промптом про оформление
+    free = scheme == "free"   # схема без референса и без фото: композицию даёт библиотека проверенных раскладок, а не картинка
+    if not free and photos and not extras and not no_photo:   # главный путь: настоящее фото владельца отдаётся модели вместе с промптом про оформление
         varied = ""
         if _wants_auto_ref(brief, index) and not custom_prompt:   # подача не выбрана: берём приём из ниши, у соседних объявлений разные
             brief = _auto_style(conn, biz, v, index, getattr(photo_for(photos, index)[1], "asset_id", None), brief) or brief
@@ -527,9 +528,10 @@ def _order_banner(conn, biz, variants: list[dict], index: int, key: str, transpo
     if scheme == "smart":
         raise fal.FalError("Умная схема вписывает ваше фото в раскладку референса: выберите фото (не «Без фото») и референс.")
     varied = ""
-    if _wants_auto_ref(brief, index) and not extras and not custom_prompt:   # подача не выбрана: берём приём из ниши
+    if not free and _wants_auto_ref(brief, index) and not extras and not custom_prompt:   # подача не выбрана: берём приём из ниши
         brief = _auto_style(conn, biz, v, index, None, brief) or brief
-    ref_id = brief["ref_id"] if brief and not extras else None
+    ref_id = None if free else (brief["ref_id"] if brief and not extras else None)
+    layout = layout_for(index) if free else None
     done_before = len(_used_styles(conn, business_id, v, scratch=True))   # от этого зависит, какое из стандартных оформлений возьмём
     earlier = [json.loads(r["prompt"] or "{}") for r in conn.execute(
         "SELECT prompt FROM creatives WHERE business_id = ? AND kind = 'ai_banner' AND title = ? AND body = ? AND status IN ('draft', 'approved') "
@@ -538,7 +540,7 @@ def _order_banner(conn, biz, variants: list[dict], index: int, key: str, transpo
     logo = logo_for(conn, biz) if extras else None
     screen = extras and _screenshot(conn, business_id) is not None
     art = asyncio.run(art_direction(biz, v, index, [x for x in others + own_scenes if x][-8:], _logo_info(conn, biz, logo), screen, key, s.fal_text_model, transport,
-                                    refs.note(ref_id) if ref_id else "", refs.load(ref_id) if ref_id else None))
+                                    refs.note(ref_id) if ref_id else "", refs.load(ref_id) if ref_id else None, layout))
     use_logo = bool(art["logo"]) and logo is not None
     # референс уходит модели картинкой: по одной строке слов сходства почти нет, а картинка задаёт композицию, цвет и шрифт
     ref_bytes = refs.load(ref_id) if ref_id else None
@@ -547,12 +549,15 @@ def _order_banner(conn, biz, variants: list[dict], index: int, key: str, transpo
         direction = (f"the attached image is ONLY a style inspiration (the idea of its composition, color mood, typography weight and feel: {refs.note(ref_id)}). "
                      "Follow that layout idea closely, but make a new original banner with the scene above: do not copy or reuse its text, logo, products, people or characters, "
                      "and do not recreate its small print, captions, lists, badges, footer or contact lines: the only text on the banner is the text given below")
+    elif free:   # без референса композицию задаёт проверенная раскладка, цвета берутся у бизнеса
+        direction = (f"Composition ({layout[1]}): {layout[2]}. {palette_hint(biz)} Follow this composition closely: it is what makes the banner look like a professional ad")
     else:
         direction = (f"{refs.note(ref_id)}. Take this advertising idea only as inspiration for the layout, color mood and type weight; "
                      "make an original design with your own scene and do not reuse any text, logo or character from it") if ref_id else ""
     prompt = custom_prompt or fal.banner_prompt(biz, v["title"], price, cta, logo_corner=use_logo, index=index + done_before, screen=screen,
                                                 logo_ratio=_logo_ratio(logo), scene=art["scene"], direction=direction)
-    meta = {"expect": expected, "caption": fal.caption_for(biz), "logo": use_logo, "screen": screen, "concept": art["concept"], "audience": art["audience"], "scene": art["scene"],
+    meta = {"scheme": scheme or "direct", "layout": layout[1] if layout else "",
+            "expect": expected, "caption": fal.caption_for(biz), "logo": use_logo, "screen": screen, "concept": art["concept"], "audience": art["audience"], "scene": art["scene"],
             "mode": "scratch", "ref": ref_id, "ref_img": bool(ref_bytes), "varied": varied,
             "logo_reason": art["logo_reason"], "prompt_text": prompt,
             "brief": ("ВАЖНО: на экране телефона вставлен НАСТОЯЩИЙ скриншот приложения владельца. Это не выдумка нейросети и не недостаток: "
@@ -599,7 +604,7 @@ def make_ai_banner(business_id: int, index: int, data: BannerIn | None = None, u
 
 
 class ModelTestIn(BaseModel):
-    scheme: Literal["direct", "smart"] = "direct"   # direct: фото и референс прямо в задание; smart: арт-директор сначала пишет, как вписать фото в раскладку
+    scheme: Literal["direct", "smart", "free"] = "direct"   # direct: фото и референс прямо в задание; smart: арт-директор сначала пишет, как вписать фото; free: без фото и без референса
 
 
 @router.post("/ads/{index}/model-test")
@@ -618,7 +623,7 @@ def model_test(business_id: int, index: int, data: ModelTestIn | None = None, us
                     (business_id, v["title"], v["text"])).fetchone():
         raise HTTPException(400, detail={"message": "Тест для этого объявления ещё идёт. Подождите минуту."})
     run = str(int(time.time()))
-    models = [{**m, "run": run} for m in fal.TEST_MODELS]
+    models = [{**m, "run": run} for m in (fal.TEST_MODELS_FREE if scheme == "free" else fal.TEST_MODELS)]
     for _ in models:
         _charge(conn, business_id, "ai_banner")
     try:

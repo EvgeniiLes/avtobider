@@ -34,6 +34,30 @@ def test_smart_scheme_needs_a_photo_and_a_reference_and_adds_the_art_directors_p
         assert len(rows) == 3 and all(c["meta"]["scheme"] == "smart" and "headline behind it" in c["meta"]["placement"] for c in rows)
 
 
+def test_free_scheme_draws_without_photo_and_reference_from_a_proven_composition(monkeypatch):
+    monkeypatch.setenv("FAL_KEY", "fal-test")
+    fakes = Fakes(fal_done=False)
+    fakes.keep = 10 ** 8
+    fakes.claude_text = json.dumps({"audience": "автовладельцы", "scene": "A hero object on a saturated backdrop with plenty of calm empty space above for the headline.",
+                                    "logo": False, "logo_reason": "нет"})
+    with TestClient(app) as http:
+        bid = setup(http, color_main="#c2185b")
+        base = f"/api/businesses/{bid}/creatives"
+        r = http.post(f"{base}/ads/0/model-test", json={"scheme": "free"})
+        assert r.status_code == 200 and r.json()["scheme"] == "free"
+        calls = [(p, json.loads(b)) for h, p, b in fakes.requests if h == "queue.fal.run"]
+        assert [p for p, _ in calls] == ["/openai/gpt-image-2", "/openai/gpt-image-2.6/sunburst/text-to-image", "/google/nano-banana-2.1"]   # режим «из текста»
+        assert all("image_urls" not in body for _, body in calls)                                                  # ни фото, ни референса на входе
+        assert len({body["prompt"] for _, body in calls}) == 1 and "aspect_ratio" in calls[2][1] and "image_size" in calls[0][1]
+        prompt = calls[0][1]["prompt"]
+        assert "Composition (Огромное слово)" in prompt and "#c2185b" in prompt and "SECOND attached image" not in prompt   # композиция из библиотеки и цвета бизнеса
+        asked = [json.loads(b)["messages"][-1]["content"] for h, p, b in fakes.requests if b.startswith(b"{") and b"messages" in b and h == "fal.run"]
+        assert any("Обязательная композиция: Огромное слово" in a for a in asked)
+        fakes.fal_done = True
+        rows = [c for c in http.get(base).json()["creatives"] if c["kind"] == "test_banner"]
+        assert len(rows) == 3 and all(c["meta"]["scheme"] == "free" and c["meta"]["layout"] == "Огромное слово" and c["status"] == "draft" for c in rows)
+
+
 def test_three_models_draw_the_same_ad_and_the_owner_takes_the_best(monkeypatch):
     monkeypatch.setenv("FAL_KEY", "fal-test")
     fakes = Fakes(fal_done=False)

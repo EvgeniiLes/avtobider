@@ -30,6 +30,42 @@ def scene_label(key: str) -> str:
     return SCENES[key][0] if key in SCENES else ""
 
 
+# Проверенные композиции рекламы (из разбора референсов, рефы/README.md): когда референса нет, баннер строится по одной из них, а не «как получится».
+# ключ -> (название для людей, описание композиции для модели)
+LAYOUTS = {
+    "giant_word": ("Огромное слово", "a flat saturated single-color background; the headline is set in giant ultra-condensed heavy capitals stacked on the left and partly "
+                   "bleeding off the edge; the hero subject sits on the right and slightly overlaps the letters for depth; the button sits below the headline"),
+    "still_life": ("Предмет-герой", "a seamless saturated studio backdrop with one hero subject lit like a product shot and placed low on one side; a large calm empty area "
+                   "above and beside it holds the heavy bold headline, the button right under it"),
+    "color_split": ("Цветная плашка и кадр", "the canvas is split in two: one half is a flat saturated color field with the headline and the button, the other half is a large "
+                    "rounded-corner picture of the hero subject"),
+    "metaphor": ("Игра образом", "a playful, witty still life that shows the service through an unexpected but clean visual metaphor on a plain pastel backdrop; the headline "
+                 "sits in clear space at the top, the button under it"),
+    "hand": ("Рука с предметом", "a close-up of one hand holding the key tool or product on a plain bold-color background, shallow depth of field; a short headline and "
+            "the button on the opposite side"),
+    "dark": ("Тёмный контраст", "a deep charcoal full-bleed hero image with a smooth dark gradient on one side for a white headline; one bright accent color on the button"),
+    "airy": ("Светлый воздух", "warm white and cream tones, the hero subject large and bright, a dark headline on a calm area and a soft accent button"),
+    "arch": ("Пастельная арка", "a soft pastel background, the hero subject inside a rounded or arch-shaped frame on one side, a dark headline and a rounded pastel button"),
+}
+LAYOUT_ORDER = list(LAYOUTS)
+
+
+def layout_for(index: int) -> tuple[str, str, str]:
+    """Композиция для баннера без референса: у соседних объявлений разные. Возвращает (ключ, название, описание)."""
+    key = LAYOUT_ORDER[index % len(LAYOUT_ORDER)]
+    return key, LAYOUTS[key][0], LAYOUTS[key][1]
+
+
+def palette_hint(biz) -> str:
+    """Цвета бизнеса для баннера без референса: иначе палитру выбирает модель и она получается случайной."""
+    main, extra = _field(biz, "color_main"), _field(biz, "color_extra")
+    if main and extra:
+        return f"Brand palette: dominant color {main}, secondary color {extra}; keep the rest neutral."
+    if main:
+        return f"Brand palette: dominant color {main}; keep the rest neutral."
+    return "Palette: 2-3 harmonious colors, one saturated accent."
+
+
 ART_SYSTEM = (
     "Ты опытный SMM-специалист и арт-директор рекламы малого бизнеса в Яндекс Директе. Тебе дают бизнес, заголовок объявления и "
     "обязательный сюжет баннера. Придумай конкретную сцену для нейросети-художника и реши, нужен ли на баннере логотип. "
@@ -95,7 +131,7 @@ async def smart_placement(biz, photo: bytes, ref: bytes, ref_note: str, fal_key:
 
 async def art_direction(biz, variant: dict, index: int, others: list[str], logo: dict | None, has_screen: bool,
                         fal_key: str, model: str, transport: httpx.AsyncBaseTransport | None = None, ref_note: str = "",
-                        ref_image: bytes | None = None) -> dict:
+                        ref_image: bytes | None = None, layout: tuple[str, str, str] | None = None) -> dict:
     """Сцена и решение про логотип для баннера под это объявление. Всегда возвращает результат (при сбое запасной).
     ref_note: приём из референса, по которому рисуется баннер: сцена строится вокруг него, а не вокруг общего сюжета.
     ref_image: сам референс картинкой: арт-директор смотрит на него и повторяет тип кадра (люди, рука, предмет), а не берёт «обязательный сюжет» по номеру объявления."""
@@ -112,7 +148,9 @@ async def art_direction(biz, variant: dict, index: int, others: list[str], logo:
             + (f"Пожелание к картинкам: {biz['visual_hint']}\n" if _field(biz, "visual_hint") else "")
             + f"Заголовок объявления: {variant['title']}\n"
             + (f"Угол подачи: {variant.get('angle')}\n" if variant.get("angle") else "")
-            + (f"Обязательный сюжет: {label} — {brief}\n" if ref_image is None else
+            + (f"Обязательная композиция: {layout[1]} — {layout[2]}. Придумай героя кадра и сцену под эту композицию, показывая то, что бизнес правда предлагает "
+               "(люди только если это уместно для услуги).\n" if layout else
+               f"Обязательный сюжет: {label} — {brief}\n" if ref_image is None else
                "Сюжет определяет приложенный референс: внимательно посмотри на него и повтори тип кадра (есть ли в нём люди, рука, предмет, интерьер, сколько героев). "
                "Если в референсе нет людей, людей в сцене быть не должно; если героя один предмет, рисуй один предмет в той же манере. Свой сюжет не добавляй.\n")
             + (f"Подача по референсу: {ref_note}. Это главное: герой кадра, композиция и настроение берутся из этого приёма, а сюжет выше подстраивается "

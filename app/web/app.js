@@ -644,6 +644,7 @@ async function loadCreatives() {
 
 // ---------- Страница «Объявления (тест)»: одно объявление рисуют три нейросети ----------
 const TEST_MODELS = [{ id: "openai/gpt-image-2/edit", label: "GPT Image 2" }, { id: "openai/gpt-image-2.6/sunburst/edit", label: "GPT Image 2.6" }, { id: "google/nano-banana-2.1/edit", label: "Nano Banana 2.1" }];
+const TEST_MODELS_FREE = [{ id: "openai/gpt-image-2", label: "GPT Image 2" }, { id: "openai/gpt-image-2.6/sunburst/text-to-image", label: "GPT Image 2.6" }, { id: "google/nano-banana-2.1", label: "Nano Banana 2.1" }];
 let testTimer = null, testAdKey = null, testAds = [], testRows = [], testPhotos = [], testStyles = { refs: [] };
 
 async function loadTestPage() {
@@ -679,9 +680,9 @@ function renderTestPage() {
   const working = mineAll.some((c) => c.status === "working");
   const setup = [a.photo_label && !a.no_photo ? `Фото: ${a.photo_label}` : "Без фото", a.ref_id ? `Референс №${a.ref_id}` : "Без референса (оформление по умолчанию)"].join(" · ");
   // один блок схемы: кнопка и три карточки моделей; схемы две (прямая и «умная»), строки теста помечены схемой
-  const schemeBlock = (scheme, title, hint, extraCents) => {
+  const schemeBlock = (scheme, title, hint, extraCents, models = TEST_MODELS) => {
     const mine = mineAll.filter((c) => (c.meta.scheme || "direct") === scheme);
-    const price = usd((creativePrices.ai_banner || 0.07) * TEST_MODELS.length + extraCents / 100);
+    const price = usd((creativePrices.ai_banner || 0.07) * models.length + extraCents / 100);
     const run = el("button", { textContent: `${mine.length ? "Нарисовать заново" : "Нарисовать на трёх моделях"} · ${price}` });
     run.disabled = working;
     run.addEventListener("click", async () => {
@@ -693,8 +694,9 @@ function renderTestPage() {
     });
     const newest = (mine.slice().sort((x, y) => y.id - x.id)[0] || {}).meta;
     const lastRun = newest ? newest.run : "";
-    const placement = newest && newest.placement ? [el("p", { className: "hint", textContent: `Арт-директор написал, как вписать фото: ${newest.placement}` })] : [];
-    const cards = TEST_MODELS.map((m) => {
+    const placement = newest && newest.placement ? [el("p", { className: "hint", textContent: `Арт-директор написал, как вписать фото: ${newest.placement}` })]
+      : newest && newest.layout ? [el("p", { className: "hint", textContent: `Композиция: ${newest.layout}. Сцена от арт-директора: ${newest.scene || "—"}` })] : [];
+    const cards = models.map((m) => {
       const c = mine.filter((x) => x.meta.model === m.id && (!lastRun || x.meta.run === lastRun)).sort((x, y) => y.id - x.id)[0];
       const card = el("div", { className: "test-card" }, el("h4", { textContent: m.label }));
       if (!c) { card.append(el("p", { className: "hint", textContent: "Ещё не рисовали." })); return card; }
@@ -749,7 +751,8 @@ function renderTestPage() {
     el("span", { className: "sub", textContent: "Референс" }), refBox,
     el("p", { className: "hint", textContent: `Одинаковые условия для всех моделей: ${setup}. Задание у моделей одно и то же. С фото модель строит баннер вокруг него, без фото рисует сцену с нуля по референсу.` }),
     schemeBlock("direct", "Схема 1: фото и референс прямо в задание", "Модель получает ваше фото и референс файлами и задание с описанием раскладки референса словами.", 0),
-    schemeBlock("smart", "Схема 2: «умная», арт-директор вписывает фото", "Сначала арт-директор (нейросеть со зрением) смотрит на фото и референс вместе и пишет, как вписать фото в раскладку референса. Эти инструкции добавляются к заданию. Нужны фото и референс.", 3));
+    schemeBlock("smart", "Схема 2: «умная», арт-директор вписывает фото", "Сначала арт-директор (нейросеть со зрением) смотрит на фото и референс вместе и пишет, как вписать фото в раскладку референса. Эти инструкции добавляются к заданию. Нужны фото и референс.", 3),
+    schemeBlock("free", "Схема 3: без референса и без фото", "Фото и референс не используются. Арт-директор выбирает одну из проверенных композиций (огромное слово, предмет-герой, цветная плашка, игра образом и другие), берёт цвета вашего бизнеса и придумывает сцену под неё. Модели рисуют из текста.", 0, TEST_MODELS_FREE));
 }
 
 // ---------- Страница «Объявления»: три шага (идеи, баннеры, запуск) ----------

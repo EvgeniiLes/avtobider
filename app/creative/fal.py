@@ -291,6 +291,14 @@ TEST_MODELS = (
 )
 
 
+# Те же три модели, но в режиме «из текста»: для схемы без референса и без фото (картинок на входе нет, поэтому режим edit не подходит)
+TEST_MODELS_FREE = (
+    {"key": "gpt2", "id": "openai/gpt-image-2", "label": "GPT Image 2", "text_only": True},
+    {"key": "gpt26", "id": "openai/gpt-image-2.6/sunburst/text-to-image", "label": "GPT Image 2.6", "text_only": True},
+    {"key": "nb21", "id": "google/nano-banana-2.1", "label": "Nano Banana 2.1", "text_only": True},
+)
+
+
 def edit_payload(prompt: str, image_urls: list[str], model: str = "") -> dict:
     if "nano-banana" in model:   # у Google другие поля: пропорции вместо размера, разрешение 1K
         return {"prompt": prompt, "image_urls": image_urls, "aspect_ratio": "4:3", "resolution": "1K", "num_images": 1, "output_format": "jpeg"}
