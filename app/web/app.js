@@ -644,7 +644,7 @@ async function loadCreatives() {
 
 // ---------- Страница «Объявления (тест)»: одно объявление рисуют три нейросети ----------
 const TEST_MODELS = [{ id: "openai/gpt-image-2/edit", label: "GPT Image 2" }, { id: "openai/gpt-image-2.6/sunburst/edit", label: "GPT Image 2.6" }, { id: "google/nano-banana-2.1/edit", label: "Nano Banana 2.1" }];
-let testTimer = null, testAdKey = null, testAds = [], testRows = [];
+let testTimer = null, testAdKey = null, testAds = [], testRows = [], testPhotos = [], testStyles = { refs: [] };
 
 async function loadTestPage() {
   clearTimeout(testTimer);
@@ -655,6 +655,8 @@ async function loadTestPage() {
   const [ads, list] = await Promise.all([creativeCall("GET", "/ads"), creativeCall("GET", "")]);
   if (!ads.ok || !list.ok) { say(errorText(ads.ok ? list : ads), "err"); return; }
   testAds = ads.data.ads;
+  testPhotos = ads.data.photos || [];
+  testStyles = ads.data.styles || { refs: [] };
   testRows = list.data.creatives.filter((c) => c.kind === "test_banner");
   if (!testAdKey || !testAds.some((a) => adKey(a) === testAdKey)) testAdKey = testAds.length ? adKey(testAds[0]) : null;
   renderTestPage();
@@ -712,8 +714,34 @@ function renderTestPage() {
     card.append(use);
     return card;
   });
+  // настройки объявления: фото (включить, выключить, выбрать другое) и референс; они общие для всех трёх моделей и те же, что в редакторе баннера
+  const change = async (payload) => {
+    const r = await creativeCall("PUT", `/ads/${a.index}/settings`, payload);
+    if (!r.ok) { say(errorText(r), "err"); return; }
+    await loadTestPage();
+  };
+  const photoBox = el("div", { className: "photo-pick" });
+  testPhotos.forEach((p) => {
+    const b = el("button", { type: "button", className: "photo-pick-item" + (p.id === a.photo_id && !a.no_photo ? " sel" : ""), title: p.label }, el("img", { src: p.url, alt: p.label }));
+    b.addEventListener("click", () => { if (p.id !== a.photo_id || a.no_photo) change({ asset_id: p.id }); });
+    photoBox.append(b);
+  });
+  const none = el("button", { type: "button", className: "photo-pick-item none" + (a.no_photo || !testPhotos.length ? " sel" : ""), title: "Без фото: нарисовать с нуля" }, el("span", { textContent: "Без фото" }));
+  none.addEventListener("click", () => { if (!a.no_photo && testPhotos.length) change({ no_photo: true }); });
+  photoBox.append(none);
+  const refBox = el("div", { className: "chips" });
+  const refChip = (label, selected, payload) => {
+    const c = el("button", { type: "button", className: "chip wrap" + (selected ? " sel" : ""), textContent: label, title: label });
+    c.addEventListener("click", () => { if (!selected) change(payload); });
+    refBox.append(c);
+  };
+  refChip("Без референса", !a.ref_id, { ref_id: 0 });
+  testStyles.refs.forEach((r) => refChip(`№${r.id}: ${r.label.charAt(0).toUpperCase()}${r.label.slice(1)}`, a.ref_id === r.id, { ref_id: r.id }));
   panel.replaceChildren(
-    el("h3", { textContent: a.title }), el("p", { textContent: a.text }), el("p", { className: "hint", textContent: `Одинаковые условия для всех трёх: ${setup}. Задание тоже одно и то же.` }),
+    el("h3", { textContent: a.title }), el("p", { textContent: a.text }),
+    el("span", { className: "sub", textContent: "Фото на баннере (включить, выключить или выбрать другое)" }), photoBox,
+    el("span", { className: "sub", textContent: "Референс" }), refBox,
+    el("p", { className: "hint", textContent: `Одинаковые условия для всех трёх: ${setup}. Задание тоже одно и то же. С фото модель строит баннер вокруг него, без фото рисует сцену с нуля по референсу.` }),
     run, el("div", { className: "test-grid" }, ...cards));
 }
 
