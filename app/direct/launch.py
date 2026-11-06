@@ -92,13 +92,25 @@ def _maps_id(biz) -> int | None:
 
 
 def text_candidates(conn: sqlite3.Connection, biz) -> list[dict]:
-    """Тексты для объявлений по порядку: одобренные владельцем (взятые идеи и свои варианты), потом шаблоны.
-    Неодобренные черновики (старые тексты, которые ИИ писал раньше отдельным списком) в рекламу не идут: тексты берутся только из идей."""
+    """Тексты для объявлений по порядку: сначала одобренные владельцем, затем предложенные ИИ (по одному на угол подачи), потом шаблоны.
+    Отклонённые не берём. Так новые тексты от ИИ попадают в рекламу, не дожидаясь одобрения, а владелец может их убрать."""
     rows = conn.execute(
         "SELECT id, title, body, angle, status, source, position FROM creatives WHERE business_id = ? AND kind = 'text' "
-        "AND status = 'approved' ORDER BY id", (biz["id"],)).fetchall()
+        "AND status IN ('approved', 'draft') ORDER BY id", (biz["id"],)).fetchall()
     chosen = [{"id": r["id"], "title": r["title"], "text": r["body"], "angle": r["angle"], "status": "approved", "position": r["position"]}
-              for r in rows]
+              for r in rows if r["status"] == "approved"]
+    # шаблонный текст, сохранённый ради места в списке, угол не занимает: иначе он вытесняет черновики ИИ с тем же углом
+    angles = {r["angle"] for r in rows if r["status"] == "approved" and r["angle"] and r["source"] != "template"}
+    from app.creative.texts_ai import facts_of  # здесь, чтобы не было круга
+    from app.direct.texts import unsupported_claims
+    facts = facts_of(biz)
+    for r in reversed([r for r in rows if r["status"] == "draft" and r["source"] == "claude"]):  # новые сначала
+        if r["angle"] and r["angle"] in angles:
+            continue
+        if unsupported_claims(f"{r['title']} {r['body']}", facts):   # старый черновик со скидкой, когда скидки выключены, в рекламу не идёт
+            continue
+        angles.add(r["angle"])
+        chosen.append({"id": r["id"], "title": r["title"], "text": r["body"], "angle": r["angle"], "status": "draft", "position": r["position"]})
     chosen.sort(key=lambda c: c["position"] if c["position"] is not None else 1 << 30)   # порядок, который владелец задал перетаскиванием; остальные следом в прежнем порядке
     return chosen
 
