@@ -21,7 +21,7 @@ from app.creative import fal, motion, refs
 from app.creative.angles import effective_description, label as angle_label, profile
 from app.assets import PHOTO_TAGS
 from app.creative.compose import add_caption, add_logo, find_price, prepare_for_direct, style_for
-from app.creative.art import art_direction, review_banner, scene_label
+from app.creative.art import art_direction, review_banner, scene_label, smart_placement
 from app.creative.screen import insert_logo, insert_screenshot
 from app.creative.texts_ai import (EXTRA_WORDS_OK, alt_texts, check_facts, check_photo, extra_words, facts_of, foreign_prices, generate_texts, invented_links,
                                    missing_phrases, read_image_text)
@@ -73,7 +73,8 @@ def _row(r: sqlite3.Row, business_id: int) -> dict:
             made = json.loads(r["prompt"] or "{}")
         except ValueError:
             made = {}
-        meta = {"model": made.get("model", ""), "label": made.get("model_label", ""), "run": made.get("run", ""), "check": made.get("check") or {},
+        meta = {"scheme": made.get("scheme") or "direct", "placement": made.get("placement", ""),
+                "model": made.get("model", ""), "label": made.get("model_label", ""), "run": made.get("run", ""), "check": made.get("check") or {},
                 "score": made.get("score", 0), "issues": made.get("issues") or [], "ref": made.get("ref"), "prompt": made.get("prompt_text", "")}
     return {"meta": meta,
         "id": r["id"], "kind": r["kind"], "title": r["title"], "body": r["body"], "status": r["status"], "source": r["source"],
@@ -470,7 +471,7 @@ def _submit_banner(conn, business_id: int, v: dict, meta: dict, prompt: str, ima
 
 
 def _order_banner(conn, biz, variants: list[dict], index: int, key: str, transport, others: list[str], custom_prompt: str = "",
-                  models: list[dict] | None = None) -> str:
+                  models: list[dict] | None = None, scheme: str = "") -> str:
     """Заказывает один ИИ-баннер. Есть фото владельца: модель делает баннер из этого фото (оформление у каждого объявления своё).
     Фото нет: арт-директор придумывает сцену, художник рисует с нуля. custom_prompt: промпт, который владелец поправил сам. Возвращает описание.
     models: тест нейросетей, одно и то же задание (промпт и картинки) уходит каждой модели из списка."""
@@ -502,8 +503,16 @@ def _order_banner(conn, biz, variants: list[dict], index: int, key: str, transpo
             layout = asyncio.run(refs.layout_text(brief["ref_id"], key, s.fal_vision_model, transport))   # раскладка референса словами: к картинке добавляется подробное описание
             if layout and not custom_prompt and "Reference layout in words" not in prompt:
                 prompt += f" Reference layout in words (follow it for the design, put the business photo into it): {layout}"
+        placement = ""
+        if scheme == "smart":   # «умная схема»: арт-директор смотрит на фото и референс вместе и пишет, как вписать фото
+            if not ref_bytes:
+                raise fal.FalError("Умная схема вписывает фото в раскладку референса: выберите референс.")
+            _charge(conn, business_id, "strategist")
+            placement = asyncio.run(smart_placement(biz, data, ref_bytes, refs.note(brief["ref_id"]), key, s.fal_vision_model, transport))
+            if placement:
+                prompt += f" Art director's placement instructions for the business photo (follow them): {placement}"
         what = f"фото «{PHOTO_TAGS.get(kind, kind)}», " + (f"по мотивам референса {brief['ref_id']}" if ref_bytes else f"оформление: {look}")
-        meta = {"expect": expected, "caption": fal.caption_for(biz), "logo": False, "screen": False, "mode": "photo", "concept": kind, "look": look,
+        meta = {"scheme": scheme or "direct", "placement": placement, "expect": expected, "caption": fal.caption_for(biz), "logo": False, "screen": False, "mode": "photo", "concept": kind, "look": look,
                 "look_no": look_no % len(fal.PHOTO_LOOKS), "photo_id": getattr(data, "asset_id", None), "varied": varied,
                 "ref": brief["ref_id"] if ref_bytes else None,
                 "audience": brief["audience"] if brief else "", "hypothesis": brief["hypothesis"] if brief else "", "scene": what,
@@ -515,6 +524,8 @@ def _order_banner(conn, biz, variants: list[dict], index: int, key: str, transpo
         _submit_banner(conn, business_id, v, meta, prompt, images, key, transport, models)
         return what
     # баннер с нуля: фото нет или владелец выбрал «без фото». Сцену придумывает арт-директор, подача по референсу идёт словами
+    if scheme == "smart":
+        raise fal.FalError("Умная схема вписывает ваше фото в раскладку референса: выберите фото (не «Без фото») и референс.")
     varied = ""
     if _wants_auto_ref(brief, index) and not extras and not custom_prompt:   # подача не выбрана: берём приём из ниши
         brief = _auto_style(conn, biz, v, index, None, brief) or brief
@@ -587,10 +598,16 @@ def make_ai_banner(business_id: int, index: int, data: BannerIn | None = None, u
     return {"started": True, **({"varied": varied} if varied else {})}   # varied: какую подачу взяли вместо прежней
 
 
+class ModelTestIn(BaseModel):
+    scheme: Literal["direct", "smart"] = "direct"   # direct: фото и референс прямо в задание; smart: арт-директор сначала пишет, как вписать фото в раскладку
+
+
 @router.post("/ads/{index}/model-test")
-def model_test(business_id: int, index: int, user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connection = Depends(get_db),
-               transport=Depends(creative_transport)):
-    """Вкладка «Объявления (тест)»: одно и то же объявление (текст, фото, референс, задание) рисуют три модели, чтобы сравнить их рядом."""
+def model_test(business_id: int, index: int, data: ModelTestIn | None = None, user: sqlite3.Row = Depends(current_user),
+               conn: sqlite3.Connection = Depends(get_db), transport=Depends(creative_transport)):
+    """Вкладка «Объявления (тест)»: одно и то же объявление (текст, фото, референс, задание) рисуют три модели, чтобы сравнить их рядом.
+    Схем две: прямая (как обычно) и «умная» (арт-директор смотрит на фото и референс вместе и пишет, как вписать фото)."""
+    scheme = data.scheme if data else "direct"
     biz = _own(conn, user, business_id)
     key = _need_fal()
     variants, _count, _pool = _ad_variants(conn, biz)
@@ -605,12 +622,12 @@ def model_test(business_id: int, index: int, user: sqlite3.Row = Depends(current
     for _ in models:
         _charge(conn, business_id, "ai_banner")
     try:
-        _order_banner(conn, biz, variants, index, key, transport, _other_scenes(conn, business_id, variants, index), "", models)
+        _order_banner(conn, biz, variants, index, key, transport, _other_scenes(conn, business_id, variants, index), "", models, scheme)
     except fal.FalError as e:
         conn.rollback()
-        raise HTTPException(502, detail={"message": e.message})
+        raise HTTPException(400 if "выберите" in e.message else 502, detail={"message": e.message})
     conn.commit()
-    return {"started": len(models), "run": run}
+    return {"started": len(models), "run": run, "scheme": scheme}
 
 
 @router.post("/{creative_id}/use-test")

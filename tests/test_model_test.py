@@ -7,6 +7,33 @@ from app.main import app
 from tests.test_creatives import Fakes, isolated, setup  # noqa: F401  (isolated: своя база на каждый тест)
 
 
+def test_smart_scheme_needs_a_photo_and_a_reference_and_adds_the_art_directors_placement(monkeypatch):
+    from tests.test_ad_editor import upload
+    monkeypatch.setenv("FAL_KEY", "fal-test")
+    fakes = Fakes(fal_done=False)
+    fakes.keep = 10 ** 8
+    with TestClient(app) as http:
+        bid = setup(http)
+        base = f"/api/businesses/{bid}/creatives"
+        put = lambda body: http.put(f"{base}/ads/0/settings", json=body)
+        assert http.post(f"{base}/ads/0/model-test", json={"scheme": "smart"}).status_code == 400        # без фото умной схеме нечего вписывать
+        photo = upload(http, f"/api/businesses/{bid}", "work")
+        ref = http.get(f"{base}/ads").json()["styles"]["refs"][0]["id"]
+        assert put({"asset_id": photo}).status_code == 200 and put({"ref_id": 0}).status_code == 200
+        assert http.post(f"{base}/ads/0/model-test", json={"scheme": "smart"}).status_code == 400        # нет референса
+        assert put({"ref_id": ref}).status_code == 200
+        fakes.claude_text = json.dumps({"placement": "Keep the car large on the right, headline behind it on the left."})
+        r = http.post(f"{base}/ads/0/model-test", json={"scheme": "smart"})
+        assert r.status_code == 200 and r.json()["scheme"] == "smart"
+        asked = [json.loads(b) for h, p, b in fakes.requests if b.startswith(b"{") and b"image_urls" in b and h == "fal.run"]
+        assert any(len(x["image_urls"]) == 2 for x in asked)                                        # арт-директор видит фото и референс вместе
+        calls = [json.loads(b) for h, p, b in fakes.requests if h == "queue.fal.run"]
+        assert len(calls) == 3 and all("Art director's placement instructions" in c["prompt"] and len(c["image_urls"]) == 2 for c in calls)
+        fakes.fal_done = True
+        rows = [c for c in http.get(base).json()["creatives"] if c["kind"] == "test_banner"]
+        assert len(rows) == 3 and all(c["meta"]["scheme"] == "smart" and "headline behind it" in c["meta"]["placement"] for c in rows)
+
+
 def test_three_models_draw_the_same_ad_and_the_owner_takes_the_best(monkeypatch):
     monkeypatch.setenv("FAL_KEY", "fal-test")
     fakes = Fakes(fal_done=False)

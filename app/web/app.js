@@ -675,45 +675,51 @@ function renderTestPage() {
   const panel = $("test-panel");
   const a = testAds.find((x) => adKey(x) === testAdKey);
   if (!a) { panel.replaceChildren(el("p", { className: "hint", textContent: "Объявлений пока нет." })); return; }
-  const mine = testRows.filter((c) => c.title === a.title && c.body === a.text);
-  const working = mine.some((c) => c.status === "working");
+  const mineAll = testRows.filter((c) => c.title === a.title && c.body === a.text);
+  const working = mineAll.some((c) => c.status === "working");
   const setup = [a.photo_label && !a.no_photo ? `Фото: ${a.photo_label}` : "Без фото", a.ref_id ? `Референс №${a.ref_id}` : "Без референса (оформление по умолчанию)"].join(" · ");
-  const price = usd((creativePrices.ai_banner || 0.07) * TEST_MODELS.length);
-  const run = el("button", { textContent: `${mine.length ? "Нарисовать тест заново" : "Нарисовать на трёх моделях"} · ${price}` });
-  run.disabled = working;
-  run.addEventListener("click", async () => {
-    run.disabled = true;
-    const r = await creativeCall("POST", `/ads/${a.index}/model-test`);
-    if (!r.ok) { run.disabled = false; say(errorText(r), "err"); return; }
-    say("Три модели рисуют одно и то же объявление, это займёт около минуты.");
-    await loadTestPage();
-  });
-  const runId = (mine.slice().sort((x, y) => y.id - x.id)[0] || {}).meta;
-  const lastRun = runId ? runId.run : "";
-  const cards = TEST_MODELS.map((m) => {
-    const c = mine.filter((x) => x.meta.model === m.id && (!lastRun || x.meta.run === lastRun)).sort((x, y) => y.id - x.id)[0];
-    const card = el("div", { className: "test-card" }, el("h4", { textContent: m.label }));
-    if (!c) { card.append(el("p", { className: "hint", textContent: "Ещё не рисовали." })); return card; }
-    if (c.status === "working") { card.append(el("div", { className: "wait" }, el("div", { className: "spinner" }), el("div", { textContent: "Рисуем… около минуты" }))); return card; }
-    if (c.status === "failed") { card.append(el("p", { className: "notice", textContent: c.error || "Не получилось." })); return card; }
-    card.append(el("img", { src: c.url, alt: `${m.label}: ${a.title}`, loading: "lazy" }));
-    const chk = c.meta.check || {};
-    const notes = [];
-    notes.push(chk.missing && chk.missing.length ? `Ошибки в тексте: ${chk.missing.join(", ")}` : (chk.read ? "Текст без ошибок" : "Текст не проверен"));
-    if (chk.extra && chk.extra.length) notes.push(`Лишний текст: ${chk.extra.join(", ")}`);
-    if (c.meta.score) notes.push(`Оценка проверяющего: ${c.meta.score} из 5`);
-    if (c.meta.issues && c.meta.issues.length) notes.push(c.meta.issues.slice(0, 3).join("; "));
-    card.append(...notes.map((t) => el("p", { className: "hint", textContent: t })));
-    const use = el("button", { className: "small secondary", textContent: "Взять на объявление" });
-    use.addEventListener("click", async () => {
-      use.disabled = true;
-      const r = await creativeCall("POST", `/${c.id}/use-test`);
-      say(r.ok ? `Баннер «${m.label}» стоит на объявлении. Прежний остался в версиях.` : errorText(r), r.ok ? "ok" : "err");
+  // один блок схемы: кнопка и три карточки моделей; схемы две (прямая и «умная»), строки теста помечены схемой
+  const schemeBlock = (scheme, title, hint, extraCents) => {
+    const mine = mineAll.filter((c) => (c.meta.scheme || "direct") === scheme);
+    const price = usd((creativePrices.ai_banner || 0.07) * TEST_MODELS.length + extraCents / 100);
+    const run = el("button", { textContent: `${mine.length ? "Нарисовать заново" : "Нарисовать на трёх моделях"} · ${price}` });
+    run.disabled = working;
+    run.addEventListener("click", async () => {
+      run.disabled = true;
+      const r = await creativeCall("POST", `/ads/${a.index}/model-test`, { scheme });
+      if (!r.ok) { run.disabled = false; say(errorText(r), "err"); return; }
+      say("Три модели рисуют одно и то же объявление, это займёт около минуты.");
       await loadTestPage();
     });
-    card.append(use);
-    return card;
-  });
+    const newest = (mine.slice().sort((x, y) => y.id - x.id)[0] || {}).meta;
+    const lastRun = newest ? newest.run : "";
+    const placement = newest && newest.placement ? [el("p", { className: "hint", textContent: `Арт-директор написал, как вписать фото: ${newest.placement}` })] : [];
+    const cards = TEST_MODELS.map((m) => {
+      const c = mine.filter((x) => x.meta.model === m.id && (!lastRun || x.meta.run === lastRun)).sort((x, y) => y.id - x.id)[0];
+      const card = el("div", { className: "test-card" }, el("h4", { textContent: m.label }));
+      if (!c) { card.append(el("p", { className: "hint", textContent: "Ещё не рисовали." })); return card; }
+      if (c.status === "working") { card.append(el("div", { className: "wait" }, el("div", { className: "spinner" }), el("div", { textContent: "Рисуем… около минуты" }))); return card; }
+      if (c.status === "failed") { card.append(el("p", { className: "notice", textContent: c.error || "Не получилось." })); return card; }
+      card.append(el("img", { src: c.url, alt: `${m.label}: ${a.title}`, loading: "lazy" }));
+      const chk = c.meta.check || {};
+      const notes = [];
+      notes.push(chk.missing && chk.missing.length ? `Ошибки в тексте: ${chk.missing.join(", ")}` : (chk.read ? "Текст без ошибок" : "Текст не проверен"));
+      if (chk.extra && chk.extra.length) notes.push(`Лишний текст: ${chk.extra.join(", ")}`);
+      if (c.meta.score) notes.push(`Оценка проверяющего: ${c.meta.score} из 5`);
+      if (c.meta.issues && c.meta.issues.length) notes.push(c.meta.issues.slice(0, 3).join("; "));
+      card.append(...notes.map((t) => el("p", { className: "hint", textContent: t })));
+      const use = el("button", { className: "small secondary", textContent: "Взять на объявление" });
+      use.addEventListener("click", async () => {
+        use.disabled = true;
+        const r = await creativeCall("POST", `/${c.id}/use-test`);
+        say(r.ok ? `Баннер «${m.label}» стоит на объявлении. Прежний остался в версиях.` : errorText(r), r.ok ? "ok" : "err");
+        await loadTestPage();
+      });
+      card.append(use);
+      return card;
+    });
+    return el("section", { className: "test-scheme" }, el("h3", { textContent: title }), el("p", { className: "hint", textContent: hint }), run, ...placement, el("div", { className: "test-grid" }, ...cards));
+  };
   // настройки объявления: фото (включить, выключить, выбрать другое) и референс; они общие для всех трёх моделей и те же, что в редакторе баннера
   const change = async (payload) => {
     const r = await creativeCall("PUT", `/ads/${a.index}/settings`, payload);
@@ -741,8 +747,9 @@ function renderTestPage() {
     el("h3", { textContent: a.title }), el("p", { textContent: a.text }),
     el("span", { className: "sub", textContent: "Фото на баннере (включить, выключить или выбрать другое)" }), photoBox,
     el("span", { className: "sub", textContent: "Референс" }), refBox,
-    el("p", { className: "hint", textContent: `Одинаковые условия для всех трёх: ${setup}. Задание тоже одно и то же. С фото модель строит баннер вокруг него, без фото рисует сцену с нуля по референсу.` }),
-    run, el("div", { className: "test-grid" }, ...cards));
+    el("p", { className: "hint", textContent: `Одинаковые условия для всех моделей: ${setup}. Задание у моделей одно и то же. С фото модель строит баннер вокруг него, без фото рисует сцену с нуля по референсу.` }),
+    schemeBlock("direct", "Схема 1: фото и референс прямо в задание", "Модель получает ваше фото и референс файлами и задание с описанием раскладки референса словами.", 0),
+    schemeBlock("smart", "Схема 2: «умная», арт-директор вписывает фото", "Сначала арт-директор (нейросеть со зрением) смотрит на фото и референс вместе и пишет, как вписать фото в раскладку референса. Эти инструкции добавляются к заданию. Нужны фото и референс.", 3));
 }
 
 // ---------- Страница «Объявления»: три шага (идеи, баннеры, запуск) ----------

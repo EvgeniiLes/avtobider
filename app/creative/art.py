@@ -50,6 +50,49 @@ ART_SYSTEM = (
 )
 
 
+SMART_SYSTEM = (
+    "You are an art director for small-business ads. You see two images: the FIRST is the business's real photo, the SECOND is a design reference of an ad "
+    "whose layout must be reused. Write instructions for an image-editing model on how to fit the business photo into the reference's layout: which part of the "
+    "photo to keep and how to crop or extend it, how large the main subject must be and where it sits in the frame (position, overlap with the headline, if the "
+    "reference has a huge headline behind the subject), what the background around it should look like to match the reference's palette, and where the calm area "
+    "for the headline stays. Keep the people, objects and place of the real photo exactly as they are. Do not mention any text content, brand or contacts. "
+    "Answer only a JSON object {\"placement\": \"3-5 short English sentences\"}."
+)
+
+
+def _small_url(data: bytes, side: int = 800) -> str:
+    import base64
+    from io import BytesIO
+
+    from PIL import Image
+    img = Image.open(BytesIO(data)).convert("RGB")
+    img.thumbnail((side, side))
+    buf = BytesIO()
+    img.save(buf, "JPEG", quality=85)
+    return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
+
+
+async def smart_placement(biz, photo: bytes, ref: bytes, ref_note: str, fal_key: str, model: str,
+                          transport: httpx.AsyncBaseTransport | None = None) -> str:
+    """«Умная схема»: арт-директор смотрит на фото бизнеса и референс вместе и пишет, как вписать фото в раскладку референса. Пустая строка при сбое."""
+    if not fal_key:
+        return ""
+    user = (f"Business: {biz['kind']}. Reference idea: {ref_note or 'see the second image'}. "
+            "The photo is real and must stay recognisable. Describe how to build the new banner.")
+    try:
+        body = {"model": model, "max_tokens": 1200, "image_urls": [_small_url(photo), _small_url(ref, 700)],
+                "messages": [{"role": "system", "content": SMART_SYSTEM}, {"role": "user", "content": user}]}
+        async with httpx.AsyncClient(timeout=90, transport=transport) as http:
+            r = await http.post(FAL_CHAT_URL, json=body, headers={"Authorization": f"Key {fal_key}", "Content-Type": "application/json"})
+        if r.status_code != 200:
+            return ""
+        raw = r.json()["choices"][0]["message"]["content"] or ""
+        data = json.loads(raw[raw.find("{"):raw.rfind("}") + 1])
+        return " ".join(str(data.get("placement") or "").split())[:900]
+    except (httpx.HTTPError, ValueError, KeyError, IndexError, OSError):
+        return ""
+
+
 async def art_direction(biz, variant: dict, index: int, others: list[str], logo: dict | None, has_screen: bool,
                         fal_key: str, model: str, transport: httpx.AsyncBaseTransport | None = None, ref_note: str = "",
                         ref_image: bytes | None = None) -> dict:
