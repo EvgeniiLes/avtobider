@@ -265,10 +265,8 @@ def reference_banner_prompt(biz, title: str, price: str, cta: str, direction: st
             "Subject: the FIRST attached image is the business's real photo and the one and only reference of the subject: preserve exactly the same people, "
             "animals, objects and place, their faces, coat or clothing and proportions, keep it natural and unaltered; you may crop it, extend its background "
             "and place it freely in the layout. "
-            "Layout: the SECOND attached image is the design reference. Follow its layout closely: the same composition and framing, the same size, weight, case and position "
-            "of the headline (including a huge headline that overlaps the subject), the same color palette, panels, overlay and frame effects. Put the business photo "
-            "(the FIRST image) into that layout as its main subject. Do NOT reuse the reference's own text, small print, lists, badges, logo, products, animals or "
-            "characters, and do not copy its photo: only the design. "
+            "Style: the SECOND attached image is ONLY a style inspiration (its composition idea, color mood, typography weight and feel): do NOT copy it, "
+            "do NOT reuse its text, small print, lists, badges, logo, products, animals or characters; make a new original layout inspired by it. "
             f"Look and composition: Direction: {direction}. The text never covers faces or the main subject. "
             + _text_block(title, price, cta, by_direction=True) + ONE_BANNER + AVOID)
 
