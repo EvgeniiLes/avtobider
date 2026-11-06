@@ -61,6 +61,18 @@ def list_briefs(business_id: int, user: sqlite3.Row = Depends(current_user), con
     return {"briefs": [_public(conn, biz, r, variants) for r in rows], "price_usd": fal.COST_CENTS["strategist"] / 100}
 
 
+def _take(conn: sqlite3.Connection, business_id: int, row: sqlite3.Row) -> None:
+    """Идея берётся в рекламу: её текст одобрен, идея помечена «used» (без commit)."""
+    existing = conn.execute("SELECT id FROM creatives WHERE business_id = ? AND kind = 'text' AND title = ? AND body = ? ORDER BY id DESC LIMIT 1",
+                            (business_id, row["title"], row["body"])).fetchone()
+    if existing:
+        conn.execute("UPDATE creatives SET status = 'approved', hook = CASE WHEN hook = '' THEN ? ELSE hook END WHERE id = ?", (row["hook"], existing["id"]))
+    else:
+        conn.execute("INSERT INTO creatives (business_id, kind, title, body, source, angle, status, hook) VALUES (?, 'text', ?, ?, 'claude', ?, 'approved', ?)",
+                     (business_id, row["title"], row["body"], row["angle"], row["hook"]))
+    conn.execute("UPDATE briefs SET status = 'used' WHERE id = ?", (row["id"],))
+
+
 @router.post("/generate")
 def generate(business_id: int, data: GenerateIn, user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connection = Depends(get_db),
              transport=Depends(creative_transport)):
@@ -90,6 +102,8 @@ def generate(business_id: int, data: GenerateIn, user: sqlite3.Row = Depends(cur
             prompt = fal.photo_banner_prompt(biz, b.get("hook") or b["title"], price, cta, b["look"], b["mood"])
         conn.execute("INSERT INTO briefs (business_id, hypothesis, audience, angle, title, body, asset_id, look, prompt, ref_id, hook) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                      (business_id, b["hypothesis"], b["audience"], b["angle"], b["title"], b["text"], asset_id, b["look"], prompt, ref_id, b.get("hook", "")))
+    for row in conn.execute("SELECT * FROM briefs WHERE business_id = ? AND status = 'idea'", (business_id,)).fetchall():
+        _take(conn, business_id, row)   # идеи уже отобраны судьёй: сразу в рекламу, владелец снимает ненужные
     conn.commit()
     return list_briefs(business_id, user, conn)
 
@@ -117,14 +131,7 @@ def use(business_id: int, brief_id: int, user: sqlite3.Row = Depends(current_use
     """Взять идею в рекламу: её текст становится одобренным, а баннер к нему будет делаться по фото и оформлению идеи."""
     biz = _own(conn, user, business_id)
     row = _own_brief(conn, business_id, brief_id)
-    existing = conn.execute("SELECT id FROM creatives WHERE business_id = ? AND kind = 'text' AND title = ? AND body = ? ORDER BY id DESC LIMIT 1",
-                            (business_id, row["title"], row["body"])).fetchone()
-    if existing:
-        conn.execute("UPDATE creatives SET status = 'approved', hook = CASE WHEN hook = '' THEN ? ELSE hook END WHERE id = ?", (row["hook"], existing["id"]))
-    else:
-        conn.execute("INSERT INTO creatives (business_id, kind, title, body, source, angle, status, hook) VALUES (?, 'text', ?, ?, 'claude', ?, 'approved', ?)",
-                     (business_id, row["title"], row["body"], row["angle"], row["hook"]))
-    conn.execute("UPDATE briefs SET status = 'used' WHERE id = ?", (brief_id,))
+    _take(conn, business_id, row)
     conn.commit()
     variants, _count, _pool = _ad_variants(conn, biz)
     return _public(conn, biz, _own_brief(conn, business_id, brief_id), variants)

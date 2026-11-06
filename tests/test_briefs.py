@@ -129,11 +129,12 @@ def test_new_ideas_replace_unused_ones_but_keep_the_used(monkeypatch):
         fakes.claude_text = ideas(["Первая идея про маникюр", "Вторая идея про запись"], (None,))
         briefs = http.post(f"{base}/briefs/generate", json={"count": 2}).json()["briefs"]
         assert all(b["photo_url"] == "" and b["prompt"] == "" for b in briefs)                 # без фото промпта для баннера нет, баннер рисуется с нуля
-        http.post(f"{base}/briefs/{briefs[0]['id']}/use")
+        assert all(b["status"] == "used" for b in briefs)                                      # отобранные идеи сразу взяты в рекламу
+        http.post(f"{base}/briefs/{briefs[1]['id']}/unuse")                                    # владелец снял вторую
         fakes.claude_text = ideas(["Третья идея про мастеров", "Четвёртая идея про время"], (None,))
         after = http.post(f"{base}/briefs/generate", json={"count": 2}).json()["briefs"]
-        assert [b["title"] for b in after if b["status"] == "used"] == ["Первая идея про маникюр"]
-        assert {b["title"] for b in after if b["status"] == "idea"} == {"Третья идея про мастеров", "Четвёртая идея про время"}
+        assert [b["title"] for b in after if b["status"] == "used"] == ["Первая идея про маникюр", "Третья идея про мастеров", "Четвёртая идея про время"]
+        assert not [b for b in after if b["status"] == "idea"]                                 # снятая прежняя заменена новыми
 
 
 def test_bad_ideas_are_dropped_and_nothing_is_charged_when_nothing_is_left(monkeypatch):
@@ -162,6 +163,8 @@ def test_editing_and_dropping_ideas_and_privacy(monkeypatch):
         fakes.claude_text = ideas(["Идея про мастеров и запись", "Идея про удобное время"], (None,))
         briefs = http.post(f"{base}/briefs/generate", json={"count": 2}).json()["briefs"]
         bid1 = briefs[0]["id"]
+        assert http.put(f"{base}/briefs/{bid1}", json={"title": "Маникюр в удобное время", "body": "Запишитесь онлайн", "prompt": ""}).status_code == 400   # идея уже в рекламе: правится на карточке
+        http.post(f"{base}/briefs/{bid1}/unuse")
         assert http.put(f"{base}/briefs/{bid1}", json={"title": "Лучший маникюр", "body": "Запишитесь", "prompt": ""}).status_code == 400
         ok = http.put(f"{base}/briefs/{bid1}", json={"title": "Маникюр в удобное время", "body": "Запишитесь онлайн", "prompt": "мой промпт"})
         assert ok.status_code == 200

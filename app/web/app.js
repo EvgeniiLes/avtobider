@@ -1537,7 +1537,7 @@ async function generateBriefs(auto = false) {
   setStatus("briefs-status", auto === true ? "Пишем первые идеи… около полминуты" : "Придумываю идеи… около полминуты");
   const r = await api("POST", `/api/businesses/${currentBusiness.id}/briefs/generate`, { count: Number($("briefs-count").value) });
   button.disabled = false;
-  setStatus("briefs-status", r.ok ? `Готово, идей: ${r.data.briefs.length}. Выберите подходящие.` : errorText(r), r.ok ? "ok" : "err");
+  setStatus("briefs-status", r.ok ? `Готово, идей: ${r.data.briefs.length}. Они отобраны и уже взяты в рекламу: уберите те, что не нравятся.` : errorText(r), r.ok ? "ok" : "err");
   await loadBriefs();
   await loadCreatives();
 }
