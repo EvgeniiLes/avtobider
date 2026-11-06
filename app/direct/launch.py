@@ -17,6 +17,7 @@ from app.creative.compose import style_for
 from app.creative.angles import districts_of, is_nationwide, needs_districts
 from app.direct.client import RUSSIA_REGION_ID, DirectClient, DirectError
 from app.direct.autotarget import ensure_autotargeting
+from app.direct.traffic import ensure_traffic
 from app.direct.bids import ensure_bids
 from app.direct.goals import goal_ids_for_report
 from app.direct.marking import is_filled
@@ -805,6 +806,10 @@ async def sync_units(client: DirectClient, conn: sqlite3.Connection, biz, today:
     await ensure_bids(client, conn, biz["id"], today)   # корректировки по полу и возрасту из профиля аудитории ставит сам сервис
     try:
         await ensure_autotargeting(client, conn, biz["id"], today)   # категории автотаргетинга подбирает и держит в кабинете сам сервис
+    except DirectError:
+        pass
+    try:
+        await ensure_traffic(client, conn, biz["id"], today)   # нет показов: сервис сам расширяет охват (категории, более широкие фразы)
     except DirectError:
         pass
 

@@ -245,6 +245,33 @@ async def recommend_autotargeting(biz, profile: dict | None, fal_key: str, model
         return None
 
 
+WIDEN_SYSTEM = (
+    "Ты специалист по Яндекс Директу. У рекламы нет показов: ключевые фразы слишком узкие. Предложи 6 более широких поисковых фраз по этой услуге: "
+    "общие названия услуги и смежные запросы, по которым её ищут (2-3 слова, строчными, без знаков препинания, без брендов и без города). "
+    "Не повторяй фразы из списка, не предлагай запросы про бесплатное, вакансии и обучение, если бизнес этим не занимается. "
+    "Ответ: только JSON-массив из 6 строк."
+)
+
+
+async def widen_keywords(biz, profile: dict | None, fal_key: str, model: str, transport: httpx.AsyncBaseTransport | None = None) -> list[str]:
+    """Более широкие фразы взамен узких, по которым показов нет. Пусто, если ИИ недоступен."""
+    if not fal_key:
+        return []
+    have = list((profile or {}).get("keywords", []))
+    user = build_prompt(biz) + "\nУже есть фразы: " + "; ".join(have)
+    body = {"model": model, "max_tokens": 2500, "messages": [{"role": "system", "content": WIDEN_SYSTEM}, {"role": "user", "content": user}]}
+    try:
+        async with httpx.AsyncClient(timeout=60, transport=transport) as http:
+            r = await http.post(FAL_CHAT_URL, json=body, headers={"Authorization": f"Key {fal_key}", "Content-Type": "application/json"})
+        raw = r.json()["choices"][0]["message"]["content"] or "" if r.status_code == 200 else ""
+        match = re.search(r"\[.*\]", raw, re.S)
+        items = json.loads(match.group(0)) if match else []
+    except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError):
+        return []
+    known = set(have)
+    return [k for k in clean_keywords(items, limit=6) if k not in known]
+
+
 def parse_profile(raw: str) -> dict | None:
     """Профиль из ответа модели. Всё, что не проходит проверку, отбрасывается; без описания клиента профиль не принимаем."""
     match = re.search(r"\{.*\}", raw or "", re.S)

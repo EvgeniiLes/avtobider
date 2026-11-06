@@ -200,7 +200,8 @@ class FakeDirect:
                 return ok({"AddResults": [{"Ids": created}]})
         if service == "keywords" and method == "get":
             wanted = params["SelectionCriteria"]["AdGroupIds"]
-            return ok({"Keywords": [{"Id": k["id"], "AdGroupId": k["group"], "Keyword": k["keyword"]} for k in self.keywords if k["group"] in wanted]})
+            return ok({"Keywords": [{"Id": k["id"], "AdGroupId": k["group"], "Keyword": k["keyword"], "ServingStatus": k.get("serving", "ELIGIBLE")}
+                                    for k in self.keywords if k["group"] in wanted]})
         if service == "keywords" and method == "update":
             results = []
             for item in params["Keywords"]:

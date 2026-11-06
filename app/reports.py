@@ -7,6 +7,7 @@
 import sqlite3
 
 from app.direct.counter_health import load_health
+from app.direct import audience as _aud
 from app.direct.moderation import rejected_text
 from app.engine.util import day_add, plural, rub
 
@@ -157,7 +158,12 @@ def alerts(conn: sqlite3.Connection, biz, today: str) -> list[dict]:
         shown = period(conn, biz["id"], day_add(today, -2), day_add(today, -1))["impressions"]
         if shown == 0:
             found.append({"kind": "no_impressions", "key": today, "cooldown": 2,
-                          "text": "⚠ Объявления активны, но показов не было уже два дня. Проверьте счёт в Директе и состояние кампании."})
+                          "text": "⚠ Объявления активны, но показов не было уже два дня. Сервис расширяет охват сам; если на счёте Директа нет денег, пополните его."})
+    traffic = (_aud.load(biz) or {}).get("traffic") or {}
+    for step in (traffic.get("log") or [])[-1:]:   # последний шаг расширения охвата: сообщаем один раз
+        did = "; ".join(step.get("did") or []) or "ничего менять не пришлось, ждём результата"
+        found.append({"kind": "widened", "key": f"{step['step']}:{step['day']}", "cooldown": None,
+                      "text": f"ℹ Показов у рекламы «{biz['name']}» не было, сервис расширил охват (шаг {step['step']} из 3): {did}. Результат будет виден через день-два."})
     if biz["last_sync_error"]:
         found.append({"kind": "sync_error", "key": today, "cooldown": 1,
                       "text": f"⚠ Сервис не может получить данные из Директа: {biz['last_sync_error']}"})

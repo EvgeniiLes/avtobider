@@ -306,6 +306,15 @@ class DirectClient:
                 found.setdefault(k["AdGroupId"], set()).add(k["Keyword"].lower())
         return found
 
+    async def keyword_serving(self, group_ids: list[int]) -> tuple[int, int]:
+        """(фраз в группах, из них с малым числом показов). Статус показа: ELIGIBLE (показывается) и RARELY_SERVED («мало показов»: фраза не участвует в аукционе)."""
+        if not group_ids:
+            return 0, 0
+        result = await self.call("keywords", "get", {"SelectionCriteria": {"AdGroupIds": group_ids}, "FieldNames": ["Id", "AdGroupId", "Keyword", "ServingStatus"],
+                                                     "Page": {"Limit": PAGE_SIZE}})
+        items = [k for k in result.get("Keywords", []) if k.get("Keyword") and k["Keyword"] != AUTOTARGETING_KEYWORD]
+        return len(items), sum(1 for k in items if k.get("ServingStatus") == "RARELY_SERVED")
+
     async def add_ad_extras(self, ad_id: int, title2: str = "", display_path: str = "", callout_ids: list[int] | None = None) -> None:
         """Второй заголовок, отображаемая ссылка и уточнения готовому объявлению (уточнения добавляются к тем, что уже есть)."""
         text_ad: dict = {}
