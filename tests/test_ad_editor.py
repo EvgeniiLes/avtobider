@@ -69,8 +69,8 @@ def test_photo_and_style_are_saved_per_ad_and_change_the_prompt(monkeypatch):
         fakes.claude_text = json.dumps([ads()["ads"][0]["title"], "Записаться"], ensure_ascii=False)
         assert http.post(f"{base}/creatives/ads/0/ai-banner").status_code == 200
         _h, path, body = next(r for r in fakes.requests if r[0] == "queue.fal.run")
-        assert path.endswith("gpt-image-2/edit") and body.count(b"data:image/jpeg;base64") == 2               # фото и референс
-        assert http.get(f"{base}/creatives").json()["spend"]["spent_usd"] == 0.09                             # 7 центов баннер и 2 за референс
+        assert path.endswith("nano-banana-2.1/edit") and body.count(b"data:image/jpeg;base64") == 2               # фото и референс
+        assert http.get(f"{base}/creatives").json()["spend"]["spent_usd"] == 0.12                             # 7 центов баннер, 2 за референс и 3 арт-директору, который вписывает фото
         http.get(f"{base}/creatives")
         assert put({"look": 4}).status_code == 200                                                            # после отрисовки смена подачи сразу видна в промпте
         assert "SECOND attached image" not in ads()["ads"][0]["ai"]["prompt"] and "photo-hero" in ads()["ads"][0]["ai"]["prompt"]
@@ -127,7 +127,7 @@ def test_ad_without_a_photo_is_drawn_from_scratch_and_the_reference_works_in_wor
         fakes.claude_text = json.dumps([ad["title"], "Записаться"], ensure_ascii=False)
         assert http.post(f"{base}/creatives/ads/0/ai-banner").status_code == 200
         _h, path, body = next(r for r in fakes.requests if r[0] == "queue.fal.run")
-        assert path.endswith("/gpt-image-2/edit") and body.count(b"data:image/jpeg;base64") == 1       # фото владельца не уходит, уходит только картинка референса
+        assert path.endswith("/nano-banana-2.1/edit") and body.count(b"data:image/jpeg;base64") == 1       # фото владельца не уходит, уходит только картинка референса
         assert b"ONLY a style inspiration" in body                                                            # референс задан шаблоном дизайна, чужой текст и логотип копировать нельзя
         asked = [json.loads(b)["messages"][-1]["content"] for _h, _p, b in fakes.requests if b.startswith(b"{") and b"messages" in b]
         assert any("Подача по референсу" in a and refs.note(ref) in a for a in asked)               # арт-директору приём назван: сцена строится вокруг него

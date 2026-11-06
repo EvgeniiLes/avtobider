@@ -280,6 +280,8 @@ def edit_model(model: str) -> str:
     """Модель, которая умеет принимать фото: для GPT Image это тот же GPT Image в режиме edit."""
     if model.endswith("/edit"):
         return model
+    if "nano-banana" in model:   # у Google правка с картинками на входе: тот же адрес с /edit
+        return model + "/edit"
     return (model if "gpt-image" in model else "openai/gpt-image-2") + "/edit"
 
 

@@ -505,7 +505,8 @@ def _order_banner(conn, biz, variants: list[dict], index: int, key: str, transpo
             if layout and not custom_prompt and "Reference layout in words" not in prompt:
                 prompt += f" Reference layout in words (follow it for the design, put the business photo into it): {layout}"
         placement = ""
-        if scheme == "smart":   # «умная схема»: арт-директор смотрит на фото и референс вместе и пишет, как вписать фото
+        use_smart = scheme == "smart" or (not scheme and models is None and bool(ref_bytes) and not custom_prompt)   # есть фото и референс: арт-директор вписывает фото
+        if use_smart:   # «умная схема»: арт-директор смотрит на фото и референс вместе и пишет, как вписать фото
             if not ref_bytes:
                 raise fal.FalError("Умная схема вписывает фото в раскладку референса: выберите референс.")
             _charge(conn, business_id, "strategist")
@@ -513,7 +514,7 @@ def _order_banner(conn, biz, variants: list[dict], index: int, key: str, transpo
             if placement:
                 prompt += f" Art director's placement instructions for the business photo (follow them): {placement}"
         what = f"фото «{PHOTO_TAGS.get(kind, kind)}», " + (f"по мотивам референса {brief['ref_id']}" if ref_bytes else f"оформление: {look}")
-        meta = {"scheme": scheme or "direct", "placement": placement, "expect": expected, "caption": fal.caption_for(biz), "logo": False, "screen": False, "mode": "photo", "concept": kind, "look": look,
+        meta = {"scheme": scheme or ("smart" if use_smart else "direct"), "placement": placement, "expect": expected, "caption": fal.caption_for(biz), "logo": False, "screen": False, "mode": "photo", "concept": kind, "look": look,
                 "look_no": look_no % len(fal.PHOTO_LOOKS), "photo_id": getattr(data, "asset_id", None), "varied": varied,
                 "ref": brief["ref_id"] if ref_bytes else None,
                 "audience": brief["audience"] if brief else "", "hypothesis": brief["hypothesis"] if brief else "", "scene": what,
@@ -531,6 +532,8 @@ def _order_banner(conn, biz, variants: list[dict], index: int, key: str, transpo
     if not free and _wants_auto_ref(brief, index) and not extras and not custom_prompt:   # подача не выбрана: берём приём из ниши
         brief = _auto_style(conn, biz, v, index, None, brief) or brief
     ref_id = None if free else (brief["ref_id"] if brief and not extras else None)
+    if not free and not scheme and models is None and not ref_id and not custom_prompt:   # ни фото, ни референса: композиция из библиотеки (схема 3)
+        free = True
     layout = layout_for(index) if free else None
     done_before = len(_used_styles(conn, business_id, v, scratch=True))   # от этого зависит, какое из стандартных оформлений возьмём
     earlier = [json.loads(r["prompt"] or "{}") for r in conn.execute(
@@ -556,7 +559,7 @@ def _order_banner(conn, biz, variants: list[dict], index: int, key: str, transpo
                      "make an original design with your own scene and do not reuse any text, logo or character from it") if ref_id else ""
     prompt = custom_prompt or fal.banner_prompt(biz, v["title"], price, cta, logo_corner=use_logo, index=index + done_before, screen=screen,
                                                 logo_ratio=_logo_ratio(logo), scene=art["scene"], direction=direction)
-    meta = {"scheme": scheme or "direct", "layout": layout[1] if layout else "",
+    meta = {"scheme": scheme or ("free" if free else "direct"), "layout": layout[1] if layout else "",
             "expect": expected, "caption": fal.caption_for(biz), "logo": use_logo, "screen": screen, "concept": art["concept"], "audience": art["audience"], "scene": art["scene"],
             "mode": "scratch", "ref": ref_id, "ref_img": bool(ref_bytes), "varied": varied,
             "logo_reason": art["logo_reason"], "prompt_text": prompt,

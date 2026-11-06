@@ -419,7 +419,7 @@ def test_ai_banner_is_ordered_checked_and_used(monkeypatch):
         assert http.post(f"{base}/ads/4/ai-banner").json() == {"started": True}
         assert http.post(f"{base}/ads/4/ai-banner").status_code == 400      # второй раз, пока рисуется, нельзя
         host, path, body = next(r for r in fakes.requests if r[0] == "queue.fal.run")   # перед рисованием арт-директор придумывает сцену
-        assert "gpt-image-2" in path
+        assert "nano-banana-2.1" in path
         assert b"Visual direction" in body and b"ONLY a style inspiration" not in body      # у объявления есть приём (свой или соседней ниши): референс уходит картинкой, размер и качество стоят после неё и в запомненную часть тела не входят
         http.get(base)
         assert _ai_ad(http, bid)["ai"]["status"] == "working"
@@ -447,7 +447,7 @@ def test_banner_is_made_from_the_owners_photo_with_an_editable_prompt(monkeypatc
         fakes.claude_text = json.dumps([ad["title"], "Записаться"], ensure_ascii=False)
         assert http.post(f"{base}/creatives/ads/0/ai-banner").status_code == 200
         host, path, body = next(r for r in fakes.requests if r[0] == "queue.fal.run")
-        assert path.endswith("gpt-image-2/edit") and b"image_urls" in body and b"data:image/jpeg;base64" in body    # фото ушло модели
+        assert path.endswith("nano-banana-2.1/edit") and b"image_urls" in body and b"data:image/jpeg;base64" in body    # фото ушло модели
         assert not any(r[0] == "fal.run" and b"\xd0\xa1\xd1\x86\xd0\xb5\xd0\xbd\xd0\xb0" in r[2] for r in fakes.requests)   # арт-директор не нужен
         http.get(f"{base}/creatives")
         ready = http.get(f"{base}/creatives/ads").json()["ads"][0]

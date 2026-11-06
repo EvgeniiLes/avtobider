@@ -52,7 +52,7 @@ def test_strategist_makes_different_ideas_and_the_chosen_one_becomes_an_ad(monke
         fakes.claude_text = json.dumps([ad["title"], "Записаться"], ensure_ascii=False)
         assert http.post(f"{base}/creatives/ads/{used['ad_index']}/ai-banner").status_code == 200
         _h, path, body = next(r for r in fakes.requests if r[0] == "queue.fal.run")
-        assert path.endswith("gpt-image-2/edit") and b"warm friendly mood" in body             # баннер делается по промпту идеи
+        assert path.endswith("nano-banana-2.1/edit") and b"warm friendly mood" in body             # баннер делается по промпту идеи
 
 
 def test_reference_catalog_is_complete():
@@ -95,9 +95,9 @@ def test_ideas_pick_distinct_references_and_the_banner_gets_the_reference_image(
         fakes.claude_text = json.dumps([briefs[0]["title"], "Записаться"], ensure_ascii=False)
         assert http.post(f"{base}/creatives/ads/{used['ad_index']}/ai-banner").status_code == 200
         _h, path, body = next(r for r in fakes.requests if r[0] == "queue.fal.run")
-        assert path.endswith("gpt-image-2/edit") and body.count(b"data:image/jpeg;base64") == 2           # фото владельца и референс
+        assert path.endswith("nano-banana-2.1/edit") and body.count(b"data:image/jpeg;base64") == 2           # фото владельца и референс
         spent = http.get(f"{base}/creatives").json()["spend"]["spent_usd"]
-        assert round(spent - spent_before, 2) == 0.09                                                      # 7 центов баннер и 2 за вторую картинку
+        assert round(spent - spent_before, 2) == 0.12                                                      # 7 центов баннер, 2 за вторую картинку и 3 арт-директору
         ad = http.get(f"{base}/creatives/ads").json()["ads"][used["ad_index"]]
         assert ad["ai"]["inspiration"] == briefs[0]["inspiration"]
 

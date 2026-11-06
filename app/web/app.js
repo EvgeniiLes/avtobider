@@ -904,7 +904,7 @@ async function saveAudience() {
 
 // Цена одного баннера: референс картинкой (баннер из фото) стоит чуть дороже, словами (без фото) бесплатно.
 function adPrice(a) {
-  return (creativePrices.ai_banner || 0.07) + (a.ref_id ? lastRefExtra : 0);
+  return (creativePrices.ai_banner || 0.07) + (a.ref_id ? lastRefExtra : 0) + (a.ref_id && a.photo_id && !a.no_photo ? 0.03 : 0);   // с фото и референсом арт-директор вписывает фото: ещё 3 цента
 }
 
 // «Нарисовать все недостающие» рисует все объявления списка, и кампании, и запасные

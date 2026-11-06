@@ -34,6 +34,37 @@ def test_smart_scheme_needs_a_photo_and_a_reference_and_adds_the_art_directors_p
         assert len(rows) == 3 and all(c["meta"]["scheme"] == "smart" and "headline behind it" in c["meta"]["placement"] for c in rows)
 
 
+def test_regular_order_follows_the_three_rules_and_draws_with_nano_banana(monkeypatch):
+    from tests.test_ad_editor import upload
+    monkeypatch.setenv("FAL_KEY", "fal-test")
+    fakes = Fakes(fal_done=False)
+    fakes.keep = 10 ** 8
+    fakes.claude_text = json.dumps({"audience": "клиенты", "scene": "A hero object on a saturated backdrop with calm empty space above for the headline.",
+                                    "logo": False, "logo_reason": "нет", "placement": "Keep the subject large on the right."})
+    with TestClient(app) as http:
+        bid = setup(http)
+        base = f"/api/businesses/{bid}/creatives"
+        put = lambda i, body: http.put(f"{base}/ads/{i}/settings", json=body)
+        paths = lambda: [(p, json.loads(b)) for h, p, b in fakes.requests if h == "queue.fal.run"]
+        ref = http.get(f"{base}/ads").json()["styles"]["refs"][0]["id"]
+
+        assert put(0, {"ref_id": ref, "no_photo": True}).status_code == 200                      # нет фото, есть референс: сцена и картинка референса
+        assert http.post(f"{base}/ads/0/ai-banner").status_code == 200
+        path, body = paths()[-1]
+        assert path == "/google/nano-banana-2.1/edit" and len(body["image_urls"]) == 1
+
+        photo = upload(http, f"/api/businesses/{bid}", "work")                                    # есть фото и референс: арт-директор вписывает фото
+        assert put(1, {"asset_id": photo, "ref_id": ref}).status_code == 200
+        assert http.post(f"{base}/ads/1/ai-banner").status_code == 200
+        path, body = paths()[-1]
+        assert path == "/google/nano-banana-2.1/edit" and len(body["image_urls"]) == 2 and "Art director's placement instructions" in body["prompt"]
+
+        assert put(2, {"ref_id": 0, "no_photo": True}).status_code == 200                        # ничего нет: композиция из библиотеки, из текста
+        assert http.post(f"{base}/ads/2/ai-banner").status_code == 200
+        path, body = paths()[-1]
+        assert path == "/google/nano-banana-2.1" and "image_urls" not in body and "Composition (" in body["prompt"]
+
+
 def test_free_scheme_draws_without_photo_and_reference_from_a_proven_composition(monkeypatch):
     monkeypatch.setenv("FAL_KEY", "fal-test")
     fakes = Fakes(fal_done=False)
