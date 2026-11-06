@@ -339,7 +339,7 @@ def test_dragging_a_spare_ad_into_the_live_places_changes_what_is_launched(isola
         conn.close()
 
 
-def test_a_template_kept_for_its_place_does_not_push_out_ai_drafts_with_the_same_angle(isolated):
+def test_unapproved_ai_drafts_do_not_go_into_ads(isolated):
     from app.db import connect
     from app.direct.launch import text_candidates
     with TestClient(app) as http:
@@ -351,7 +351,7 @@ def test_a_template_kept_for_its_place_does_not_push_out_ai_drafts_with_the_same
         conn.commit()
         titles = [c["title"] for c in text_candidates(conn, biz)]
         conn.close()
-        assert titles == ["Маникюр в центре Москвы", "Педикюр рядом с метро"]   # черновик с тем же углом остался
+        assert titles == ["Маникюр в центре Москвы"]   # тексты берутся только из одобренных (взятые идеи и свои варианты), черновик ИИ не идёт
 
 
 def test_the_owner_can_take_fewer_or_more_ads_into_the_campaign_than_the_budget_advises(isolated):
@@ -1002,7 +1002,7 @@ def test_angles_depend_on_facts_in_the_description():
     assert "price:" in prompt_block(FACTS) and "price:" not in prompt_block("Небольшая студия")
 
 
-def test_ai_proposals_go_into_ads_before_templates(monkeypatch):
+def test_ai_proposals_go_into_ads_only_after_approval(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
     Fakes(claude_text=json.dumps([
         {"title": "Покрытие держится до 4 недель", "text": "Инструменты в крафт-пакетах", "angle": "durability"},
@@ -1012,13 +1012,13 @@ def test_ai_proposals_go_into_ads_before_templates(monkeypatch):
         base = f"/api/businesses/{bid}/creatives"
         http.post(f"{base}/texts/generate", json={"count": 2})
         ads = http.get(f"{base}/ads").json()["ads"]
-        assert [a["title"] for a in ads[:2]] == ["Маникюр от 2 200 ₽", "Покрытие держится до 4 недель"]   # новые первыми
-        assert all(a["text_status"] == "draft" and not a["own"] and a["creative_id"] for a in ads[:2])
-        assert all(a["text_status"] == "template" for a in ads[2:])
-        ai = ads[0]["creative_id"]
-        http.put(f"{base}/{ai}", json={"status": "approved"})
-        assert http.get(f"{base}/ads").json()["ads"][0]["own"] is True                              # одобренный: «ваш выбор»
-        http.put(f"{base}/{ads[1]['creative_id']}", json={"status": "rejected"})
+        assert all(a["text_status"] == "template" for a in ads)                                      # черновики ИИ в рекламу сами не идут: тексты берутся из идей
+        drafts = {c["title"]: c["id"] for c in http.get(base).json()["creatives"] if c["kind"] == "text" and c["status"] == "draft"}
+        assert set(drafts) == {"Маникюр от 2 200 ₽", "Покрытие держится до 4 недель"}
+        http.put(f"{base}/{drafts['Маникюр от 2 200 ₽']}", json={"status": "approved"})
+        first = http.get(f"{base}/ads").json()["ads"][0]
+        assert first["title"] == "Маникюр от 2 200 ₽" and first["own"] is True                       # одобренный: «ваш выбор»
+        http.put(f"{base}/{drafts['Покрытие держится до 4 недель']}", json={"status": "rejected"})
         titles = [a["title"] for a in http.get(f"{base}/ads").json()["ads"]]
         assert "Покрытие держится до 4 недель" not in titles                                         # убранный не возвращается
 
@@ -1032,11 +1032,15 @@ def test_rewrite_puts_a_new_text_in_the_same_place(monkeypatch):
         bid = setup(http, description=FACTS)
         base = f"/api/businesses/{bid}/creatives"
         http.post(f"{base}/texts/generate", json={"count": 2})
+        for c in http.get(base).json()["creatives"]:
+            if c["kind"] == "text" and c["status"] == "draft":
+                http.put(f"{base}/{c['id']}", json={"status": "approved"})   # в рекламу идут только одобренные тексты (взятые идеи)
         first = http.get(f"{base}/ads").json()["ads"][0]
         spent = http.get(base).json()["spend"]["spent_usd"]
         fakes.claude_text = json.dumps([
             {"title": "Первый визит со скидкой 20%", "text": "Запишитесь на маникюр", "angle": "promo"},
-            {"title": "Маникюр от 2 200 ₽ с покрытием", "text": "Запись онлайн в любое время", "angle": "price"}], ensure_ascii=False)
+            {"title": "Маникюр от 2 200 ₽ с покрытием", "text": "Запись онлайн в любое время", "angle": "price"},
+            {"title": "Покрытие держится до 4 недель и дольше", "text": "Инструменты в крафт-пакетах", "angle": "durability"}], ensure_ascii=False)
         r = http.post(f"{base}/ads/0/rewrite").json()
         assert r["angle"] == first["angle"] and r["title"] != first["title"]                       # тот же угол, другой текст
         now = http.get(f"{base}/ads").json()["ads"][0]
@@ -1143,7 +1147,10 @@ def test_discounts_from_the_description_are_off_by_default_and_can_be_enabled():
         conn.execute("UPDATE businesses SET allow_promo = 1 WHERE id = ?", (bid,))
         conn.commit()
         row = conn.execute("SELECT * FROM businesses WHERE id = ?", (bid,)).fetchone()
-        assert any("Скидка" in c["title"] for c in text_candidates(conn, row))
+        assert all("Скидка" not in c["title"] for c in text_candidates(conn, row))   # неодобренный черновик в рекламу не идёт и при включённых акциях
+        conn.execute("UPDATE creatives SET status = 'approved' WHERE title LIKE 'Скидка%'")
+        conn.commit()
+        assert any("Скидка" in c["title"] for c in text_candidates(conn, row))       # а одобренный идёт
         assert http.put(base, json={**body, "allow_promo": True}).json()["allow_promo"] is True
         conn.close()
 
