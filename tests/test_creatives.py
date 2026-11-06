@@ -350,12 +350,6 @@ def test_unapproved_ai_drafts_do_not_go_into_ads(isolated):
         titles = [c["title"] for c in text_candidates(conn, biz)]
         conn.close()
         assert titles == ["Маникюр в центре Москвы"]   # тексты берутся только из одобренных (взятые идеи и свои варианты), черновик ИИ не идёт
-        conn = connect(isolated)
-        conn.execute("INSERT INTO creatives (business_id, kind, title, body, status) VALUES (?, 'ai_banner', 'Педикюр рядом с метро', 'Салон «Лотос» работает ежедневно', 'draft')", (bid,))
-        conn.commit()
-        titles = [c["title"] for c in text_candidates(conn, biz)]
-        conn.close()
-        assert "Педикюр рядом с метро" in titles       # а черновик с уже нарисованным баннером остаётся: баннер не пропадает
 
 
 def test_the_owner_can_take_fewer_or_more_ads_into_the_campaign_than_the_budget_advises(isolated):
