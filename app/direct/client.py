@@ -428,6 +428,14 @@ class DirectClient:
         }]})
         return self._result_item(result, "AddResults")["AdImageHash"]
 
+    async def update_text_ad(self, ad_id: int, title: str, text: str, title2: str | None = None) -> None:
+        """Меняет заголовок и текст готового объявления (после правки Директ снова проверяет его). title2: None оставляет второй заголовок как есть."""
+        ad: dict = {"Title": title, "Text": text}
+        if title2:
+            ad["Title2"] = title2
+        result = await self.call("ads", "update", {"Ads": [{"Id": ad_id, "TextAd": ad}]})
+        self._result_item(result, "UpdateResults")
+
     async def attach_image(self, ad_id: int, image_hash: str) -> None:
         """Привязывает загруженную картинку к объявлению (у объявления может быть одна)."""
         result = await self.call("ads", "update", {"Ads": [{"Id": ad_id, "TextAd": {"AdImageHash": image_hash}}]})

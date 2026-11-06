@@ -164,6 +164,15 @@ def alerts(conn: sqlite3.Connection, biz, today: str) -> list[dict]:
         did = "; ".join(step.get("did") or []) or "ничего менять не пришлось, ждём результата"
         found.append({"kind": "widened", "key": f"{step['step']}:{step['day']}", "cooldown": None,
                       "text": f"ℹ Показов у рекламы «{biz['name']}» не было, сервис расширил охват (шаг {step['step']} из 3): {did}. Результат будет виден через день-два."})
+    for c in conn.execute("SELECT id, status, action, reason_text, reason_code FROM changes WHERE business_id = ? AND day >= ? AND "
+                          "(action = 'start_ab' OR reason_code = 'ab_loser') AND status IN ('proposed', 'applied') ORDER BY id", (biz["id"], day_add(today, -3))):
+        if c["status"] == "proposed":   # новое сравнение: ждём решения владельца, через сутки без ответа запустим сами
+            found.append({"kind": "ab_proposed", "key": str(c["id"]), "cooldown": None,
+                          "text": f"🧪 {c['reason_text']} Если до завтра не ответите, запустим сами. Принять или отклонить: страница «Результаты»."})
+        elif c["action"] == "start_ab":
+            found.append({"kind": "ab_started", "key": str(c["id"]), "cooldown": None, "text": f"ℹ {c['reason_text']}"})
+        else:
+            found.append({"kind": "ab_done", "key": str(c["id"]), "cooldown": None, "text": f"🧪 {c['reason_text']}"})
     for step in ((_aud.load(biz) or {}).get("history") or [])[-1:]:   # сервис сам поставил минус-слова: сообщаем один раз
         if step.get("auto") and step.get("minus"):
             found.append({"kind": "auto_minus", "key": f"{step['day']}:{','.join(step['minus'])}", "cooldown": None,

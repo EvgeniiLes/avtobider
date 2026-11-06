@@ -77,6 +77,37 @@ class DirectPlatform:
     def touch(self, unit_id: int, day: str) -> None:
         self.conn.execute("UPDATE ad_units SET last_changed_day = ? WHERE id = ?", (day, unit_id))
 
+    def rewrite_ad(self, unit_id: int, title: str, text: str, angle: str, day: str) -> str:
+        """Заменяет заголовок и текст объявления в кабинете, делает под них новый баннер и отправляет на проверку.
+        Возвращает пометку, если что-то не вышло (например, баннер), иначе пустую строку."""
+        from app.direct import extras as ad_extras
+        from app.direct.client import DirectError
+        from app.direct.launch import ai_banners_for, attach_banners, media_typed
+        from app.creative.compose import style_for
+        u = self._unit(unit_id)
+        biz = self.conn.execute("SELECT * FROM businesses WHERE id = ?", (u["business_id"],)).fetchone()
+        ad_id = int(u["external_ad_id"])
+        place = self.conn.execute("SELECT COUNT(*) FROM ad_units WHERE business_id = ?", (u["business_id"],)).fetchone()[0]   # другой номер: баннер получит другой шаблон и фото
+        created = [{"ad_id": ad_id, "variant": {"title": title, "text": text}, "index": place}]
+        title2 = ad_extras.title2_for(ad_extras.load(biz), title)
+        photos, logo = media_typed(self.conn, biz)
+        ai = ai_banners_for(self.conn, biz)
+
+        async def go(c: DirectClient) -> list[str]:
+            await c.update_text_ad(ad_id, title, text, title2 or None)
+            problems = await attach_banners(c, biz, created, photos, logo, ai) if (photos or ai) else []
+            try:
+                await c.moderate_ads([ad_id])   # правка принятого объявления уходит на проверку сама; если нет, отправляем
+            except DirectError:
+                pass
+            return problems
+
+        problems = self._run(go)
+        self.conn.execute(
+            "UPDATE ad_units SET title = ?, body = ?, angle = ?, state = 'moderation', status_note = ?, style = ?, last_changed_day = ? WHERE id = ?",
+            (title, text, angle, "Текст заменён для сравнения, объявление снова на проверке в Яндексе.", style_for(place), day, unit_id))
+        return "; ".join(problems)
+
     def _goal(self, campaign: sqlite3.Row) -> str | None:
         row = self.conn.execute("SELECT metrika_goal_id FROM businesses WHERE id = ?", (campaign["business_id"],)).fetchone()
         return (row["metrika_goal_id"] or None) if row else None

@@ -17,6 +17,12 @@ from app.main import app
 from tests.fake_direct import FakeDirect
 from tests.test_launch import BUDGET, isolated, setup  # noqa: F401  (isolated: общая подготовка базы для каждого теста)
 
+
+@pytest.fixture(autouse=True)
+def no_text_tests(monkeypatch):
+    """Здесь проверяются решения про кампанию и остановку слабых; сравнение текстов (app/direct/abtest.py) проверяется в tests/test_abtest.py."""
+    monkeypatch.setattr("app.direct.runner.ab_cycle", lambda *args, **kwargs: {})
+
 TODAY = date.today().isoformat()
 LATER = day_add(TODAY, 20)      # разогрев (14 дней) давно прошёл
 CAP = int(BUDGET * MICRO * 0.9)  # столько можно раздать кампании: 10% бюджета недели в запасе

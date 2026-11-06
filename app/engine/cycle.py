@@ -459,6 +459,12 @@ def rollback(conn: sqlite3.Connection, platform: Platform, biz: sqlite3.Row, cha
         conn.execute("UPDATE experiments SET status = 'cancelled', ended_day = ? WHERE id = ?", (today, after["experiment_id"]))
         text = "Вы отменили сравнение: второй вариант остановлен, объявление работает как раньше."
         new_before, new_after = after, before
+    elif ch["action"] == "start_ab":
+        platform.rewrite_ad(ch["unit_id"], before["title"], before["text"], before.get("angle", ""), today)
+        conn.execute("UPDATE experiments SET status = 'cancelled', ended_day = ? WHERE id = ?", (today, after["experiment_id"]))
+        conn.execute("UPDATE ad_units SET variant_of = NULL WHERE id = ?", (ch["unit_id"],))
+        text = "Вы отменили сравнение: вернули прежний текст объявления."
+        new_before, new_after = after, before
     elif ch["campaign_id"] is not None:
         camp = conn.execute("SELECT * FROM campaigns WHERE id = ?", (ch["campaign_id"],)).fetchone()
         if camp is None:
@@ -620,6 +626,18 @@ def approve(conn: sqlite3.Connection, platform: Platform, biz: sqlite3.Row, chan
         if cap > 0 and active_total + unit["budget_micro"] > cap:
             stale("Недельный бюджет уже распределён, второй вариант не поместится.")
         return _start_test(conn, platform, biz, unit, today, evidence.get("free_text", "пока не ясно, окупается ли оно"), change_id=change_id)
+    elif ch["action"] == "start_ab":
+        best = conn.execute("SELECT * FROM ad_units WHERE id = ?", (evidence.get("best_unit_id"),)).fetchone()
+        if best is None or best["state"] != "active":
+            stale("Лучшее объявление группы уже остановлено.")
+        if conn.execute("SELECT 1 FROM experiments WHERE business_id = ? AND status = 'running'", (biz["id"],)).fetchone():
+            stale("Другое сравнение уже идёт.")
+        v = evidence["variant"]
+        platform.rewrite_ad(unit["id"], v["title"], v["text"], v.get("angle", ""), today)
+        ex = conn.execute("INSERT INTO experiments (business_id, unit_a, unit_b, started_day) VALUES (?,?,?,?)", (biz["id"], best["id"], unit["id"], today))
+        conn.execute("UPDATE ad_units SET variant_of = ? WHERE id = ?", (best["id"], unit["id"]))
+        conn.execute("UPDATE changes SET after_json = ? WHERE id = ?",
+                     (json.dumps({"experiment_id": ex.lastrowid, "title": v["title"], "text": v["text"]}, ensure_ascii=False), change_id))
     else:
         raise EngineError("Это действие нельзя подтвердить.", "not_allowed")
 

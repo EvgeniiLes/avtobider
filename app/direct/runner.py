@@ -13,6 +13,7 @@ from app.direct.client import DirectClient, DirectError
 from app.direct.counter_health import check_counter
 from app.direct.goals import fetch_goals, save_goals
 from app.direct.launch import sync_units
+from app.direct.abtest import ab_cycle
 from app.direct.queries import auto_minus, sync_queries
 from app.direct.behavior import sync_behavior
 from app.direct.slices import sync_slices
@@ -122,6 +123,11 @@ def sync_and_run(conn: sqlite3.Connection, biz: sqlite3.Row, today: str | None =
 
             decide = asyncio.run(check())["level"] != "bad"
         changes = run_cycle(conn, biz, platform, today, cfg=DIRECT_CONFIG, decide=decide)
+        if decide:   # сравнение текстов: предложение владельцу, запуск без ответа через сутки (обращения нужны, иначе сравнивать нечем)
+            try:
+                ab_cycle(conn, biz, platform, today, s, ai_transport)
+            except (EngineError, DirectError, sqlite3.Error):
+                pass
         error = synced.get("goal_error", "")   # расход и клики обновились, а цель Метрики Директ в отчёт не принял: причину показываем, а не молчим
     except (EngineError, DirectError) as e:
         synced, changes, error = {"units": 0, "rows": 0}, [], (e.full_message() if isinstance(e, DirectError) else e.message)   # с кодом и номером запроса: ошибку можно разобрать

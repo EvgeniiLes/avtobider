@@ -44,6 +44,7 @@ ACTION_LABELS = {
     "set_budget": "Изменение бюджета",
     "set_strategy": "Смена стратегии",
     "start_test": "Сравнение двух вариантов",
+    "start_ab": "Сравнение нового текста",
     "rollback": "Отмена",
 }
 STRATEGY_LABELS = {"clicks": "Максимум кликов", "conversions": "Максимум конверсий"}
