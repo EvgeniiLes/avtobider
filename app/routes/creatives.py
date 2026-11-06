@@ -536,7 +536,7 @@ def _order_banner(conn, biz, variants: list[dict], index: int, key: str, transpo
     ref_id = None if free else (brief["ref_id"] if brief and not extras else None)
     if not free and not scheme and models is None and not ref_id and not custom_prompt:   # ни фото, ни референса: композиция из библиотеки (схема 3)
         free = True
-    layout = layout_for(index) if free else None
+    layout = layout_for(index, _headline(v), biz["kind"], bool(find_price(v["title"], v["text"], fallback=biz["description"]))) if free else None
     done_before = len(_used_styles(conn, business_id, v, scratch=True))   # от этого зависит, какое из стандартных оформлений возьмём
     earlier = [json.loads(r["prompt"] or "{}") for r in conn.execute(
         "SELECT prompt FROM creatives WHERE business_id = ? AND kind = 'ai_banner' AND title = ? AND body = ? AND status IN ('draft', 'approved') "

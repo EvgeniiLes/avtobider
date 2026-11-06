@@ -50,9 +50,29 @@ LAYOUTS = {
 LAYOUT_ORDER = list(LAYOUTS)
 
 
-def layout_for(index: int) -> tuple[str, str, str]:
-    """Композиция для баннера без референса: у соседних объявлений разные. Возвращает (ключ, название, описание)."""
-    key = LAYOUT_ORDER[index % len(LAYOUT_ORDER)]
+TEXT_HEAVY = ("color_split", "dark", "airy", "arch")        # много места под текст: плашка или спокойная зона
+TEXT_LIGHT = ("giant_word", "still_life", "metaphor", "hand")   # текст короткий, на баннере главное картинка или одно слово
+FOOD_KINDS = ("кофе", "кафе", "пекар", "ресторан", "пицц", "суши", "кондитер", "бар", "столов", "еда", "доставк")
+FOOD_LAYOUTS = ("still_life", "color_split", "airy", "dark", "arch")
+
+
+def layout_for(index: int, headline: str = "", kind: str = "", has_price: bool = False) -> tuple[str, str, str]:
+    """Композиция для баннера без референса. Выбор зависит от текста на баннере и бизнеса, а при равных вариантах у соседних объявлений разные.
+    Длинный текст или цена: широкая плашка под текст. Короткий (1-2 слова): картинка или одно огромное слово. Еда: предмет-герой, плашка, светлый фон.
+    Возвращает (ключ, название, описание)."""
+    text = (headline or "").strip()
+    words = text.split()
+    if not text:
+        pool = list(LAYOUT_ORDER)
+    elif len(text) >= 30 or len(words) >= 5 or has_price:
+        pool = list(TEXT_HEAVY)
+    elif len(words) <= 2 and len(text) <= 18:
+        pool = [k for k in TEXT_LIGHT if k != "giant_word" or max(len(w) for w in words) <= 10] + ["arch"]
+    else:
+        pool = [k for k in LAYOUT_ORDER if k != "giant_word"]
+    if any(w in (kind or "").lower() for w in FOOD_KINDS):
+        pool = [k for k in pool if k in FOOD_LAYOUTS] or list(FOOD_LAYOUTS)
+    key = pool[index % len(pool)]
     return key, LAYOUTS[key][0], LAYOUTS[key][1]
 
 

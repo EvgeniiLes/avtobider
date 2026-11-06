@@ -152,6 +152,10 @@ def _text_block(title: str, price: str, cta: str, by_direction: bool = False) ->
             f"anywhere. {style}Text to show: {shown}, and a solid rounded button «{cta}». " + tail)
 
 
+FRAMING = ("The hero subject is large and fully inside the frame: no person's head, face or hands and no product is cut off by the edge of the picture or of a frame; "
+           "a picture area runs edge to edge in its half, without thick borders, dark margins or a picture-in-picture look. ")
+
+
 def banner_prompt(biz, title: str, price: str, cta: str, logo_corner: bool = False, index: int = 0, screen: bool = False,
                   logo_ratio: float | None = None, scene: str = "", direction: str = "") -> str:
     """Запрос на баннер целиком: русский текст пишет сама модель, поэтому он короткий и в точных кавычках.
@@ -161,6 +165,7 @@ def banner_prompt(biz, title: str, price: str, cta: str, logo_corner: bool = Fal
             f"«{biz['name']}» is NOT written on the banner. " + _visual_rules(biz)
             + f"Scene, follow it closely: {scene or 'one clear subject that shows what the business really offers'}. "
             "One clear focal subject, natural realistic photography with natural skin texture, correct anatomy and hands, no clutter. "
+            + FRAMING +
             "People are busy with real work and their faces are calm and natural: no theatrical surprise or shock (wide-open eyes and mouth), "
             "no show-off delight, no stock-photo poses. "
             "Choose the composition freely like an art director (the text may sit on the left, right, top or bottom), but the text always lies on "
