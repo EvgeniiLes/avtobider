@@ -162,3 +162,23 @@ def test_ask_waits_for_the_owners_answer_and_reports_it_in_the_exit_code(isolate
         monkeypatch.setattr(ask.time, "sleep", lambda s: None)                                                                 # никто не отвечает
         assert ask.main(["Ждём?", "--email", "o@example.com", "--wait", "0"]) == 2
         assert ask.main(["Кому?", "--email", "нет@example.com"]) == 2
+
+
+def test_stats_button_answers_the_owner_with_numbers_for_now_and_ignores_strangers(isolated, monkeypatch):
+    with TestClient(app) as http:
+        fake, bot, bid, conn = prepare(http, isolated, monkeypatch)
+        unit = conn.execute("SELECT id FROM ad_units WHERE business_id = ? LIMIT 1", (bid,)).fetchone()[0]
+        today = datetime.now(approvals.MSK).date().isoformat()
+        conn.execute("INSERT OR REPLACE INTO stats_daily (unit_id, day, impressions, clicks, spend_micro, leads, clients) VALUES (?,?,300,12,?,2,0)", (unit, today, 480 * MICRO))
+        conn.commit()
+        say = lambda text, chat=777, kind="private": http.post("/api/telegram/hook", json={"message": {"text": text, "chat": {"id": chat, "type": kind}}},
+                                                                headers={"X-Telegram-Bot-Api-Secret-Token": approvals.hook_secret()})
+        assert say("Статистика").status_code == 200
+        text = bot.sent[-1]["text"]
+        assert "Лотос" in text and "Сегодня: показов 300, кликов 12" in text and "480 ₽" in text and "2 обращения" in text
+        assert bot.sent[-1]["reply_markup"]["keyboard"][0][0]["text"] == "Статистика"            # кнопка остаётся под полем ввода
+        sent = len(bot.sent)
+        say("Статистика", chat=999)                                                                # чужой чат
+        say("Статистика", kind="group")
+        say("что-то другое")
+        assert len(bot.sent) == sent

@@ -38,8 +38,12 @@ async def call(token: str, api: str, method: str, payload: dict, transport: http
     return data.get("result")
 
 
+STATS_BUTTON = "Статистика"
+MENU = {"keyboard": [[{"text": STATS_BUTTON}]], "resize_keyboard": True, "is_persistent": True}   # кнопка под полем ввода: остаётся, пока её не уберут
+
+
 async def send_message(token: str, api: str, chat_id: str, text: str, transport: httpx.AsyncBaseTransport | None = None) -> None:
-    await call(token, api, "sendMessage", {"chat_id": chat_id, "text": text[:4000], "disable_web_page_preview": True}, transport)
+    await call(token, api, "sendMessage", {"chat_id": chat_id, "text": text[:4000], "disable_web_page_preview": True, "reply_markup": MENU}, transport)
 
 
 async def send_buttons(token: str, api: str, chat_id: str, text: str, buttons: list[tuple[str, str]],

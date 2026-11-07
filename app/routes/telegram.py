@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
 
-from app import approvals, telegram
+from app import approvals, reports, telegram
 from app.config import get_settings
 from app.db import get_db
 from app.deps import client_factory, current_user, telegram_transport
@@ -37,7 +37,27 @@ def _need_bot():
     return s
 
 
-GREETING = "Готово, Автобидер подключён. Сюда будут приходить итоги недели по понедельникам и тревоги, если с рекламой что-то не так."
+GREETING = ("Готово, Автобидер подключён. Сюда будут приходить итоги дня и недели и тревоги, если с рекламой что-то не так. "
+            "Кнопка «Статистика» внизу покажет цифры на сейчас.")
+
+
+def _send_stats(conn: sqlite3.Connection, chat_id: str, transport) -> None:
+    """Кнопка «Статистика»: владельцу, чей это чат, уходит статистика каждого его бизнеса с настоящей рекламой. Чужому чату не отвечаем."""
+    s = get_settings()
+    owner = conn.execute("SELECT id FROM users WHERE telegram_chat = ?", (chat_id,)).fetchone()
+    if owner is None:
+        return
+    send = lambda text: asyncio.run(telegram.send_message(s.telegram_token, s.telegram_api, chat_id, text, transport))
+    today = datetime.now(approvals.MSK).date().isoformat()
+    shown = conn.execute("SELECT DISTINCT b.* FROM businesses b JOIN campaigns c ON c.business_id = b.id WHERE b.user_id = ? AND c.source = 'direct' ORDER BY b.id", (owner["id"],)).fetchall()
+    if not shown:
+        send("Реклама ещё не запущена: статистики пока нет.")
+    for biz in shown:
+        try:
+            synced = datetime.fromisoformat(biz["last_sync_at"]).astimezone(approvals.MSK).strftime("%d.%m %H:%M") if biz["last_sync_at"] else ""
+        except ValueError:
+            synced = ""
+        send(reports.now_text(conn, biz, today, synced))
 
 
 @router.post("/hook")
@@ -59,6 +79,9 @@ def hook(update: dict, x_telegram_bot_api_secret_token: str = Header(default="")
         message = update.get("message") or {}
         text = (message.get("text") or "").strip()
         chat = message.get("chat") or {}
+        if text in (telegram.STATS_BUTTON, "/stats") and chat.get("type") == "private":
+            _send_stats(conn, str(chat["id"]), transport)
+            return {"ok": True}
         if text.startswith("/start ") and chat.get("type") == "private":
             code = text.split(None, 1)[1].strip()
             user = conn.execute("SELECT id, telegram_code, telegram_code_at FROM users WHERE telegram_code = ?", (code,)).fetchone() if code else None

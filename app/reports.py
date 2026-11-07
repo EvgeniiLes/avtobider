@@ -71,6 +71,30 @@ def week_report(conn: sqlite3.Connection, biz, today: str) -> dict:
     return report
 
 
+def now_text(conn: sqlite3.Connection, biz, today: str, synced_at: str = "") -> str:
+    """Статистика на момент запроса (кнопка «Статистика» в боте): сегодня с начала дня, вчера и семь дней. Данные те, что сервис забрал у Директа в последний раз."""
+    conversions = bool(biz["metrika_counter_id"] and biz["metrika_goal_id"])
+    day, yesterday, week = (period(conn, biz["id"], day_add(today, -back), day_add(today, -back + span)) for back, span in ((0, 0), (1, 0), (6, 6)))
+
+    def line(label: str, p: dict) -> str:
+        text = f"{label}: показов {p['impressions']}, кликов {p['clicks']}, потрачено {rub(p['spend'])}"
+        if p["clicks"]:
+            text += f", клик {rub(p['spend'] / p['clicks'])}"
+        if conversions:
+            text += f", {plural(p['leads'], 'обращение', 'обращения', 'обращений')}"
+        return text
+
+    lines = [f"Статистика «{biz['name']}»" + (f", данные от {synced_at}" if synced_at else ""), "", line("Сегодня", day), line("Вчера", yesterday), line("7 дней", week)]
+    if conversions and week["leads"]:
+        lines.append(f"Цена обращения за 7 дней: {rub(week['spend'] / week['leads'])}.")
+    if not conversions:
+        lines.append(NO_CONVERSIONS)
+    health = load_health(biz)
+    if health and health["level"] in ("bad", "warn"):
+        lines.append(f"Внимание: {health['title'].lower()}.")
+    return "\n".join(lines)
+
+
 def week_text(r: dict) -> str:
     cur, prev = r["cur"], r["prev"]
     lines = [f"Итоги недели «{r['name']}», {_short(r['start'])}–{_short(r['end'])}", ""]
