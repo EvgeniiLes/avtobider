@@ -51,15 +51,20 @@ def _apps(conn: sqlite3.Connection, biz, since: str) -> dict | None:
     rows = conn.execute(
         "SELECT key, SUM(clicks) c, SUM(spend_micro) s, SUM(leads) l FROM dimension_stats WHERE business_id = ? AND dimension = 'placement' AND day >= ? GROUP BY key",
         (biz["id"], since)).fetchall()
+    measured = bool(biz["metrika_counter_id"] and biz["metrika_goal_id"])
+    if measured and not sum(r["l"] for r in rows):
+        return None   # цель выбрана, но обращений нет нигде: ноль у приложений ничего не доказывает, ждём первых обращений
     found = sorted((r for r in rows if is_app(r["key"]) and r["key"] not in skip and r["l"] == 0 and r["c"] >= 2), key=lambda r: -r["s"])
     spend = sum(r["s"] for r in found)
     if spend < MIN_SPEND:
         return None
     sites = [r["key"] for r in found][:MAX_SITES]
     top = ", ".join(f"{r['key']} ({rub(r['s'])})" for r in found[:5])
-    text = (f"Реклама «{biz['name']}»: за {WINDOW_DAYS} дней {plural(len(found), 'приложение', 'приложения', 'приложений')} в рекламной сети "
-            f"(в основном игры) собрали {plural(sum(r['c'] for r in found), 'клик', 'клика', 'кликов')} и {rub(spend)}, обращений ни одного. "
-            f"Крупнейшие: {top}.\n\nПредлагаю отключить показы на них в кампании. Отключить?")
+    gathered = (f"{plural(len(found), 'приложение', 'приложения', 'приложений')} в рекламной сети (в основном игры) собрали "
+                f"{plural(sum(r['c'] for r in found), 'клик', 'клика', 'кликов')} и {rub(spend)}")
+    why = ("обращений с них ни одного, хотя с других площадок они есть" if measured
+           else "обращения у этой рекламы пока не измеряются, поэтому предлагаю по общему правилу для услуг для бизнеса: клики в играх чаще случайные")
+    text = f"Реклама «{biz['name']}»: за {WINDOW_DAYS} дней {gathered}; {why}. Крупнейшие: {top}.\n\nПредлагаю отключить показы на них в кампании. Отключить?"
     return {"kind": "sites", "key": _digest(sites), "text": text, "payload": {"sites": sites}}
 
 

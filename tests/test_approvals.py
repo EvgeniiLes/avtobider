@@ -1,4 +1,4 @@
-"""Ежедневный разбор рекламы и правки, которые делаются только после «Да» владельца в Telegram."""
+﻿"""Ежедневный разбор рекламы и правки, которые делаются только после «Да» владельца в Telegram."""
 import json
 import sqlite3
 from datetime import datetime, timezone
@@ -47,11 +47,11 @@ def prepare(http, isolated, monkeypatch):
     conn = connect(isolated)
     conn.execute("UPDATE users SET telegram_chat = '777'")
     aud.save(conn, bid, {"summary": "x", "gender": "any", "ages": ["25-34", "35-44", "45-54"], "income": "any"})
-    rows = [("placement", "com.vitastudio.mahjong", 40, 100), ("placement", "com.fugo.wow", 15, 40), ("placement", "game.yandex.ru", 60, 150),
+    rows = [("placement", "com.vitastudio.mahjong", 40, 100), ("placement", "com.fugo.wow", 15, 40), ("placement", "game.yandex.ru", 60, 150, 3),
             ("age", "AGE_0_17", 50, 60), ("age", "AGE_25_34", 150, 200), ("age", "AGE_55", 3, 5)]
-    for dimension, key, clicks, spend in rows:
-        conn.execute("INSERT INTO dimension_stats (business_id, dimension, key, day, impressions, clicks, spend_micro, leads) VALUES (?,?,?,?,?,?,?,0)",
-                     (bid, dimension, key, "2026-11-06", clicks * 10, clicks, spend * MICRO))
+    for dimension, key, clicks, spend, *leads in rows:
+        conn.execute("INSERT INTO dimension_stats (business_id, dimension, key, day, impressions, clicks, spend_micro, leads) VALUES (?,?,?,?,?,?,?,?)",
+                     (bid, dimension, key, "2026-11-06", clicks * 10, clicks, spend * MICRO, leads[0] if leads else 0))
     conn.commit()
     return fake, bot, bid, conn
 
@@ -182,3 +182,22 @@ def test_stats_button_answers_the_owner_with_numbers_for_now_and_ignores_strange
         say("Статистика", kind="group")
         say("что-то другое")
         assert len(bot.sent) == sent
+
+
+def test_game_apps_are_proposed_only_when_zero_leads_means_something(isolated, monkeypatch):
+    with TestClient(app) as http:
+        fake, bot, bid, conn = prepare(http, isolated, monkeypatch)
+        get = lambda: conn.execute("SELECT * FROM businesses WHERE id = ?", (bid,)).fetchone()
+        since = "2026-10-10"
+
+        measured = review._apps(conn, get(), since)                                   # цель выбрана, на других площадках обращения есть
+        assert measured and "с других площадок они есть" in measured["text"] and "не измеряются" not in measured["text"]
+
+        conn.execute("UPDATE dimension_stats SET leads = 0")                          # цель выбрана, но обращений нет нигде: ноль ничего не доказывает
+        conn.commit()
+        assert review._apps(conn, get(), since) is None
+
+        conn.execute("UPDATE businesses SET metrika_goal_id = '' WHERE id = ?", (bid,))   # цели нет: предлагаем по общему правилу и говорим об этом прямо
+        conn.commit()
+        general = review._apps(conn, get(), since)
+        assert general and "пока не измеряются" in general["text"] and "по общему правилу" in general["text"] and "обращений с них ни одного" not in general["text"]
