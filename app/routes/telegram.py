@@ -44,12 +44,13 @@ GREETING = ("Готово, Автобидер подключён. Сюда бу�
 def _send_stats(conn: sqlite3.Connection, chat_id: str, transport) -> None:
     """Кнопка «Статистика»: владельцу, чей это чат, уходит статистика каждого его бизнеса с настоящей рекламой. Чужому чату не отвечаем."""
     s = get_settings()
-    owner = conn.execute("SELECT id FROM users WHERE telegram_chat = ?", (chat_id,)).fetchone()
-    if owner is None:
+    owners = [r["id"] for r in conn.execute("SELECT id FROM users WHERE telegram_chat = ?", (chat_id,))]   # один чат может быть привязан к нескольким аккаунтам
+    if not owners:
         return
     send = lambda text: asyncio.run(telegram.send_message(s.telegram_token, s.telegram_api, chat_id, text, transport))
     today = datetime.now(approvals.MSK).date().isoformat()
-    shown = conn.execute("SELECT DISTINCT b.* FROM businesses b JOIN campaigns c ON c.business_id = b.id WHERE b.user_id = ? AND c.source = 'direct' ORDER BY b.id", (owner["id"],)).fetchall()
+    marks = ",".join("?" * len(owners))
+    shown = conn.execute(f"SELECT DISTINCT b.* FROM businesses b JOIN campaigns c ON c.business_id = b.id WHERE b.user_id IN ({marks}) AND c.source = 'direct' ORDER BY b.id", owners).fetchall()
     if not shown:
         send("Реклама ещё не запущена: статистики пока нет.")
     for biz in shown:

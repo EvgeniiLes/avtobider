@@ -84,7 +84,10 @@ def now_text(conn: sqlite3.Connection, biz, today: str, synced_at: str = "") -> 
             text += f", {plural(p['leads'], 'обращение', 'обращения', 'обращений')}"
         return text
 
+    running = conn.execute("SELECT COUNT(*) FROM campaigns WHERE business_id = ? AND source = 'direct' AND state != 'paused'", (biz["id"],)).fetchone()[0]
     lines = [f"Статистика «{biz['name']}»" + (f", данные от {synced_at}" if synced_at else ""), "", line("Сегодня", day), line("Вчера", yesterday), line("7 дней", week)]
+    if not running:
+        lines.append("Реклама сейчас на паузе.")
     if conversions and week["leads"]:
         lines.append(f"Цена обращения за 7 дней: {rub(week['spend'] / week['leads'])}.")
     if not conversions:

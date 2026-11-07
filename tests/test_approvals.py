@@ -209,3 +209,17 @@ def test_hook_address_goes_through_the_relay_when_there_is_one(monkeypatch):
     assert approvals.hook_url() == "https://addtracker.ru/api/telegram/hook"
     monkeypatch.setenv("TELEGRAM_API_BASE", "https://tg.addtracker.ru")
     assert approvals.hook_url() == "https://tg.addtracker.ru/hook"
+
+
+def test_stats_button_covers_every_account_linked_to_the_chat_and_marks_paused_ads(isolated, monkeypatch):
+    with TestClient(app) as http:
+        fake, bot, bid, conn = prepare(http, isolated, monkeypatch)
+        with TestClient(app) as other:                                                              # второй аккаунт того же человека с тем же чатом
+            other.post("/api/auth/register", json={"email": "second@example.com", "password": "password123"})
+        conn.execute("UPDATE users SET telegram_chat = '777'")
+        conn.execute("UPDATE businesses SET user_id = (SELECT id FROM users WHERE email = 'second@example.com') WHERE id = ?", (bid,))   # бизнес у второго аккаунта
+        conn.execute("UPDATE campaigns SET state = 'paused'")
+        conn.commit()
+        http.post("/api/telegram/hook", json={"message": {"text": "Статистика", "chat": {"id": 777, "type": "private"}}},
+                  headers={"X-Telegram-Bot-Api-Secret-Token": approvals.hook_secret()})
+        assert "Статистика «Лотос»" in bot.sent[-1]["text"] and "Реклама сейчас на паузе." in bot.sent[-1]["text"]
