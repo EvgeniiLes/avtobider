@@ -59,6 +59,7 @@ def run_once(transport=None, telegram_transport=None) -> int:
 def main() -> None:
     load_env()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    logging.getLogger("httpx").setLevel(logging.WARNING)   # на уровне INFO httpx пишет в журнал адрес запроса целиком, а в адресе Telegram токен бота
     init_db(get_settings().db_path)
     interval = int(os.environ.get("WORKER_INTERVAL_MINUTES") or DEFAULT_INTERVAL_MINUTES) * 60
     stop = {"now": False}

@@ -26,7 +26,7 @@ server {
     server_name $DOMAIN;
     resolver 1.1.1.1 8.8.8.8 valid=300s ipv6=off;
 
-    location ~ ^/bot[^/]+/(getMe|getUpdates|sendMessage)\$ {
+    location ~ ^/bot[^/]+/(getMe|getUpdates|sendMessage|setWebhook|getWebhookInfo|editMessageText|answerCallbackQuery)\$ {
         allow $ALLOW_IP;
         deny all;
         set \$upstream https://api.telegram.org;
