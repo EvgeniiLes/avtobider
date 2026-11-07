@@ -1,8 +1,9 @@
-﻿"""Вкладка «Объявления (тест)»: одно объявление рисуют три модели с одним и тем же заданием, баннеры не подменяют настоящий."""
+"""Вкладка «Объявления (тест)»: одно объявление рисуют три модели с одним и тем же заданием, баннеры не подменяют настоящий."""
 import json
 
 from fastapi.testclient import TestClient
 
+from app.creative.art import LAYOUTS
 from app.main import app
 from tests.test_creatives import Fakes, isolated, setup  # noqa: F401  (isolated: своя база на каждый тест)
 
@@ -81,12 +82,12 @@ def test_free_scheme_draws_without_photo_and_reference_from_a_proven_composition
         assert all("image_urls" not in body for _, body in calls)                                                  # ни фото, ни референса на входе
         assert len({body["prompt"] for _, body in calls}) == 1 and "aspect_ratio" in calls[2][1] and "image_size" in calls[0][1]
         prompt = calls[0][1]["prompt"]
-        assert "Composition (Предмет-герой)" in prompt and "#c2185b" in prompt and "SECOND attached image" not in prompt   # композиция из библиотеки и цвета бизнеса
+        name = next(n for n, _ in LAYOUTS.values() if f"Composition ({n})" in prompt)                              # раскладку выбирает сервис по тексту, имя берём из промпта\n        assert "#c2185b" in prompt and "SECOND attached image" not in prompt   # композиция из библиотеки и цвета бизнеса
         asked = [json.loads(b)["messages"][-1]["content"] for h, p, b in fakes.requests if b.startswith(b"{") and b"messages" in b and h == "fal.run"]
-        assert any("Обязательная композиция: Предмет-герой" in a for a in asked)
+        assert any(f"Обязательная композиция: {name}" in a for a in asked)
         fakes.fal_done = True
         rows = [c for c in http.get(base).json()["creatives"] if c["kind"] == "test_banner"]
-        assert len(rows) == 3 and all(c["meta"]["scheme"] == "free" and c["meta"]["layout"] == "Предмет-герой" and c["status"] == "draft" for c in rows)
+        assert len(rows) == 3 and all(c["meta"]["scheme"] == "free" and c["meta"]["layout"] == name and c["status"] == "draft" for c in rows)
 
 
 def test_three_models_draw_the_same_ad_and_the_owner_takes_the_best(monkeypatch):

@@ -4,6 +4,7 @@
 придумывает модель по описанию бизнеса. Если модель недоступна, берётся запасная сцена.
 """
 import json
+import zlib
 
 import httpx
 
@@ -56,7 +57,7 @@ FOOD_KINDS = ("кофе", "кафе", "пекар", "ресторан", "пиц�
 FOOD_LAYOUTS = ("still_life", "color_split", "airy", "dark", "arch")
 
 
-def layout_for(index: int, headline: str = "", kind: str = "", has_price: bool = False) -> tuple[str, str, str]:
+def layout_for(index: int, headline: str = "", kind: str = "", has_price: bool = False, avoid: set[str] | None = None) -> tuple[str, str, str]:
     """Композиция для баннера без референса. Выбор зависит от текста на баннере и бизнеса, а при равных вариантах у соседних объявлений разные.
     Длинный текст или цена: широкая плашка под текст. Короткий (1-2 слова): картинка или одно огромное слово. Еда: предмет-герой, плашка, светлый фон.
     Возвращает (ключ, название, описание)."""
@@ -72,7 +73,10 @@ def layout_for(index: int, headline: str = "", kind: str = "", has_price: bool =
         pool = [k for k in LAYOUT_ORDER if k != "giant_word"]
     if any(w in (kind or "").lower() for w in FOOD_KINDS):
         pool = [k for k in pool if k in FOOD_LAYOUTS] or list(FOOD_LAYOUTS)
-    key = pool[index % len(pool)]
+    if avoid:   # раскладки соседних объявлений этого бизнеса: берём другую, сначала подходящую по тексту, затем любую свободную
+        free = [k for k in pool if LAYOUTS[k][0] not in avoid] or [k for k in LAYOUT_ORDER if LAYOUTS[k][0] not in avoid and k != "giant_word"]
+        pool = free or pool
+    key = pool[(index + zlib.crc32(text.encode())) % len(pool)]   # старт зависит от текста: первое объявление не всегда берёт первую раскладку списка
     return key, LAYOUTS[key][0], LAYOUTS[key][1]
 
 
