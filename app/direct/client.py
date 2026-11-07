@@ -5,6 +5,7 @@
 повторяет запрос при сбоях на стороне Директа. Токен нигде не пишется в логи.
 """
 import asyncio
+import hashlib
 import re
 from dataclasses import dataclass
 
@@ -75,6 +76,13 @@ class Units:
     spent: int
     remaining: int
     daily_limit: int
+
+
+def report_name(name: str, report_type: str, fields: list[str], date_from: str, date_to: str, goals: list[str] | None) -> str:
+    """Название отчёта для Директа. Он не принимает второй отчёт с тем же названием, но другими параметрами (ошибка 4000, пока первый в очереди),
+    поэтому в название входит отпечаток типа, полей и целей: разные запросы за одни даты не мешают друг другу."""
+    stamp = hashlib.md5("|".join([report_type, ",".join(fields), ",".join(map(str, goals or []))]).encode()).hexdigest()[:8]
+    return f"{name} {date_from} {date_to} {stamp}"
 
 
 def parse_units(header: str | None) -> Units | None:
@@ -206,7 +214,7 @@ class DirectClient:
         body = {"params": {
             "SelectionCriteria": {"DateFrom": date_from, "DateTo": date_to},
             "FieldNames": fields,
-            "ReportName": f"{name} {date_from} {date_to}",
+            "ReportName": report_name(name, report_type, fields, date_from, date_to, goals),
             "ReportType": report_type,
             "DateRangeType": "CUSTOM_DATE",
             "Format": "TSV",
