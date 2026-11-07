@@ -4,7 +4,7 @@
 #   powershell -ExecutionPolicy Bypass -File deploy\ask-telegram.ps1 -Text "Выкладываю report-name: статистика Директа. Выкладывать?"
 param(
     [Parameter(Mandatory = $true)][string]$Text,
-    [string]$Email = "jeki200186@gmail.com",
+    [string]$Email = "jeki-2001@mail.ru",   # у jeki200186@gmail.com Telegram не привязан; этот аккаунт владеет бизнесом NotNeuroSlop с активной рекламой
     [int]$Wait = 600,
     [string]$Server = "89.111.175.76",
     [string]$Key = (Join-Path $env:USERPROFILE ".ssh\avtobider_ed25519")
