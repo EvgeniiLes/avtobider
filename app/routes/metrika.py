@@ -138,6 +138,51 @@ def create_automatically(business_id: int, user: sqlite3.Row = Depends(current_u
                     "Если сайт делал разработчик, отправьте ему готовый код ниже. Через несколько минут после первых посещений нажмите «Проверить счётчик»."}
 
 
+@router.post("/counters/{counter_id}/goals/auto")
+def add_missing_goals(business_id: int, counter_id: str, user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connection = Depends(get_db),
+                      http: httpx.AsyncClient = Depends(yandex_http)):
+    """Дозаводит в уже существующем счётчике типовые цели, которых там нет (телефон, мессенджер, e-mail, заявка). Что есть, не трогает."""
+    biz = _own(conn, user, business_id)
+    if not counter_id.isdigit():
+        raise HTTPException(400, detail={"message": "Выберите счётчик из списка."})
+    token = _token(conn, user, biz)
+
+    def has(existing: list[dict], name: str, body: dict) -> bool:
+        for g in existing:
+            if g.get("name") == name or g.get("type") == body["type"] and body["type"] != "action":
+                return True
+            if body["type"] == "action" and g.get("type") == "action" and any(c.get("url") == "lead" for c in g.get("conditions") or []):
+                return True
+        return False
+
+    async def go():
+        async with http:
+            existing = (await _get(http, token, f"/counter/{counter_id}/goals")).get("goals", [])
+            added, present, skipped, denied = [], [], [], False
+            for key, name, body in AUTO_GOALS:
+                if has(existing, name, body):
+                    present.append(name)
+                    continue
+                r = await _post(http, token, f"/counter/{counter_id}/goals", {"goal": {"name": name, **body}})
+                if r.status_code in (401, 403):
+                    denied = True
+                    break
+                goal_id = (r.json().get("goal") or {}).get("id") if r.status_code == 200 else None
+                if goal_id:
+                    added.append(name)
+                else:
+                    skipped.append(name)
+            if denied:
+                raise HTTPException(409, detail={"message": "У сервиса нет права создавать цели в вашей Метрике. Подключите кабинет заново и разрешите доступ к Метрике на запись."})
+            final = (await _get(http, token, f"/counter/{counter_id}/goals")).get("goals", [])
+            return added, present, skipped, [{"id": str(g["id"]), "name": g.get("name") or str(g["id"])} for g in final]
+
+    added, present, skipped, final = asyncio.run(go())
+    if biz["metrika_counter_id"] == counter_id:
+        save_goals(conn, business_id, final)
+    return {"added": added, "present": present, "skipped": skipped, "goals": final}
+
+
 @router.get("/health")
 def health(business_id: int, refresh: bool = False, user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connection = Depends(get_db),
            http: httpx.AsyncClient = Depends(yandex_http)):

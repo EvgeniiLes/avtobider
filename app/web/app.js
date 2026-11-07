@@ -1738,6 +1738,19 @@ async function loadGoals(selectedGoal) {
   if (!goals.length) setStatus("metrika-status", "В этом счётчике нет целей. Создайте цель «Обращение» в Метрике.", "");
 }
 
+async function addMissingGoals() {
+  const button = $("m-goals-add");
+  if (!$("m-counter").value) { setStatus("metrika-status", "Сначала выберите счётчик.", "err"); return; }
+  button.disabled = true;
+  setStatus("metrika-status", "Добавляем цели в вашей Метрике…", "");
+  const result = await api("POST", `/api/businesses/${currentBusiness.id}/metrika/counters/${$("m-counter").value}/goals/auto`);
+  button.disabled = false;
+  if (!result.ok) { setStatus("metrika-status", errorText(result), "err"); return; }
+  const d = result.data;
+  await loadGoals($("m-goal").value);
+  setStatus("metrika-status", `${d.added.length ? `Добавлено: ${d.added.join(", ")}.` : "Ничего нового не добавлено."}${d.present.length ? ` Уже были: ${d.present.join(", ")}.` : ""}${d.skipped.length ? ` Метрика не приняла: ${d.skipped.join(", ")}.` : ""}`, d.skipped.length ? "err" : "ok");
+}
+
 async function saveMetrika() {
   if (!$("m-counter").value || !$("m-goal").value) { setStatus("metrika-status", "Выберите счётчик и цель из списка.", "err"); return; }
   const result = await api("PUT", `/api/businesses/${currentBusiness.id}/metrika`, { counter_id: $("m-counter").value, goal_id: $("m-goal").value });
@@ -2907,6 +2920,7 @@ async function start() {
   $("m-counter").addEventListener("change", () => { loadGoals(""); loadSnippet(); });
   $("m-snippet-copy").addEventListener("click", copySnippet);
   $("m-auto").addEventListener("click", createMetrikaAuto);
+  $("m-goals-add").addEventListener("click", addMissingGoals);
   $("m-health-check").addEventListener("click", () => loadHealth(true));
   $("m-save").addEventListener("click", saveMetrika);
   $("m-clear").addEventListener("click", clearMetrika);

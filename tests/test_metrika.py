@@ -387,3 +387,24 @@ def test_auto_counter_needs_a_site(isolated):
         conn.close()
         auto_stub()
         assert http.post(f"/api/businesses/{bid}/metrika/auto").status_code == 400
+
+def test_missing_goals_are_added_to_an_existing_counter_without_duplicates(isolated):
+    with TestClient(app) as http:
+        bid = setup(http, FakeDirect(), isolated)
+        made = []
+        have = [{"id": 5, "name": "Автоцель: клик по email", "type": "email"}]
+
+        def handler(request):
+            if request.method == "POST":
+                goal = json.loads(request.content)["goal"]
+                made.append(goal["type"])
+                have.append({"id": 100 + len(made), "name": goal["name"], "type": goal["type"]})
+                return httpx.Response(200, json={"goal": {"id": 100 + len(made)}})
+            return httpx.Response(200, json={"goals": have})
+
+        app.dependency_overrides[yandex_http] = lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        r = http.post(f"/api/businesses/{bid}/metrika/counters/555/goals/auto")
+        assert r.status_code == 200 and made == ["phone", "messenger", "action"]      # e-mail у счётчика уже есть
+        assert len(r.json()["goals"]) == 4 and r.json()["skipped"] == []
+        assert http.post(f"/api/businesses/{bid}/metrika/counters/555/goals/auto").json()["added"] == [] and len(made) == 3   # второй раз ничего не создаёт
+        assert http.post(f"/api/businesses/{bid}/metrika/counters/abc/goals/auto").status_code == 400
