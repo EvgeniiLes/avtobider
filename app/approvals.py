@@ -34,6 +34,11 @@ def hook_secret() -> str:
 
 
 def hook_url() -> str:
+    """Адрес, на который Telegram присылает ответы. Через ретранслятор: серверы Telegram не достают до серверов в России (проверено: «Connection timed out»),
+    а до ретранслятора за границей достают, и он передаёт запрос нам (location /hook, см. deploy/setup-tg-relay.sh)."""
+    api = get_settings().telegram_api
+    if api and api != "https://api.telegram.org":
+        return f"{api}/hook"
     parts = urlsplit(get_settings().redirect_uri)
     return f"{parts.scheme}://{parts.netloc}/api/telegram/hook" if parts.scheme and parts.netloc else ""
 

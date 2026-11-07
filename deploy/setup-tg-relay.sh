@@ -35,6 +35,14 @@ server {
         proxy_set_header Host api.telegram.org;
         proxy_read_timeout 30s;
     }
+    # Ответы владельца (нажатия кнопок, «Статистика»): Telegram присылает их сюда, потому что до серверов в России он не достаёт,
+    # а ретранслятор передаёт запрос нашему сайту. Подлинность Telegram сайт проверяет по секретному заголовку.
+    location = /hook {
+        proxy_pass https://addtracker.ru/api/telegram/hook;
+        proxy_ssl_server_name on;
+        proxy_set_header Host addtracker.ru;
+        proxy_read_timeout 30s;
+    }
     location / {
         return 403;
     }

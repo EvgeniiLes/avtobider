@@ -201,3 +201,11 @@ def test_game_apps_are_proposed_only_when_zero_leads_means_something(isolated, m
         conn.commit()
         general = review._apps(conn, get(), since)
         assert general and "пока не измеряются" in general["text"] and "по общему правилу" in general["text"] and "обращений с них ни одного" not in general["text"]
+
+
+def test_hook_address_goes_through_the_relay_when_there_is_one(monkeypatch):
+    monkeypatch.setenv("YANDEX_REDIRECT_URI", "https://addtracker.ru/api/direct/callback")
+    monkeypatch.delenv("TELEGRAM_API_BASE", raising=False)
+    assert approvals.hook_url() == "https://addtracker.ru/api/telegram/hook"
+    monkeypatch.setenv("TELEGRAM_API_BASE", "https://tg.addtracker.ru")
+    assert approvals.hook_url() == "https://tg.addtracker.ru/hook"
