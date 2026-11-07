@@ -10,10 +10,15 @@ param(
     [string]$Key = (Join-Path $env:USERPROFILE ".ssh\avtobider_ed25519")
 )
 $ErrorActionPreference = "Stop"
-# Текст уходит в файл на сервере, а не в командную строку: кавычки и русские буквы не ломаются.
-$local = Join-Path ([System.IO.Path]::GetTempPath()) "ask-text.txt"
-[System.IO.File]::WriteAllText($local, $Text, (New-Object System.Text.UTF8Encoding($false)))
-scp -i $Key -o IdentitiesOnly=yes -o BatchMode=yes -q $local "root@${Server}:/tmp/ask-text.txt"
-Remove-Item $local -Force -ErrorAction SilentlyContinue
-ssh -i $Key -o IdentitiesOnly=yes -o BatchMode=yes "root@$Server" "chmod 644 /tmp/ask-text.txt && cd /opt/autobider && runuser -u autobider -- /opt/autobider/.venv/bin/python -m app.ask --email '$Email' --wait $Wait ""`$(cat /tmp/ask-text.txt)""; code=`$?; rm -f /tmp/ask-text.txt; exit `$code"
+$ssh = @("-i", $Key, "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes")
+$utf8 = New-Object System.Text.UTF8Encoding($false)
+# Текст и запускающий скрипт уходят файлами: кавычки и русские буквы в командной строке ssh ломаются.
+$textFile = Join-Path ([System.IO.Path]::GetTempPath()) "ask-text.txt"
+$runner = Join-Path ([System.IO.Path]::GetTempPath()) "ask-run.sh"
+[System.IO.File]::WriteAllText($textFile, $Text, $utf8)
+[System.IO.File]::WriteAllText($runner, "cd /opt/autobider`nrunuser -u autobider -- /opt/autobider/.venv/bin/python -m app.ask --email '$Email' --wait $Wait `"`$(cat /tmp/ask-text.txt)`"`ncode=`$?`nrm -f /tmp/ask-text.txt /tmp/ask-run.sh`nexit `$code`n", $utf8)
+scp @ssh -q $textFile "root@${Server}:/tmp/ask-text.txt"
+scp @ssh -q $runner "root@${Server}:/tmp/ask-run.sh"
+Remove-Item $textFile, $runner -Force -ErrorAction SilentlyContinue
+ssh @ssh "root@$Server" "chmod 644 /tmp/ask-text.txt && bash /tmp/ask-run.sh"
 exit $LASTEXITCODE

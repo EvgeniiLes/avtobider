@@ -16,10 +16,15 @@ from app.db import connect, init_db
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("text")
+    parser.add_argument("text", nargs="?", default="")
+    parser.add_argument("--file", help="прочитать текст вопроса из файла (кавычки и русские буквы в командной строке ломаются)")
     parser.add_argument("--email", required=True, help="почта владельца в сервисе: ему уйдёт вопрос")
     parser.add_argument("--wait", type=int, default=600, help="сколько секунд ждать ответа")
     args = parser.parse_args(argv)
+    if args.file:
+        args.text = open(args.file, encoding="utf-8").read().strip()
+    if not args.text:
+        parser.error("нужен текст вопроса")
     load_env()
     init_db(get_settings().db_path)
     conn = connect(get_settings().db_path)
