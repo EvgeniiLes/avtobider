@@ -141,6 +141,25 @@ CREATE TABLE IF NOT EXISTS leads (
 );
 CREATE INDEX IF NOT EXISTS idx_leads_business ON leads (business_id, id DESC);
 
+-- Правки, которые сервис предлагает владельцу и делает только после его «Да» в Telegram (app/approvals.py).
+-- status: pending (ждёт ответа), approved (сделано), failed (ответ «Да», но Директ не принял), declined (ответ «Нет»), stale (устарело, не отвечали)
+CREATE TABLE IF NOT EXISTS approvals (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    business_id INTEGER REFERENCES businesses(id) ON DELETE CASCADE,
+    user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    kind        TEXT NOT NULL,
+    key         TEXT NOT NULL DEFAULT '',
+    text        TEXT NOT NULL,
+    payload     TEXT NOT NULL DEFAULT '{}',
+    status      TEXT NOT NULL DEFAULT 'pending',
+    result      TEXT NOT NULL DEFAULT '',
+    chat_id     TEXT NOT NULL DEFAULT '',
+    message_id  INTEGER,
+    created_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    decided_at  TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_approvals_status ON approvals (status, id);
+
 -- Что уже отправлено владельцу в Telegram (отчёт недели, тревоги): чтобы не слать одно и то же каждые 30 минут.
 CREATE TABLE IF NOT EXISTS notifications (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,

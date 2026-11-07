@@ -748,6 +748,17 @@ class DirectClient:
         result = await self.call("campaigns", "update", {"Campaigns": [{"Id": campaign_id, "NegativeKeywords": {"Items": words}}]})
         self._result_item(result, "UpdateResults")
 
+    async def excluded_sites(self, campaign_id: int) -> list[str]:
+        """Площадки и приложения, на которых показы кампании уже отключены."""
+        result = await self.call("campaigns", "get", {"SelectionCriteria": {"Ids": [campaign_id]}, "FieldNames": ["Id", "ExcludedSites"]})
+        found = result.get("Campaigns", [])
+        return list(((found[0].get("ExcludedSites") or {}).get("Items") or [])) if found else []
+
+    async def set_excluded_sites(self, campaign_id: int, sites: list[str]) -> None:
+        """Список отключённых площадок целиком (Директ заменяет весь список, поэтому присылаем его полностью)."""
+        result = await self.call("campaigns", "update", {"Campaigns": [{"Id": campaign_id, "ExcludedSites": {"Items": sites}}]})
+        self._result_item(result, "UpdateResults")
+
     async def set_counters(self, campaign_id: int, counter_ids: list[int]) -> None:
         """Привязывает счётчики Метрики к кампании (нужно, чтобы Директ считал обращения)."""
         result = await self.call("campaigns", "update", {"Campaigns": [{

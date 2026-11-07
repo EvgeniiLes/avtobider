@@ -23,6 +23,7 @@ class FakeDirect:
         self.report_rows: list[tuple] = []  # (день, номер кампании, показы, клики, расход в микро[, обращения])
         self.report_requests: list[dict] = []
         self.negatives: dict[int, list[str]] = {}
+        self.excluded: dict[int, list[str]] = {}   # отключённые площадки кампании
         self.images: list[str] = []
         self.advertiser = {"tin_type": None, "tin": None, "name": None, "phone": ""}  # данные рекламодателя в «кабинете»
         self.update_error = ""
@@ -139,6 +140,7 @@ class FakeDirect:
                                          | {"Notification": {"EmailSettings": {"Email": "owner@example.com", "SendWarnings": c.get("Warnings", "NO")}}}
                                          | {"UnifiedCampaign": {"Settings": [{"Option": "ENABLE_SITE_MONITORING", "Value": c.get("Monitoring", "NO")}],
                                                                 "BiddingStrategy": {"Search": search_of(c), "Network": {"BiddingStrategyType": c.get("Network", "SERVING_OFF")}}}}
+                                         | ({"ExcludedSites": {"Items": self.excluded[c["Id"]]}} if c["Id"] in self.excluded else {})
                                          for c in self.campaigns.values() if not wanted or c["Id"] in wanted]})
             if method in ("suspend", "resume"):
                 for i in ids():
@@ -148,6 +150,8 @@ class FakeDirect:
                 item = params["Campaigns"][0]
                 if "NegativeKeywords" in item:
                     self.negatives[item["Id"]] = item["NegativeKeywords"]["Items"]
+                if "ExcludedSites" in item:
+                    self.excluded[item["Id"]] = item["ExcludedSites"]["Items"]
                 unified = item.get("UnifiedCampaign", {})
                 if "BiddingStrategy" in unified:
                     search = unified["BiddingStrategy"]["Search"]

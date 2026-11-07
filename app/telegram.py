@@ -42,6 +42,32 @@ async def send_message(token: str, api: str, chat_id: str, text: str, transport:
     await call(token, api, "sendMessage", {"chat_id": chat_id, "text": text[:4000], "disable_web_page_preview": True}, transport)
 
 
+async def send_buttons(token: str, api: str, chat_id: str, text: str, buttons: list[tuple[str, str]],
+                       transport: httpx.AsyncBaseTransport | None = None) -> int:
+    """Сообщение с кнопками в один ряд: buttons = [(надпись, callback_data)]. Возвращает номер сообщения (по нему его потом правят)."""
+    keyboard = {"inline_keyboard": [[{"text": label, "callback_data": data} for label, data in buttons]]}
+    sent = await call(token, api, "sendMessage", {"chat_id": chat_id, "text": text[:4000], "disable_web_page_preview": True, "reply_markup": keyboard}, transport)
+    return int(sent["message_id"])
+
+
+async def finish_buttons(token: str, api: str, chat_id: str, message_id: int, text: str, callback_id: str = "", note: str = "",
+                         transport: httpx.AsyncBaseTransport | None = None) -> None:
+    """После ответа: кнопки убираются, под текстом пишется итог; нажатие в Telegram подтверждается (иначе кнопка «крутится»)."""
+    if callback_id:
+        await call(token, api, "answerCallbackQuery", {"callback_query_id": callback_id, "text": note[:190]}, transport)
+    await call(token, api, "editMessageText", {"chat_id": chat_id, "message_id": message_id, "text": text[:4000], "disable_web_page_preview": True}, transport)
+
+
+async def set_webhook(token: str, api: str, url: str, secret: str, transport: httpx.AsyncBaseTransport | None = None) -> None:
+    """Просит Telegram присылать ответы владельца (нажатия кнопок, «/start код») на этот адрес. secret возвращается в заголовке каждого запроса."""
+    await call(token, api, "setWebhook", {"url": url, "secret_token": secret, "allowed_updates": ["message", "callback_query"]}, transport)
+
+
+async def webhook_url(token: str, api: str, transport: httpx.AsyncBaseTransport | None = None) -> str:
+    info = await call(token, api, "getWebhookInfo", {}, transport)
+    return (info or {}).get("url", "") if isinstance(info, dict) else ""
+
+
 async def find_start(token: str, api: str, code: str, transport: httpx.AsyncBaseTransport | None = None) -> dict | None:
     """Чат, из которого боту прислали «/start <код>». None, если такого сообщения пока нет."""
     updates = await call(token, api, "getUpdates", {"limit": 100, "timeout": 0, "allowed_updates": ["message"]}, transport)

@@ -9,6 +9,7 @@ import time
 
 from app.config import get_settings, load_env
 from app.db import connect, init_db
+from app.approvals import dispatch, ensure_webhook, run_daily as review_daily
 from app.direct.runner import sync_and_run
 from app.notifier import make_sender, run as notify
 
@@ -42,6 +43,14 @@ def run_once(transport=None, telegram_transport=None) -> int:
                 notify(conn, fresh, send)
             except Exception:
                 log.exception("бизнес %s: не удалось разослать уведомления", biz["id"])
+            try:   # ежедневный разбор рекламы: предложения владельцу в Telegram с кнопками «Да / Нет»
+                review_daily(conn, fresh, transport=telegram_transport)
+            except Exception:
+                log.exception("бизнес %s: не удалось сделать ежедневный разбор", biz["id"])
+        try:   # неотправленные предложения (Telegram мог быть недоступен) уходят при каждом проходе
+            dispatch(conn, telegram_transport)
+        except Exception:
+            log.exception("не удалось отправить предложения в Telegram")
     finally:
         conn.close()
     return done
@@ -57,6 +66,7 @@ def main() -> None:
         signal.signal(sig, lambda *_: stop.update(now=True))
     log.info("Фоновый процесс запущен, интервал %s мин.", interval // 60)
     while not stop["now"]:
+        ensure_webhook()   # Telegram присылает нажатия кнопок на наш адрес; проверка дешёвая и чинит адрес, если он слетел
         run_once()
         for _ in range(interval):  # спим по секунде, чтобы быстро остановиться по сигналу
             if stop["now"]:

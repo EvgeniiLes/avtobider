@@ -31,10 +31,13 @@ def slices(profile: dict | None) -> list[dict]:
         return []
     genders = [GENDER_CODES["male"], GENDER_CODES["female"]] if gender else [None]
     ages = ALL_AGES if target_ages else [None]
+    off = set(profile.get("ages_off", []))   # возрасты, которым владелец выключил показы совсем (ответ «Да» на предложение в Telegram)
     result = []
     for g in genders:
         for a in ages:
             factor = (1.0 if g is None else UP if g == gender else DOWN) * (1.0 if a is None else UP if a in target_ages else DOWN)
+            if a in off:
+                factor = 0.0
             percent = round(100 * factor)
             if percent != 100:
                 result.append({"gender": g, "age": a, "percent": percent})
