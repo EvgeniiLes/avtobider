@@ -41,6 +41,13 @@ GREETING = ("Готово, Автобидер подключён. Сюда бу�
             "Кнопка «Статистика» внизу покажет цифры на сейчас.")
 
 
+def _bind(conn: sqlite3.Connection, user_id: int, chat_id: str) -> None:
+    """Чат принадлежит одному аккаунту, тому, кто привязал его последним: с других аккаунтов он снимается, чтобы «Статистика» и отчёты шли только по нему."""
+    conn.execute("UPDATE users SET telegram_chat = '' WHERE telegram_chat = ? AND id != ?", (chat_id, user_id))
+    conn.execute("UPDATE users SET telegram_chat = ?, telegram_code = '', telegram_code_at = '', notify_on = 1 WHERE id = ?", (chat_id, user_id))
+    conn.commit()
+
+
 def _send_stats(conn: sqlite3.Connection, chat_id: str, transport) -> None:
     """Кнопка «Статистика»: владельцу, чей это чат, уходит статистика каждого его бизнеса с настоящей рекламой. Чужому чату не отвечаем."""
     s = get_settings()
@@ -87,8 +94,7 @@ def hook(update: dict, x_telegram_bot_api_secret_token: str = Header(default="")
             code = text.split(None, 1)[1].strip()
             user = conn.execute("SELECT id, telegram_code, telegram_code_at FROM users WHERE telegram_code = ?", (code,)).fetchone() if code else None
             if user and telegram.code_valid(user["telegram_code"], user["telegram_code_at"]):
-                conn.execute("UPDATE users SET telegram_chat = ?, telegram_code = '', telegram_code_at = '', notify_on = 1 WHERE id = ?", (str(chat["id"]), user["id"]))
-                conn.commit()
+                _bind(conn, user["id"], str(chat["id"]))
                 asyncio.run(telegram.send_message(s.telegram_token, s.telegram_api, str(chat["id"]), GREETING, transport))
     except telegram.TelegramError:
         pass
@@ -122,8 +128,7 @@ def check_chat(user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connecti
     try:
         found = asyncio.run(telegram.find_start(s.telegram_token, s.telegram_api, row["telegram_code"], transport))
         if found:
-            conn.execute("UPDATE users SET telegram_chat = ?, telegram_code = '', telegram_code_at = '', notify_on = 1 WHERE id = ?", (found["chat_id"], user["id"]))
-            conn.commit()
+            _bind(conn, user["id"], found["chat_id"])
             asyncio.run(telegram.send_message(
                 s.telegram_token, s.telegram_api, found["chat_id"],
                 "Готово, Автобидер подключён. Сюда будут приходить итоги недели по понедельникам и тревоги, если с рекламой что-то не так.", transport))

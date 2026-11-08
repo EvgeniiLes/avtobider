@@ -211,15 +211,22 @@ def test_hook_address_goes_through_the_relay_when_there_is_one(monkeypatch):
     assert approvals.hook_url() == "https://tg.addtracker.ru/hook"
 
 
-def test_stats_button_covers_every_account_linked_to_the_chat_and_marks_paused_ads(isolated, monkeypatch):
+def test_chat_belongs_to_the_account_that_linked_it_last_and_paused_ads_are_marked(isolated, monkeypatch):
     with TestClient(app) as http:
         fake, bot, bid, conn = prepare(http, isolated, monkeypatch)
-        with TestClient(app) as other:                                                              # второй аккаунт того же человека с тем же чатом
+        with TestClient(app) as other:                                                              # второй аккаунт того же человека
             other.post("/api/auth/register", json={"email": "second@example.com", "password": "password123"})
-        conn.execute("UPDATE users SET telegram_chat = '777'")
-        conn.execute("UPDATE businesses SET user_id = (SELECT id FROM users WHERE email = 'second@example.com') WHERE id = ?", (bid,))   # бизнес у второго аккаунта
+        second = conn.execute("SELECT id FROM users WHERE email = 'second@example.com'").fetchone()[0]
+        first = conn.execute("SELECT id FROM users WHERE email != 'second@example.com' ORDER BY id LIMIT 1").fetchone()[0]
+        conn.execute("UPDATE users SET telegram_chat = '777' WHERE id = ?", (first,))
+        conn.execute("UPDATE users SET telegram_code = 'abc123', telegram_code_at = ? WHERE id = ?", (datetime.now(timezone.utc).isoformat(timespec="seconds"), second))
+        conn.commit()
+        headers = {"X-Telegram-Bot-Api-Secret-Token": approvals.hook_secret()}
+        http.post("/api/telegram/hook", json={"message": {"text": "/start abc123", "chat": {"id": 777, "type": "private"}}}, headers=headers)
+        chats = {r["id"]: r["telegram_chat"] for r in conn.execute("SELECT id, telegram_chat FROM users")}
+        assert chats[second] == "777" and chats[first] == ""                                        # чат ушёл ко второму аккаунту, у первого снят
+        conn.execute("UPDATE businesses SET user_id = ? WHERE id = ?", (second, bid))
         conn.execute("UPDATE campaigns SET state = 'paused'")
         conn.commit()
-        http.post("/api/telegram/hook", json={"message": {"text": "Статистика", "chat": {"id": 777, "type": "private"}}},
-                  headers={"X-Telegram-Bot-Api-Secret-Token": approvals.hook_secret()})
+        http.post("/api/telegram/hook", json={"message": {"text": "Статистика", "chat": {"id": 777, "type": "private"}}}, headers=headers)
         assert "Статистика «Лотос»" in bot.sent[-1]["text"] and "Реклама сейчас на паузе." in bot.sent[-1]["text"]
