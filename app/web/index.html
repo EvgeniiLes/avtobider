@@ -609,6 +609,16 @@
         <p id="stats-empty" class="hint" hidden>Сначала опишите бизнес на странице «Бизнес».</p>
         <div id="stats-body" hidden>
           <p class="hint" id="stats-sync"></p>
+          <div class="card" id="kpi-card" hidden>
+            <h2>Ключевые показатели</h2>
+            <p class="hint">Название показателя можно сменить, галочка включает и выключает его линию. Каждая линия нарисована в своём масштабе, чтобы их было видно вместе.</p>
+            <div id="kpi-slots" class="kpi-slots"></div>
+            <div class="kpi-modes" role="group" aria-label="Шаг графика">
+              <button type="button" class="chip sel" data-kpi-mode="days">Дни</button>
+              <button type="button" class="chip" data-kpi-mode="weeks">Недели</button>
+            </div>
+            <svg id="kpi-chart" class="chart" viewBox="0 0 640 260" role="img" aria-label="Ключевые показатели по дням"></svg>
+          </div>
           <div class="card">
             <h2>Объявления</h2>
             <div id="units-empty" hidden>

@@ -253,7 +253,7 @@ def overview(business_id: int, user: sqlite3.Row = Depends(current_user), conn: 
 
 @router.get("/series")
 def series(business_id: int, days: int = 14, user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connection = Depends(get_db)):
-    """Расход и обращения по дням для графика."""
+    """Показы, клики, расход и обращения по дням для графиков."""
     _own(conn, user, business_id)
     days = max(2, min(days, 60))
     sim_today = get_today(conn, business_id)
@@ -263,7 +263,7 @@ def series(business_id: int, days: int = 14, user: sqlite3.Row = Depends(current
     today = sim_today or date.today().isoformat()
     start = day_add(today, -(days - 1))
     rows = conn.execute(
-        "SELECT s.day AS day, SUM(s.spend_micro) AS spend, SUM(s.leads) AS leads FROM stats_daily s "
+        "SELECT s.day AS day, SUM(s.spend_micro) AS spend, SUM(s.leads) AS leads, SUM(s.impressions) AS impressions, SUM(s.clicks) AS clicks FROM stats_daily s "
         "JOIN ad_units u ON u.id = s.unit_id WHERE u.business_id = ? AND s.day BETWEEN ? AND ? GROUP BY s.day",
         (business_id, start, today),
     ).fetchall()
@@ -272,7 +272,8 @@ def series(business_id: int, days: int = 14, user: sqlite3.Row = Depends(current
     for i in range(days):
         d = day_add(start, i)
         r = by_day.get(d)
-        out.append({"day": d, "spend": _rub(r["spend"]) if r else 0, "leads": r["leads"] if r else 0})
+        out.append({"day": d, "spend": _rub(r["spend"]) if r else 0, "leads": r["leads"] if r else 0,
+                    "impressions": r["impressions"] if r else 0, "clicks": r["clicks"] if r else 0})
     return {"days": out}
 
 

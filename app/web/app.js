@@ -2246,6 +2246,113 @@ async function applyQueries() {
   await loadQueries();
 }
 
+// «Ключевые показатели» на странице «Результаты»: до четырёх линий, у каждой показатель выбирается из списка, шаг дни или недели.
+const KPI_METRICS = {
+  impressions: { label: "Показы", value: (b) => b.impressions, fmt: (v) => Math.round(v).toLocaleString("ru-RU") },
+  clicks: { label: "Клики", value: (b) => b.clicks, fmt: (v) => Math.round(v).toLocaleString("ru-RU") },
+  spend: { label: "Расходы, ₽", value: (b) => b.spend, fmt: (v) => `${v.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} ₽` },
+  leads: { label: "Обращения", value: (b) => b.leads, fmt: (v) => Math.round(v).toLocaleString("ru-RU") },
+  cpc: { label: "Цена клика, ₽", value: (b) => (b.clicks ? b.spend / b.clicks : null), fmt: (v) => `${v.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} ₽` },
+  cpl: { label: "Цена обращения, ₽", value: (b) => (b.leads ? b.spend / b.leads : null), fmt: (v) => `${Math.round(v).toLocaleString("ru-RU")} ₽` },
+  ctr: { label: "CTR, %", value: (b) => (b.impressions ? (b.clicks * 100) / b.impressions : null), fmt: (v) => `${v.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} %` },
+};
+const KPI_DEFAULT = ["clicks", "leads", "spend", "impressions"];
+const kpi = { days: [], mode: "days", slots: KPI_DEFAULT.map((metric) => ({ metric, on: true })) };
+
+try {
+  const saved = JSON.parse(localStorage.getItem("kpi-slots") || "null");
+  if (Array.isArray(saved) && saved.length === 4 && saved.every((s) => KPI_METRICS[s.metric])) kpi.slots = saved.map((s) => ({ metric: s.metric, on: s.on !== false }));
+} catch (e) { /* без сохранённого выбора работает с настройками по умолчанию */ }
+
+function kpiBuckets() {
+  if (kpi.mode === "days") return kpi.days.map((d) => ({ ...d, label: d.day.slice(8) + "." + d.day.slice(5, 7) }));
+  const out = [];
+  for (let end = kpi.days.length; end > 0; end -= 7) {   // недели считаем с конца, чтобы последняя была полной
+    const part = kpi.days.slice(Math.max(0, end - 7), end);
+    const sum = (k) => part.reduce((s, d) => s + (d[k] || 0), 0);
+    out.unshift({ impressions: sum("impressions"), clicks: sum("clicks"), spend: Math.round(sum("spend") * 100) / 100, leads: sum("leads"),
+                  label: `${part[0].day.slice(8)}.${part[0].day.slice(5, 7)}–${part[part.length - 1].day.slice(8)}.${part[part.length - 1].day.slice(5, 7)}` });
+  }
+  return out;
+}
+
+function kpiTotal(metric) {
+  const all = kpi.days.reduce((s, d) => ({ impressions: s.impressions + d.impressions, clicks: s.clicks + d.clicks, spend: s.spend + d.spend, leads: s.leads + d.leads }),
+                              { impressions: 0, clicks: 0, spend: 0, leads: 0 });
+  return KPI_METRICS[metric].value(all);
+}
+
+function renderKpiSlots() {
+  const box = $("kpi-slots");
+  box.replaceChildren(...kpi.slots.map((slot, i) => {
+    const check = el("input", { type: "checkbox", checked: slot.on, ariaLabel: "Показывать линию" });
+    check.addEventListener("change", () => { slot.on = check.checked; saveKpi(); renderKpiChart(); });
+    const pick = el("select", { ariaLabel: "Показатель" }, ...Object.entries(KPI_METRICS).map(([key, m]) => el("option", { value: key, textContent: m.label, selected: key === slot.metric })));
+    pick.addEventListener("change", () => { slot.metric = pick.value; saveKpi(); renderKpiSlots(); renderKpiChart(); });
+    const total = kpiTotal(slot.metric);
+    return el("div", { className: `kpi-slot s${i + 1}` }, el("label", { className: "kpi-check" }, check, el("i")), pick,
+              el("b", { textContent: total == null ? "—" : KPI_METRICS[slot.metric].fmt(total) }));
+  }));
+}
+
+function saveKpi() {
+  try { localStorage.setItem("kpi-slots", JSON.stringify(kpi.slots)); } catch (e) { /* не страшно: выбор просто не запомнится */ }
+}
+
+function renderKpiChart() {
+  const svg = $("kpi-chart");
+  svg.replaceChildren();
+  const buckets = kpiBuckets();
+  if (!buckets.length) return;
+  const W = 640, H = 260, L = 12, R = 12, T = 12, B = 28;
+  const slot = (W - L - R) / buckets.length;
+  for (let i = 0; i <= 3; i++) {
+    const y = T + ((H - T - B) * i) / 3;
+    svg.append(svgEl("line", { x1: L, x2: W - R, y1: y, y2: y, class: "grid-line" }));
+  }
+  const step = Math.ceil(buckets.length / 7);
+  buckets.forEach((b, i) => {
+    if (i % step) return;
+    const t = svgEl("text", { x: L + i * slot + slot / 2, y: H - 8, "text-anchor": "middle", class: "axis" });
+    t.textContent = b.label;
+    svg.append(t);
+  });
+  kpi.slots.forEach((s, n) => {
+    if (!s.on) return;
+    const metric = KPI_METRICS[s.metric];
+    const values = buckets.map((b) => metric.value(b));
+    const max = Math.max(...values.map((v) => v || 0), 1e-9);
+    const points = values.map((v, i) => (v == null ? null : [L + i * slot + slot / 2, H - B - ((H - T - B) * v) / max]));
+    const drawn = points.filter(Boolean);
+    if (drawn.length > 1) svg.append(svgEl("polyline", { points: drawn.map((p) => p.join(",")).join(" "), class: `kpi-line s${n + 1}` }));
+    for (const p of drawn) svg.append(svgEl("circle", { cx: p[0], cy: p[1], r: 3.5, class: `kpi-dot s${n + 1}` }));
+  });
+  buckets.forEach((b, i) => {   // подсказка: наведите на день, и видны значения всех включённых линий
+    const lines = kpi.slots.filter((s) => s.on).map((s) => { const v = KPI_METRICS[s.metric].value(b); return `${KPI_METRICS[s.metric].label}: ${v == null ? "—" : KPI_METRICS[s.metric].fmt(v)}`; });
+    const zone = svgEl("rect", { x: L + i * slot, y: T, width: slot, height: H - T - B, class: "kpi-zone" });
+    const tip = svgEl("title", {});
+    tip.textContent = `${b.label}\n${lines.join("\n")}`;
+    zone.append(tip);
+    svg.append(zone);
+  });
+}
+
+function renderKpi(days) {
+  kpi.days = days;
+  $("kpi-card").hidden = !days.length;
+  if ($("kpi-card").hidden) return;
+  for (const b of document.querySelectorAll("[data-kpi-mode]")) b.classList.toggle("sel", b.dataset.kpiMode === kpi.mode);
+  renderKpiSlots();
+  renderKpiChart();
+}
+
+for (const b of document.querySelectorAll("[data-kpi-mode]")) b.addEventListener("click", () => { kpi.mode = b.dataset.kpiMode; renderKpi(kpi.days); });
+
+async function loadKpi() {
+  const result = await api("GET", `/api/businesses/${currentBusiness.id}/series?days=28`);
+  renderKpi(result.ok ? result.data.days : []);
+}
+
 async function loadSeries() {
   const result = await api("GET", `/api/businesses/${currentBusiness.id}/series?days=14`);
   renderChart(result.ok ? result.data.days : []);
@@ -2357,7 +2464,7 @@ async function loadStats() {
   renderChecklist(data.checklist || []);
   renderHome(data);
   renderGoal(data);
-  if (data.real || data.example) loadSeries(); else renderChart([]);
+  if (data.real || data.example) { loadSeries(); loadKpi(); } else { renderChart([]); renderKpi([]); }
   if (data.real || data.example) loadInsights(); else $("insights-card").hidden = true;
   loadLeads();
   if (data.real) { loadReport(); loadVisitorGoals(); loadQueries(); loadSlices(); loadBehavior(); } else { $("behavior-card").hidden = true; $("report-card").hidden = true; $("goals-card").hidden = true; $("queries-card").hidden = true; $("slices-card").hidden = true; }

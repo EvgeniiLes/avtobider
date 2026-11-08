@@ -15,6 +15,7 @@
   --ok: #0c4630; --ok-soft: #dff8ec; --warn: #6b4e00; --warn-soft: #fff4cf; --err: #b3261e; --err-soft: #fde7e5;
   --info-soft: #ece8fd; --info: #2b1f63;
   --focus: #bfaef6;
+  --s1: #2f6df6; --s2: #2aa36b; --s3: #e0526a; --s4: #e0a030;   /* цвета линий графика «Ключевые показатели» */
   --radius: 24px; --radius-sm: 14px; --tile: 28px;
   --font: "Golos Text", system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
 }
@@ -314,6 +315,21 @@ tr.clickable button, tr.clickable a { cursor: pointer; }
 .chart .bar-spend { fill: var(--text); opacity: .85; }
 .chart .line-leads { fill: none; stroke: var(--ok); stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }
 .chart .dot-leads { fill: var(--ok); }
+.kpi-slots { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px 20px; margin: 12px 0; }
+.kpi-slot { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 2px 8px; min-width: 0; }
+.kpi-slot b { grid-column: 2; font-size: 22px; line-height: 1.2; }
+.kpi-slot select { min-width: 0; width: 100%; border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 15px; padding: 2px 0; cursor: pointer; }
+.kpi-check { display: inline-flex; position: relative; }
+.kpi-check input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
+.kpi-check i { width: 18px; height: 18px; border-radius: 5px; border: 2px solid var(--c, var(--text)); display: block; }
+.kpi-check input:checked + i { background: var(--c, var(--text)); }
+.kpi-check input:focus-visible + i { outline: 3px solid var(--focus); outline-offset: 2px; }
+.kpi-slot.s1 { --c: var(--s1); } .kpi-slot.s2 { --c: var(--s2); } .kpi-slot.s3 { --c: var(--s3); } .kpi-slot.s4 { --c: var(--s4); }
+.kpi-modes { display: flex; gap: 8px; margin: 4px 0 8px; }
+.chart .kpi-line { fill: none; stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }
+.chart .kpi-line.s1 { stroke: var(--s1); } .chart .kpi-line.s2 { stroke: var(--s2); } .chart .kpi-line.s3 { stroke: var(--s3); } .chart .kpi-line.s4 { stroke: var(--s4); }
+.chart .kpi-dot.s1 { fill: var(--s1); } .chart .kpi-dot.s2 { fill: var(--s2); } .chart .kpi-dot.s3 { fill: var(--s3); } .chart .kpi-dot.s4 { fill: var(--s4); }
+.chart .kpi-zone { fill: transparent; } .chart .kpi-zone:hover { fill: rgba(17, 18, 20, .05); }
 .legend { display: flex; gap: 16px; font-size: 13px; color: var(--muted); margin-top: 6px; }
 .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; background: var(--text); }
 .legend i.l2 { background: var(--ok); border-radius: 50%; }

@@ -179,6 +179,8 @@ def test_checklist_follows_progress():
         http.put(f"/api/businesses/{bid}", json={"name": "Лотос", "kind": "Маникюр", "city": "Москва", "description": "Маникюр",
                                                    "weekly_budget": 20000, "target_cpa": 800})
         http.post(f"/api/businesses/{bid}/sim/start")
+        days = http.get(f"/api/businesses/{bid}/series?days=28").json()["days"]
+        assert len(days) == 28 and all({"day", "spend", "leads", "impressions", "clicks"} <= set(d) for d in days)   # график «Ключевые показатели»
         steps = {s["key"]: s for s in http.get(f"/api/businesses/{bid}/overview").json()["checklist"]}
         assert steps["described"]["done"] and steps["money"]["done"] and steps["ads"]["done"]
 
