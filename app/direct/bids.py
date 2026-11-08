@@ -21,6 +21,15 @@ AGE_LABELS = {"AGE_0_17": "до 18", "AGE_18_24": "18–24", "AGE_25_34": "25–
 GENDER_LABELS = {"GENDER_FEMALE": "женщины", "GENDER_MALE": "мужчины"}
 
 
+def off_ages(profile: dict | None) -> set[str]:
+    """Возрасты с нулевой ставкой: все группы моложе самой молодой целевой (при целевых 25–54 это «до 18» и 18–24) и те, что владелец выключил сам."""
+    profile = profile or {}
+    order = list(AGE_CODES)
+    wanted = [order.index(a) for a in profile.get("ages", []) if a in AGE_CODES]
+    younger = set(ALL_AGES[:min(wanted) + 1]) if wanted else set()   # ALL_AGES начинается с «до 18», дальше по порядку order
+    return younger | set(profile.get("ages_off") or [])
+
+
 def slices(profile: dict | None) -> list[dict]:
     """Срезы с коэффициентом в процентах. Пусто, если профиль не привязан ни к полу, ни к возрасту: корректировать нечего."""
     if not profile:
@@ -31,7 +40,7 @@ def slices(profile: dict | None) -> list[dict]:
         return []
     genders = [GENDER_CODES["male"], GENDER_CODES["female"]] if gender else [None]
     ages = ALL_AGES if target_ages else [None]
-    off = set(profile.get("ages_off", []))   # возрасты, которым владелец выключил показы совсем (ответ «Да» на предложение в Telegram)
+    off = off_ages(profile)
     result = []
     for g in genders:
         for a in ages:

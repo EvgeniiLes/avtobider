@@ -285,9 +285,10 @@ def test_bid_slices_follow_the_profile_and_never_overlap():
     by = {(s["gender"], s["age"]): s["percent"] for s in both}
     assert len(both) == 12 and len(by) == 12
     assert by[("GENDER_FEMALE", "AGE_25_34")] == 132 and by[("GENDER_FEMALE", "AGE_55")] == 86
-    assert by[("GENDER_MALE", "AGE_35_44")] == 86 and by[("GENDER_MALE", "AGE_0_17")] == 56     # самый «нецелевой» срез всё равно не ноль
+    assert by[("GENDER_MALE", "AGE_35_44")] == 86 and by[("GENDER_FEMALE", "AGE_0_17")] == 0 and by[("GENDER_MALE", "AGE_18_24")] == 0   # моложе целевых выключены
     only_age = bids.slices({"gender": "any", "ages": ["25-34"]})
-    assert len(only_age) == 6 and all(s["gender"] is None for s in only_age) and {s["percent"] for s in only_age} == {115, 75}
+    assert len(only_age) == 6 and all(s["gender"] is None for s in only_age) and {s["percent"] for s in only_age} == {115, 75, 0}
+    assert {s["age"] for s in only_age if s["percent"] == 0} == {"AGE_0_17", "AGE_18_24"} and bids.off_ages({"ages": ["18-24"]}) == {"AGE_0_17"}
     only_gender = bids.slices({"gender": "female", "ages": []})
     assert [(s["gender"], s["percent"]) for s in only_gender] == [("GENDER_MALE", 75), ("GENDER_FEMALE", 115)]
     assert bids.slices({"gender": "any", "ages": []}) == [] and bids.slices(None) == []

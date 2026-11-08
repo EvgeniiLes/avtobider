@@ -77,7 +77,7 @@ def _ages(conn: sqlite3.Connection, biz, since: str) -> dict | None:
         "SELECT key, SUM(clicks) c, SUM(spend_micro) s FROM dimension_stats WHERE business_id = ? AND dimension = 'age' AND day >= ? GROUP BY key",
         (biz["id"], since)).fetchall()
     total = sum(r["s"] for r in rows)
-    off = set(profile.get("ages_off", []))
+    off = bids.off_ages(profile)
     found = [r for r in rows if r["key"] in bids.ALL_AGES and r["key"] not in targets and r["key"] not in off
              and r["s"] >= max(MIN_SPEND, MIN_AGE_SHARE * total)]
     if not found:

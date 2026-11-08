@@ -48,7 +48,7 @@ def prepare(http, isolated, monkeypatch):
     conn.execute("UPDATE users SET telegram_chat = '777'")
     aud.save(conn, bid, {"summary": "x", "gender": "any", "ages": ["25-34", "35-44", "45-54"], "income": "any"})
     rows = [("placement", "com.vitastudio.mahjong", 40, 100), ("placement", "com.fugo.wow", 15, 40), ("placement", "game.yandex.ru", 60, 150, 3),
-            ("age", "AGE_0_17", 50, 60), ("age", "AGE_25_34", 150, 200), ("age", "AGE_55", 3, 5)]
+            ("age", "AGE_55", 50, 60), ("age", "AGE_25_34", 150, 200), ("age", "AGE_0_17", 3, 5)]   # «до 18» выключен с запуска, поэтому предлагаем 55+
     for dimension, key, clicks, spend, *leads in rows:
         conn.execute("INSERT INTO dimension_stats (business_id, dimension, key, day, impressions, clicks, spend_micro, leads) VALUES (?,?,?,?,?,?,?,?)",
                      (bid, dimension, key, "2026-11-06", clicks * 10, clicks, spend * MICRO, leads[0] if leads else 0))
@@ -89,8 +89,8 @@ def test_daily_review_asks_once_and_acts_only_after_yes(isolated, monkeypatch):
 
         assert press(http, pending["ages"], "y").status_code == 200
         off = [m for m in fake.bid_modifiers.values() if m["percent"] == 0]
-        assert [m["age"] for m in off] == ["AGE_0_17"]
-        assert json.loads(conn.execute("SELECT audience FROM businesses WHERE id = ?", (bid,)).fetchone()[0])["ages_off"] == ["AGE_0_17"]
+        assert sorted(m["age"] for m in off) == ["AGE_0_17", "AGE_18_24", "AGE_55"]               # моложе целевых выключены сразу, 55+ после «Да»
+        assert json.loads(conn.execute("SELECT audience FROM businesses WHERE id = ?", (bid,)).fetchone()[0])["ages_off"] == ["AGE_55"]
 
 
 def test_a_declined_proposal_is_not_repeated_and_a_failed_one_is_reported(isolated, monkeypatch):
