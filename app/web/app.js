@@ -1845,6 +1845,8 @@ async function removeAsset(assetId) {
 /* ---------- Статистика и пример данных ---------- */
 
 const money = (v) => (v == null ? "—" : `${Math.round(v).toLocaleString("ru-RU")} ₽`);
+const cents = (v) => (v == null ? "—" : `${v.toLocaleString("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₽`);   // цена клика в рублях и копейках: «2,41 ₽», округление до рубля её исказило бы
+const ctrText = (clicks, impressions) => (impressions ? `${((clicks * 100) / impressions).toLocaleString("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} %` : "—");
 
 function tile(num, label) {
   return el("div", { className: "tile" }, el("div", { className: "num", textContent: num }), el("div", { className: "lbl", textContent: label }));
@@ -2433,7 +2435,7 @@ function renderHomeAds(data) {
     const rows = (g.units || []).map((u) => el("li", {},
       el("span", { className: "home-ad-title", textContent: u.title }),
       el("span", { className: `badge ${u.verdict_code}`, textContent: u.verdict }),
-      el("span", { className: "hint", textContent: `показов ${u.impressions || 0} · переходов ${u.clicks} · расход ${money(u.spend)} · клик ${money(u.cost_per_click)}` })));
+      el("span", { className: "hint", textContent: `показов ${u.impressions || 0} · переходов ${u.clicks} · расход ${money(u.spend)} · CTR ${ctrText(u.clicks, u.impressions)} · клик ${cents(u.cost_per_click)}` })));
     return el("section", { className: "home-camp" }, head, el("ul", { className: "home-ads-list" }, ...rows));
   }));
 }
@@ -2498,6 +2500,8 @@ async function loadStats() {
     tiles.append(
       tile(String(t.impressions || 0), "Показы"),
       tile(String(t.clicks || 0), "Переходы"),
+      tile(ctrText(t.clicks, t.impressions), "CTR"),
+      tile(t.clicks ? cents(t.spend / t.clicks) : "—", "Цена клика"),
       tile(money(t.spend), "Расход"),
       tile(String(t.leads), "Обращения"),
       tile(String(t.clients), t.clients_estimated ? "Клиенты (оценка)" : "Клиенты"),
@@ -2590,7 +2594,7 @@ function campaignGroup(g, several, number) {
 
   const shared = g.editable;   // в общей кампании у объявления своего бюджета нет
   const cells = (names) => names.map((n) => el("th", { textContent: n }));
-  const head2 = el("tr", {}, ...cells(["Объявление", "", "Оценка", ...(shared ? [] : ["Бюджет в неделю"]), "Показы", "Расход", "Переходы", "Цена клика", "Обращения", "Клиенты", "Цена клиента"]));
+  const head2 = el("tr", {}, ...cells(["Объявление", "", "Оценка", ...(shared ? [] : ["Бюджет в неделю"]), "Показы", "Расход", "Переходы", "CTR", "Цена клика", "Обращения", "Клиенты", "Цена клиента"]));
   const body = el("tbody");
   for (const u of g.units) {
     const name = el("td", { className: "ad-name", textContent: u.title });
@@ -2621,7 +2625,7 @@ function campaignGroup(g, several, number) {
     const verdict = el("td", {}, badge);
     verdict.setAttribute("data-label", "Оценка");
     const row = el("tr", { className: u.active ? "" : "off" }, name, pauseCell, verdict, ...(shared ? [] : [cell(money(u.weekly_budget), "Бюджет в неделю", true)]),
-      cell(String(u.impressions || 0), "Показы"), cell(money(u.spend), "Расход"), cell(String(u.clicks), "Переходы"), cell(money(u.cost_per_click), "Цена клика"),
+      cell(String(u.impressions || 0), "Показы"), cell(money(u.spend), "Расход"), cell(String(u.clicks), "Переходы"), cell(ctrText(u.clicks, u.impressions), "CTR"), cell(cents(u.cost_per_click), "Цена клика"),
       cell(String(u.leads), "Обращения", true), cell(String(u.clients), "Клиенты", true), cell(money(u.cost_per_client), "Цена клиента", true));
     const toggle = el("td", { className: "ad-toggle" }, el("button", { type: "button", className: "small secondary", textContent: "Подробнее" }));
     toggle.firstChild.addEventListener("click", () => {
