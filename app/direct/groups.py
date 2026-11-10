@@ -7,6 +7,7 @@
 import re
 
 GROUP_LIMIT = 3   # больше трёх объявлений в группе Директ не принимает (ошибка 7001 «комбинаторных объявлений в группе»)
+SEPARATE_LIMIT = 1   # режим «каждое объявление в своей кампании»: внутри группы Директ почти все показы отдаёт одному объявлению, второе остаётся без показов
 
 
 RESPONSIVE_PARTS = 2   # комбинаторное объявление: столько заголовков и столько текстов в одном объявлении
@@ -36,6 +37,13 @@ def build_groups(variants: list[dict], intents: list[dict], limit: int = GROUP_L
     Иначе берём первые намерения (профиль ставит главные первыми) и раскладываем объявления по тому, какое из них названо в заголовке и тексте."""
     n = len(variants)
     everything = [k for i in intents for k in i["keywords"]]
+    if limit == 1:   # каждое объявление в своей кампании: фразы берём того намерения, которое названо в объявлении (намерение одно или не названо: все фразы)
+        out = []
+        for index, variant in enumerate(variants):
+            best = max(intents, key=lambda i: score(variant, i), default=None) if len(intents) > 1 else (intents[0] if intents else None)
+            hit = best if best is not None and (len(intents) == 1 or score(variant, best) > 0) else None
+            out.append({"intent": hit["name"] if hit else "", "keywords": list(hit["keywords"] if hit else everything), "variants": [variant], "indexes": [index]})
+        return out
     if len(intents) < 2 or n < 4:
         name = intents[0]["name"] if len(intents) == 1 else ""
         out, position = [], 0

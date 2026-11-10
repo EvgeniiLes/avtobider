@@ -373,7 +373,8 @@ ADDED_COLUMNS = [
     ("businesses", "ad_extras", "TEXT NOT NULL DEFAULT ''"),                         # второй заголовок, уточнения и отображаемая ссылка объявлений (JSON), см. app/direct/extras.py
     ("campaigns", "intent", "TEXT NOT NULL DEFAULT ''"),                           # намерение (услуга), которое ведёт эта кампания; пусто у запусков до схемы по намерениям
     ("businesses", "ad_format", "TEXT NOT NULL DEFAULT ''"),                       # формат объявлений: responsive (комбинаторное: два заголовка и два текста) или пусто (обычные)
-    ("ad_units", "ad_kind", "TEXT NOT NULL DEFAULT ''"),                            # responsive: одно комбинаторное объявление на группу; пусто: обычное
+    ("businesses", "separate_campaigns", "INTEGER NOT NULL DEFAULT 0"),            # 1: каждое объявление в своей кампании (бюджет запуска делится поровну), иначе до трёх объявлений в одной
+    ("ad_units", "ad_kind", "TEXT NOT NULL DEFAULT ''"),                           # responsive: одно комбинаторное объявление на группу; пусто: обычное
     ("ad_units", "variants_json", "TEXT NOT NULL DEFAULT ''"),                       # заголовки и тексты комбинаторного объявления (JSON)
     ("campaigns", "external_id", "INTEGER"),                          # номер кампании в Директе
     ("campaigns", "weekly_micro", "INTEGER NOT NULL DEFAULT 0"),      # недельный лимит кампании

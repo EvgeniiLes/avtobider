@@ -58,7 +58,7 @@ def _with_extras(conn, biz, plan, transport=None) -> None:
     plan.extras = saved if ad_extras.covers(saved, titles) else None
 
 
-def _plan_for(conn, user, biz, account_id, factory, transport=None, ad_format: str | None = None):
+def _plan_for(conn, user, biz, account_id, factory, transport=None, ad_format: str | None = None, separate: bool | None = None):
     """Строит план запуска, обращаясь к Директу за регионом и минимальным бюджетом."""
     account = _pick_account(conn, user, biz, account_id)
     token, login = account_token(conn, account["id"])
@@ -75,7 +75,8 @@ def _plan_for(conn, user, biz, account_id, factory, transport=None, ad_format: s
     region, minimum, district_ids = asyncio.run(go())
     kwargs = {"min_weekly_micro": minimum} if minimum else {}
     custom = text_candidates(conn, biz)
-    plan = plan_launch(biz, region, custom=custom, audience=aud.load(biz), district_ids=district_ids, responsive=(ad_format or biz["ad_format"]) == "responsive", **kwargs)
+    plan = plan_launch(biz, region, custom=custom, audience=aud.load(biz), district_ids=district_ids, responsive=(ad_format or biz["ad_format"]) == "responsive",
+                       separate=bool(biz["separate_campaigns"]) if separate is None else separate, **kwargs)
     _with_extras(conn, biz, plan, transport)
     drawn = {(r["title"], r["body"]) for r in conn.execute(   # только проверка по базе: сами картинки открывать не нужно, это долго
         "SELECT title, body FROM creatives WHERE business_id = ? AND kind = 'ai_banner' AND status IN ('draft', 'approved') AND asset_id IS NOT NULL", (biz["id"],))}
@@ -92,6 +93,7 @@ def _plan_json(plan, account, marking_confirmed: bool = False, fresh: list[dict]
     return {
         "adding": fresh is not None,
         "responsive": plan.responsive,
+        "separate": plan.separate,
         "existing": 0 if fresh is None else plan.count - len(fresh),
         "marking": {"confirmed": marking_confirmed, "help": MARKING_HELP},
         "account": account["title"],
@@ -119,13 +121,13 @@ def _plan_json(plan, account, marking_confirmed: bool = False, fresh: list[dict]
 
 
 @router.get("/launch/preview")
-def preview(business_id: int, account_id: int | None = None, ad_format: str | None = None, user: sqlite3.Row = Depends(current_user),
+def preview(business_id: int, account_id: int | None = None, ad_format: str | None = None, separate: bool | None = None, user: sqlite3.Row = Depends(current_user),
             conn: sqlite3.Connection = Depends(get_db), factory=Depends(client_factory), transport=Depends(creative_transport)):
     biz = _own(conn, user, business_id)
     fill_districts(conn, business_id, transport)   # район не указан, а адрес есть: берём район из адреса
     biz = _own(conn, user, business_id)
     try:
-        account, _, _, plan = _plan_for(conn, user, biz, account_id, factory, transport, ad_format)
+        account, _, _, plan = _plan_for(conn, user, biz, account_id, factory, transport, ad_format, separate)
     except (EngineError, DirectError) as e:
         raise _fail(e)
     target = existing_campaign(conn, business_id)
@@ -145,6 +147,7 @@ class LaunchIn(BaseModel):
     account_id: int | None = None
     marking_confirmed: bool = False
     ad_format: str | None = None   # responsive: комбинаторные объявления (два заголовка и два текста в одном); пусто: как у бизнеса
+    separate: bool | None = None   # каждое объявление в своей кампании; пусто: как у бизнеса
 
 
 @router.post("/launch")
@@ -163,6 +166,10 @@ def start_launch(business_id: int, data: LaunchIn, user: sqlite3.Row = Depends(c
     try:
         if data.ad_format in ("responsive", "text"):
             conn.execute("UPDATE businesses SET ad_format = ? WHERE id = ?", ("responsive" if data.ad_format == "responsive" else "", business_id))
+            conn.commit()
+            biz = _own(conn, user, business_id)
+        if data.separate is not None:
+            conn.execute("UPDATE businesses SET separate_campaigns = ? WHERE id = ?", (1 if data.separate else 0, business_id))
             conn.commit()
             biz = _own(conn, user, business_id)
         account, token, login, plan = _plan_for(conn, user, biz, data.account_id, factory, transport)
@@ -197,7 +204,7 @@ def start_launch(business_id: int, data: LaunchIn, user: sqlite3.Row = Depends(c
         reset_demo(conn, business_id)  # примерные данные заменяются настоящей рекламой
     except (EngineError, DirectError) as e:
         raise _fail(e)
-    groups = len(group_sizes(len(unit_ids)))
+    groups = conn.execute(f"SELECT COUNT(DISTINCT campaign_id) FROM ad_units WHERE id IN ({','.join('?' * len(unit_ids))})", unit_ids).fetchone()[0] if unit_ids else 1
     message = ("Кампания с объявлениями создана и отправлена на проверку в Яндекс." if groups == 1
                else f"Созданы кампании по группам объявлений ({groups}), у каждой свой бюджет. Они отправлены на проверку в Яндекс.")
     return {"created": len(unit_ids), "message": message}

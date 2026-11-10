@@ -223,6 +223,24 @@ def test_more_than_three_ads_at_launch_go_into_several_campaigns_each_with_its_o
         assert ov["budget"]["weekly"] == biz_budget * 2 // MICRO                       # на счётчике бюджет всей рекламы: группа × число групп
 
 
+def test_separate_mode_puts_every_ad_into_its_own_campaign_and_splits_the_budget(isolated):
+    fake = FakeDirect()
+    with TestClient(app) as http:
+        bid = setup(http, fake, isolated)
+        assert http.put(f"/api/businesses/{bid}/creatives/ads/live", json={"count": 3}).status_code == 200
+        shared = http.get(f"/api/businesses/{bid}/launch/preview").json()
+        assert shared["separate"] is False and shared["groups"] == 1
+        preview = http.get(f"/api/businesses/{bid}/launch/preview?separate=true").json()
+        assert preview["separate"] is True and preview["groups"] == 3 and preview["count"] == 3
+        assert preview["weekly"] * 3 <= shared["weekly"] and preview["total"] <= shared["weekly"]   # бюджет запуска делится, а не умножается
+        r = http.post(f"/api/businesses/{bid}/launch", json={"marking_confirmed": True, "separate": True})
+        assert r.status_code == 200 and r.json()["created"] == 3 and "3" in r.json()["message"]
+        assert len(fake.campaigns) == 3 and len(fake.groups) == 3 and len(fake.ads) == 3
+        assert all(sum(1 for a in fake.ads.values() if a["group"] == g) == 1 for g in fake.groups)
+        assert len({c["Limit"] for c in fake.campaigns.values()}) == 1 and rows(isolated, "SELECT separate_campaigns s FROM businesses")[0]["s"] == 1
+        assert len(rows(isolated, "SELECT id FROM campaigns")) == 3
+
+
 def test_launch_does_not_add_code_made_banners_and_asks_to_draw_them(isolated):
     from io import BytesIO
     from PIL import Image

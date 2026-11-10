@@ -22,7 +22,7 @@ from app.direct.bids import ensure_bids
 from app.direct.goals import goal_ids_for_report
 from app.direct.marking import is_filled
 from app.direct import extras as ad_extras
-from app.direct.groups import GROUP_LIMIT, RESPONSIVE_PARTS, build_groups, group_sizes, score  # noqa: F401  (GROUP_LIMIT и group_sizes берут из launch другие модули)
+from app.direct.groups import GROUP_LIMIT, RESPONSIVE_PARTS, SEPARATE_LIMIT, build_groups, group_sizes, score  # noqa: F401  (GROUP_LIMIT и group_sizes берут из launch другие модули)
 from app.direct.audience import autotargeting_for, effective_negatives, intents_for
 from app.direct.texts import check, draft_variants, mentions_district, near_variants
 from app.engine.util import EngineError, MICRO, day_add, plural, rub
@@ -64,6 +64,7 @@ class Plan:
     ad_description: str = ""                # «описание объекта продвижения» для маркировки: без него Директ ограничивает показы по закону «О рекламе»
     responsive: bool = False                # комбинаторные объявления: в каждой группе одно объявление с двумя заголовками и двумя текстами
     groups: list[dict] | None = None        # группы-намерения: [{intent, keywords, variants, indexes}], по одной кампании на группу
+    separate: bool = False                  # каждое объявление в своей кампании, недельный бюджет запуска делится между ними поровну
     extras: dict | None = None              # второй заголовок, уточнения и отображаемая ссылка (app/direct/extras.py); None: объявления без дополнений
 
 
@@ -186,7 +187,7 @@ def render_banner(biz, variant: dict, photo: bytes, logo: bytes | None, index: i
 
 
 def plan_launch(biz, region_id: int | None, min_weekly_micro: int = MIN_WEEKLY, custom: list[dict] | None = None,
-                audience: dict | None = None, district_ids: list[int] | None = None, responsive: bool = False) -> Plan:
+                audience: dict | None = None, district_ids: list[int] | None = None, responsive: bool = False, separate: bool = False) -> Plan:
     """Считает, что будет создано. Если создавать нечего или нельзя, объясняет простыми словами."""
     if not (biz["site_url"] or _maps_id(biz)):
         raise EngineError("Укажите сайт или ссылку на ваш бизнес в Яндекс Картах: без них объявлению некуда вести.", "no_target_link")
@@ -211,6 +212,9 @@ def plan_launch(biz, region_id: int | None, min_weekly_micro: int = MIN_WEEKLY, 
 
     if responsive and not (biz["ads_live"] if "ads_live" in biz.keys() else None):
         count = min(count, RESPONSIVE_PARTS)   # комбинаторное объявление держит два заголовка и два текста: больше вариантов на группу не нужно
+    separate = separate and not responsive
+    if separate:
+        count = max(1, min(count, start_pool // min_weekly_micro))   # у каждой кампании свой лимит, и он не меньше минимума Директа
     variants, own = choose_variants(biz, custom, count)
     warnings = []
     if districts and sum(1 for v in variants[:count] if mentions_district(v, districts)) < (2 if count >= 3 else 1):
@@ -247,11 +251,12 @@ def plan_launch(biz, region_id: int | None, min_weekly_micro: int = MIN_WEEKLY, 
         warnings.append("В профиле мало ключевых фраз: большую часть запросов подберёт автотаргетинг Яндекса. Добавьте свои фразы в профиле аудитории.")
     intents = intents_for(audience)
     groups = build_groups(variants[:count], intents or [{"name": "", "keywords": [k for k in keywords if k not in set(_district_phrases(keywords, districts))]}],
-                          RESPONSIVE_PARTS if responsive else GROUP_LIMIT)
+                          RESPONSIVE_PARTS if responsive else SEPARATE_LIMIT if separate else GROUP_LIMIT)
     for g in groups:   # районы добавляются к фразам каждой группы: «стрижка собак хамовники»
         g["keywords"] = g["keywords"] + _district_phrases(g["keywords"], districts)
+    per_campaign = start_pool // max(1, len(groups)) if separate else start_pool   # объявление в своей кампании: общий бюджет запуска делится поровну
     return Plan(
-        responsive=responsive, groups=groups, count=count, campaign_micro=start_pool, variants=variants, region_id=RUSSIA_REGION_ID if nationwide else region_id, ad_description=ad_description_of(biz),
+        responsive=responsive, separate=separate, groups=groups, count=count, campaign_micro=per_campaign, variants=variants, region_id=RUSSIA_REGION_ID if nationwide else region_id, ad_description=ad_description_of(biz),
         city="вся Россия" if nationwide else biz["city"], href=biz["site_url"], business_id=_maps_id(biz), warnings=warnings, counter_ids=counters,
         own_count=own, negatives=effective_negatives(biz, audience), keywords=keywords, autotargeting=autotargeting_for(audience), audience=audience,
         region_ids=list(district_ids) if by_district and not nationwide else None, districts=districts or None,
@@ -585,12 +590,13 @@ def plan_additions(conn: sqlite3.Connection, biz, plan: Plan, fresh: list[tuple[
     Группа без намерения (запуск до этой схемы) подходит любому объявлению. Возвращает (в существующие группы, новые группы)."""
     intents = intents_for(plan.audience)
     groups = _existing_groups(conn, biz["id"], intents)
+    limit = SEPARATE_LIMIT if plan.separate else GROUP_LIMIT
     into, pending = [], {}
     for index, v in fresh:
         scores = [(score(v, i), i) for i in intents]
         top = max(scores, key=lambda x: x[0], default=(0, None))
         target = top[1] if top[0] > 0 and len(intents) > 1 else None
-        room = [g for g in groups if g["n"] < GROUP_LIMIT and g["ad_kind"] != "responsive" and (target is None or g["intent"] in ("", target["name"]))]   # в комбинаторное объявление новые варианты не добавляем
+        room = [g for g in groups if g["n"] < limit and g["ad_kind"] != "responsive" and (target is None or g["intent"] in ("", target["name"]))]   # в комбинаторное объявление новые варианты не добавляем
         if room:
             best = room[-1]   # самая новая подходящая группа
             best["n"] += 1
@@ -601,7 +607,7 @@ def plan_additions(conn: sqlite3.Connection, biz, plan: Plan, fresh: list[tuple[
     new_groups = []
     for g in pending.values():
         position = 0
-        for size in group_sizes(len(g["items"]), RESPONSIVE_PARTS if plan.responsive else GROUP_LIMIT):
+        for size in group_sizes(len(g["items"]), RESPONSIVE_PARTS if plan.responsive else limit):
             new_groups.append({"intent": g["intent"], "keywords": g["keywords"], "items": g["items"][position:position + size]})
             position += size
     return into, new_groups

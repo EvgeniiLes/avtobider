@@ -2660,16 +2660,21 @@ function campaignGroup(g, several, number) {
 
 let launchAdding = false;   // реклама уже идёт: кнопка запуска добавляет в неё новые объявления, а не создаёт кампанию
 
+let launchSeparateTouched = false;   // владелец сам переключил «каждое объявление в своей кампании»: до этого берём то, что сохранено у бизнеса
+
 async function openLaunch() {
   if (!currentBusiness) return;
-  const result = await api("GET", `/api/businesses/${currentBusiness.id}/launch/preview?ad_format=${$("launch-responsive").checked ? "responsive" : "text"}`);
+  const separate = launchSeparateTouched ? `&separate=${$("launch-separate").checked}` : "";
+  const result = await api("GET", `/api/businesses/${currentBusiness.id}/launch/preview?ad_format=${$("launch-responsive").checked ? "responsive" : "text"}${separate}`);
   if (!result.ok) { say(errorText(result), "err"); $("launch-card").hidden = true; return; }
   const p = result.data;
+  $("launch-separate").checked = p.separate || (launchSeparateTouched && $("launch-separate").checked && !p.responsive);
+  $("launch-separate-box").hidden = p.responsive;   // у комбинаторного объявления в группе одно объявление, делить нечего
   launchAdding = p.adding;
   $("launch-go").textContent = launchAdding ? "Добавить в рекламу и отправить на проверку" : "Создать и отправить на проверку";
   $("launch-summary").textContent = launchAdding
     ? `Реклама уже идёт. Новые объявления встанут в последнюю группу, пока в ней есть место (до трёх), остальные пойдут в новую кампанию: бюджет на неё ${p.weekly} ₽ в неделю${p.groups ? `, новых кампаний ${p.groups}, всего ${p.total} ₽ в неделю` : ""}. Запросы и районы те же. ${p.variants.length ? `Будет добавлено: ${adsPhrase(p.variants.length)}.` : "Новых объявлений нет: все объявления из списка «Пойдут в рекламу» уже в рекламе. Добавьте новый вариант на вкладке «Объявления» или увеличьте число объявлений в показе."}`
-    : `Кабинет: ${p.account}. Где показывать: ${p.city}${p.districts.length ? (p.by_district ? `, только районы: ${p.districts.join(", ")}` : `, районы в текстах и фразах: ${p.districts.join(", ")}`) : ""}. ${p.groups === 1 ? `Одна кампания: ${adsPhrase(p.count)} с бюджетом ${p.weekly} ₽ в неделю` : `Кампаний ${p.groups} ${p.group_names && p.group_names.length ? `по услугам (${p.group_names.join(", ")}): в каждой свои фразы и объявления` : "(по группам объявлений, в группе до трёх)"}, бюджет у каждой свой, ${p.weekly} ₽ в неделю, всего ${p.total} ₽ в неделю: ${adsPhrase(p.count)}`}. Ведёт на: ${p.link}${p.tagged ? " (к ссылке добавятся метки utm: в Метрике будет видно, с какого объявления пришёл человек)" : ""}.`;
+    : `Кабинет: ${p.account}. Где показывать: ${p.city}${p.districts.length ? (p.by_district ? `, только районы: ${p.districts.join(", ")}` : `, районы в текстах и фразах: ${p.districts.join(", ")}`) : ""}. ${p.groups === 1 ? `Одна кампания: ${adsPhrase(p.count)} с бюджетом ${p.weekly} ₽ в неделю` : `Кампаний ${p.groups} ${p.group_names && p.group_names.length ? `по услугам (${p.group_names.join(", ")}): в каждой свои фразы и объявления` : (p.separate ? "(по одному объявлению в каждой, показы идут у всех)" : "(по группам объявлений, в группе до трёх)")}, бюджет у каждой свой, ${p.weekly} ₽ в неделю, всего ${p.total} ₽ в неделю: ${adsPhrase(p.count)}`}. Ведёт на: ${p.link}${p.tagged ? " (к ссылке добавятся метки utm: в Метрике будет видно, с какого объявления пришёл человек)" : ""}.`;
   const second = (p.extras && p.extras.title2) || {};
   $("launch-variants").replaceChildren(...p.variants.map((v) =>
     el("li", {}, el("div", { className: "t", textContent: v.title }), ...(second[v.title.toLowerCase()] ? [el("div", { className: "hint", textContent: `Второй заголовок: ${second[v.title.toLowerCase()]}` })] : []),
@@ -2750,7 +2755,7 @@ async function confirmLaunch() {
   const button = $("launch-go");
   button.disabled = true;
   button.textContent = launchAdding ? "Добавляем…" : "Создаём рекламу…";
-  const result = await api("POST", `/api/businesses/${currentBusiness.id}/launch`, { marking_confirmed: $("marking-ok").checked, ad_format: $("launch-responsive").checked ? "responsive" : "text" });
+  const result = await api("POST", `/api/businesses/${currentBusiness.id}/launch`, { marking_confirmed: $("marking-ok").checked, ad_format: $("launch-responsive").checked ? "responsive" : "text", separate: $("launch-responsive").checked ? null : $("launch-separate").checked });
   button.disabled = false;
   button.textContent = launchAdding ? "Добавить в рекламу и отправить на проверку" : "Создать и отправить на проверку";
   $("launch-error").hidden = true;
@@ -2988,6 +2993,7 @@ async function start() {
   $("land-cta").addEventListener("click", () => goToAuth("register"));
   const toAds = (step) => () => { showPage("creatives"); setStep(step); };
   $("home-ads-more").addEventListener("click", () => showPage("stats"));
+  $("launch-separate").addEventListener("change", () => { launchSeparateTouched = true; openLaunch(); });
   $("launch-responsive").addEventListener("change", openLaunch);   // формат поменяли: план (число групп, объявлений и бюджет) пересчитывается
   $("chip-banner").addEventListener("click", toAds("banners"));
   $("chip-ideas").addEventListener("click", toAds("ideas"));
