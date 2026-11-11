@@ -15,7 +15,7 @@ from app.direct import extras as ad_extras
 from app.direct.bids import ensure_bids
 from app.direct.client import DirectError
 from app.direct.launch import (STATE_LABELS, add_ads, existing_campaign, group_sizes, launch, new_campaigns_for, new_variants, plan_launch,
-                               tagged_href, text_candidates)
+                               split_campaign, tagged_href, text_candidates)
 from app.direct.refresh import refresh_campaigns
 from app.direct.runner import account_token, sync_and_run
 from app.engine.util import EngineError, MICRO, plural
@@ -208,6 +208,40 @@ def start_launch(business_id: int, data: LaunchIn, user: sqlite3.Row = Depends(c
     message = ("Кампания с объявлениями создана и отправлена на проверку в Яндекс." if groups == 1
                else f"Созданы кампании по группам объявлений ({groups}), у каждой свой бюджет. Они отправлены на проверку в Яндекс.")
     return {"created": len(unit_ids), "message": message}
+
+
+class SplitIn(BaseModel):
+    campaign_id: int
+
+
+@router.post("/launch/split")
+def split(business_id: int, data: SplitIn, user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connection = Depends(get_db),
+          factory=Depends(client_factory), transport=Depends(creative_transport)):
+    """Сравнение на уже идущей рекламе: объявления общей кампании переезжают каждое в свою новую кампанию, старая останавливается."""
+    biz = _own(conn, user, business_id)
+    try:
+        account, token, login, plan = _plan_for(conn, user, biz, None, factory, transport, None, True)
+        s = get_settings()
+        today = date.today().isoformat()
+
+        async def go():
+            async with factory(token, api_version=s.direct_api_version, login=login) as client:
+                created = await split_campaign(client, conn, biz, data.campaign_id, plan, today)
+                await ensure_bids(client, conn, biz["id"], today)
+                for row in conn.execute("SELECT DISTINCT external_campaign_id FROM ad_units WHERE business_id = ? AND external_campaign_id IS NOT NULL", (biz["id"],)).fetchall():
+                    try:
+                        await client.ensure_alerts(row["external_campaign_id"])
+                    except DirectError:
+                        pass
+                return created
+
+        unit_ids = asyncio.run(go())
+    except (EngineError, DirectError) as e:
+        raise _fail(e)
+    conn.execute("UPDATE businesses SET separate_campaigns = 1 WHERE id = ?", (business_id,))
+    conn.commit()
+    return {"created": len(unit_ids), "message": f"Создали {plural(len(unit_ids), 'кампанию', 'кампании', 'кампаний')} по одному объявлению, старую остановили. "
+            "Новые объявления на проверке в Яндексе. Через несколько дней после старта сервис сравнит их и оставит лучшее."}
 
 
 @router.post("/refresh-campaigns")

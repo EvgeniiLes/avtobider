@@ -7,6 +7,7 @@
 Раньше на каждый вариант была своя кампания; на малом бюджете у такой кампании не набиралось данных ни для сравнения,
 ни для обучения стратегии Яндекса (ему нужно не меньше 10 конверсий в неделю на кампанию).
 """
+import dataclasses
 import json
 import sqlite3
 from dataclasses import dataclass
@@ -564,6 +565,58 @@ async def launch(client: DirectClient, conn: sqlite3.Connection, biz, account_id
     conn.execute("UPDATE businesses SET account_id = ?, status = 'running' WHERE id = ?", (account_id, biz["id"]))
     conn.commit()
     _remember_keywords(conn, biz, made[0][0]["keywords"])
+    return unit_ids
+
+
+async def split_campaign(client: DirectClient, conn: sqlite3.Connection, biz, campaign_row_id: int, plan: Plan, today: str) -> list[int]:
+    """Сравнение на уже идущей рекламе: каждое работающее объявление общей кампании получает свою новую кампанию (с теми же фразами, баннером и
+    районами), недельный лимит старой делится между ними поровну, а старые объявления и кампания останавливаются. Через несколько дней сервис сам
+    сравнит новые объявления (они запущены в один день) и оставит лучшее."""
+    old = conn.execute("SELECT * FROM campaigns WHERE id = ? AND business_id = ? AND source = 'direct' AND external_id IS NOT NULL", (campaign_row_id, biz["id"])).fetchone()
+    units = conn.execute("SELECT * FROM ad_units WHERE campaign_id = ? AND state = 'active' AND ad_kind != 'responsive' ORDER BY id", (campaign_row_id,)).fetchall() if old else []
+    if len(units) < 2:
+        raise EngineError("В кампании меньше двух работающих обычных объявлений: разносить нечего.", "nothing_to_split")
+    if old["weekly_micro"] // len(units) < MIN_WEEKLY:
+        raise EngineError(f"Лимит кампании {rub(old['weekly_micro'])} в неделю не делится на {len(units)}: на каждую кампанию Яндекс требует не меньше {rub(MIN_WEEKLY)}.", "budget_too_small")
+    share = dataclasses.replace(plan, campaign_micro=old["weekly_micro"] // len(units), separate=True)
+    start_date = day_add(today, 1)
+    photos, logo = media_typed(conn, biz)
+    ai_banners = ai_banners_for(conn, biz)
+    ext_ids = await extension_ids(client, share)
+    keywords = next((g["keywords"] for g in plan.groups or [] if g["intent"] == old["intent"]), None) or share.keywords   # фразы услуги этой кампании из профиля, с районами
+    made, problems = [], []
+    have = conn.execute("SELECT COUNT(*) FROM campaigns WHERE business_id = ? AND source = 'direct'", (biz["id"],)).fetchone()[0]
+    try:
+        for n, u in enumerate(units):
+            variant = {"title": u["title"], "text": u["body"]}
+            ids = await create_campaign(client, share, campaign_name(biz, have + n, old["intent"]), start_date, [variant], ext_ids, keywords, old["intent"], False)
+            created = created_ads(ids, [variant], [u["id"]])
+            made.append((ids, created, u))
+            if photos or ai_banners:
+                problems += await attach_banners(client, biz, created, photos, logo, ai_banners)
+        await client.moderate_ads([ad_id for ids, _, _ in made for ad_id in ids["ad_ids"]])
+    except DirectError:
+        try:   # откат: старая кампания не тронута, недоделанные новые убираем
+            if made:
+                await client.delete_campaigns([ids["campaign_id"] for ids, _, _ in made])
+        except DirectError:
+            pass
+        raise
+    await client.set_ads_state([int(u["external_ad_id"]) for u in units], False)   # новые ушли на проверку: старые останавливаем, чтобы не тратить бюджет дважды
+    await client.set_campaigns_state([int(old["external_id"])], False)
+    unit_ids = []
+    for n, (ids, created, u) in enumerate(made):
+        row = conn.execute(
+            "INSERT INTO campaigns (business_id, account_id, name, source, external_id, weekly_micro, strategy, state, created_day, last_changed_day, intent) "
+            "VALUES (?,?,?, 'direct', ?,?, 'clicks', 'moderation', ?,?,?)",
+            (biz["id"], old["account_id"], campaign_name(biz, have + n, old["intent"]).replace("Автобидер", "Реклама", 1), ids["campaign_id"], share.campaign_micro, today, today, old["intent"]))
+        unit_ids += [save_unit(conn, biz, old["account_id"], row.lastrowid, c["variant"], {"campaign_id": ids["campaign_id"], "group_id": ids["group_id"], "ad_id": c["ad_id"]},
+                               0, today, style=u["style"], photo_type=u["photo_type"], angle=u["angle"]) for c in created]
+    conn.execute(f"UPDATE ad_units SET state = 'paused', last_changed_day = ? WHERE id IN ({','.join('?' * len(units))})", (today, *[u["id"] for u in units]))
+    conn.execute("UPDATE campaigns SET state = 'paused', last_changed_day = ? WHERE id = ?", (today, campaign_row_id))
+    if problems:
+        conn.execute("UPDATE ad_units SET status_note = ? WHERE id = ?", ("Картинки добавлены не ко всем объявлениям", unit_ids[0]))
+    conn.commit()
     return unit_ids
 
 

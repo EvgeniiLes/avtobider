@@ -177,6 +177,69 @@ def _finish_experiments(conn, platform, biz, today, as_of, cfg, propose=False) -
     return made
 
 
+def _cohort_step(conn, platform, biz, today, as_of, cfg, propose=False) -> list[int]:
+    """Объявления, запущенные в один день каждое в своей кампании, сравниваем между собой: через cohort_days дней слабое останавливаем,
+    а его недельный лимит переходит к лучшему. Судим по обращениям на клик, а когда обращений в группе меньше двух (цель не измеряется) по доле кликов
+    от показов: это единственное, что можно сравнить. Не хватило уверенности: ждём до cohort_max_days и тогда оставляем лучшее по цифрам."""
+    rows = conn.execute(
+        "SELECT u.*, c.id AS camp_id, c.weekly_micro AS camp_weekly, c.created_day AS camp_day, "
+        "(SELECT COUNT(*) FROM ad_units x WHERE x.campaign_id = c.id) AS in_campaign FROM ad_units u JOIN campaigns c ON c.id = u.campaign_id "
+        "WHERE u.business_id = ? AND c.source = 'direct' AND c.external_id IS NOT NULL AND c.state != 'paused' AND u.state = 'active' AND u.ad_kind != 'responsive' "
+        "ORDER BY c.created_day, u.id", (biz["id"],)).fetchall()
+    in_test = {uid for r in conn.execute("SELECT unit_a, unit_b FROM experiments WHERE business_id = ? AND status = 'running'", (biz["id"],)) for uid in (r["unit_a"], r["unit_b"])}
+    groups: dict[str, list] = {}
+    for r in rows:
+        if r["in_campaign"] == 1 and r["id"] not in in_test and r["camp_day"]:   # объявление одно на кампанию: именно такие запускаются «одновременно, но порознь»
+            groups.setdefault(r["camp_day"], []).append(r)
+    made: list[int] = []
+    cap = int((1 - cfg.reserve) * biz["weekly_budget_micro"])
+    for start, members in groups.items():
+        age = days_between(start, today)
+        if len(members) < 2 or age < cfg.cohort_days:
+            continue
+        stats = {m["id"]: unit_stats(conn, m["id"], start, as_of) for m in members}
+        measured = sum(s["leads"] for s in stats.values()) >= 2
+        trials = (lambda s: s["clicks"]) if measured else (lambda s: s["impressions"])
+        wins = (lambda s: s["leads"]) if measured else (lambda s: s["clicks"])
+        if any(trials(s) == 0 or s["clicks"] < cfg.cohort_min_clicks for s in stats.values()) and age < cfg.cohort_max_days:
+            continue
+        rate = lambda m: (wins(stats[m["id"]]) + 1) / (trials(stats[m["id"]]) + 2)
+        best = max(members, key=rate)
+        sb = stats[best["id"]]
+        best_weekly = best["camp_weekly"]
+        for m in members:
+            if m["id"] == best["id"] or has_open_proposal(conn, m["id"], "pause"):
+                continue
+            sm = stats[m["id"]]
+            p = prob_b_better(trials(sm), wins(sm), trials(sb), wins(sb), random.Random(f"cohort:{m['id']}:{today}"), cfg.samples)
+            if p < cfg.cohort_confidence and age < cfg.cohort_max_days:
+                continue
+            what = "обращений на клик" if measured else "кликов на показ"
+            fmt = (lambda s: f"{s['leads'] / s['clicks'] * 100:.1f} обращений на 100 кликов" if s["clicks"] else "кликов нет") if measured else \
+                  (lambda s: f"CTR {s['clicks'] / s['impressions'] * 100:.2f}%" if s["impressions"] else "показов нет")
+            text = (f"Остановили «{m['title']}»: из объявлений, запущенных одновременно, оно сработало слабее ({what}) за {plural(age, 'день', 'дня', 'дней')}: "
+                    f"{fmt(sm)} против {fmt(sb)} у «{best['title']}». "
+                    + ("" if measured else "Обращения пока не измеряются, поэтому сравнили по кликам: подключите цель Метрики, и сравнение пойдёт по обращениям. ")
+                    + f"Лимит остановленной кампании ({rub(m['camp_weekly'])} в неделю) уходит лучшему.")
+            evidence = {"cohort": True, "metric": "leads" if measured else "ctr", "p_better": round(p, 3), "winner_unit": best["id"], "loser": sm, "winner": sb}
+            change_id = _pause(conn, platform, biz, m, today, "cohort_loser", text, evidence, propose=propose)
+            if change_id is None:
+                continue
+            made.append(change_id)
+            new = min(best_weekly + m["camp_weekly"], cap)
+            if new > best_weekly and not has_open_campaign_proposal(conn, best["camp_id"]):
+                move = (f"Добавили бюджет кампании «{best['title']}»: к ней перешёл лимит остановленного объявления. "
+                        f"Бюджет на неделю: {rub(best_weekly)} → {rub(new)}.")
+                before, after = {"campaign_budget_micro": best_weekly}, {"campaign_budget_micro": new}
+                if propose:
+                    made.append(_propose(conn, biz, None, today, "set_budget", "cohort_winner", move, before, after, {"cohort": True}, campaign_id=best["camp_id"]))
+                else:
+                    platform.set_campaign_budget(best["camp_id"], new, today)
+                    made.append(log_change(conn, biz["id"], None, today, "auto", "set_budget", "cohort_winner", move, before, after, {"cohort": True}, campaign_id=best["camp_id"]))
+                best_weekly = new
+    return made
+
+
 def run_cycle(
     conn: sqlite3.Connection, biz: sqlite3.Row, platform: Platform, today: str,
     cfg: EngineConfig = EngineConfig(), propose: bool | None = None, decide: bool = True,
@@ -216,6 +279,9 @@ def run_cycle(
         conn.commit()
         return made
     block_growth = budget_total > 0 and week_spend >= cfg.block_growth_at * budget_total
+
+    if shared:   # объявления в отдельных кампаниях, запущенные вместе: слабое уходит через несколько дней (оценке обращений тут нужны не всегда, поэтому до проверки decide)
+        made += _cohort_step(conn, platform, biz, today, as_of, cfg, propose)
 
     if not decide:
         # Нет данных об обращениях (Метрика не подключена): судить о рекламе нечем, работает только защита бюджета.
@@ -600,7 +666,7 @@ def approve(conn: sqlite3.Connection, platform: Platform, biz: sqlite3.Row, chan
     unit = conn.execute("SELECT * FROM ad_units WHERE id = ?", (ch["unit_id"],)).fetchone()
     if unit is None or unit["state"] != "active":
         stale("Объявление уже остановлено или удалено.")
-    if ch["action"] == "pause" and getattr(platform, "shared_budget", False) and conn.execute(
+    if ch["action"] == "pause" and not evidence.get("cohort") and getattr(platform, "shared_budget", False) and conn.execute(
             "SELECT COUNT(*) FROM ad_units WHERE campaign_id = ? AND state = 'active'", (unit["campaign_id"],)).fetchone()[0] <= 1:
         stale("Это последнее работающее объявление кампании, его остановить нельзя.")
     active_total = conn.execute(

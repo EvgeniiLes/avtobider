@@ -126,6 +126,8 @@ def _campaign_groups(conn: sqlite3.Connection, business_id: int, entries: list[d
         if shared:
             group.update(_campaign_info(camp, today, conversions, sum(week_leads[u["id"]] for u in units if u["campaign_id"] == camp["id"])))
             group["min_weekly"] = round(MIN_WEEKLY / MICRO)
+            # в одной группе Директ почти все показы отдаёт одному объявлению: два и больше работающих обычных объявления можно разнести по своим кампаниям
+            group["splittable"] = conn.execute("SELECT COUNT(*) FROM ad_units WHERE campaign_id = ? AND state = 'active' AND ad_kind != 'responsive'", (camp["id"],)).fetchone()[0] >= 2
         groups.append(group)
     return groups
 

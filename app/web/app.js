@@ -2590,6 +2590,20 @@ function campaignGroup(g, several, number) {
     };
     show();
     group.append(budget, el("p", { className: "hint", textContent: campaignHint(g) }));
+    if (g.splittable) {
+      const split = el("button", { type: "button", className: "small secondary", textContent: "Сравнить объявления в отдельных кампаниях" });
+      split.addEventListener("click", async () => {
+        if (!confirm("Каждое работающее объявление получит свою кампанию, лимит этой кампании поделится между ними поровну, а сама она остановится. "
+                     + "Новые объявления уйдут на проверку в Яндекс. Через несколько дней сервис сравнит их и оставит лучшее. Продолжить?")) return;
+        split.disabled = true;
+        const result = await api("POST", `/api/businesses/${currentBusiness.id}/launch/split`, { campaign_id: g.id });
+        split.disabled = false;
+        if (!result.ok) { say(errorText(result), "err"); return; }
+        say(result.data.message);
+        await loadStats();
+      });
+      group.append(el("div", { className: "camp-budget" }, split, el("span", { className: "hint", textContent: "В одной группе Директ почти все показы отдаёт одному объявлению." })));
+    }
   }
 
   const shared = g.editable;   // в общей кампании у объявления своего бюджета нет
