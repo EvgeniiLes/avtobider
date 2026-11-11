@@ -1047,6 +1047,31 @@ def test_rewrite_puts_a_new_text_in_the_same_place(monkeypatch):
         assert http.post(f"{base}/ads/99/rewrite").status_code == 400
 
 
+def test_ab_copy_adds_a_second_variant_right_after_the_live_ads_and_keeps_the_original(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+    fakes = Fakes(claude_text=json.dumps([
+        {"title": "Первый визит со скидкой 20%", "text": "Запишитесь на маникюр", "angle": "promo"},
+        {"title": "Маникюр без ожидания", "text": "Запись онлайн", "angle": "price"}], ensure_ascii=False))
+    with TestClient(app) as http:
+        bid = setup(http, description=FACTS)
+        base = f"/api/businesses/{bid}/creatives"
+        http.post(f"/api/businesses/{bid}/sim/start")
+        unit = http.get(f"/api/businesses/{bid}/overview").json()["units"][0]
+        before = http.get(f"{base}/ads").json()
+        live = before["count"]
+        spent = http.get(base).json()["spend"]["spent_usd"]
+        r = http.post(f"{base}/ads/ab-copy", json={"unit_id": unit["id"]})
+        assert r.status_code == 200, r.text
+        new = r.json()
+        after = http.get(f"{base}/ads").json()
+        titles = [a["title"] for a in after["ads"]]
+        assert titles.index(new["title"]) == live and after["count"] == live + 1             # сразу за идущими, и в показ на одно больше
+        assert not after["ads"][live]["reserve"] and after["ads"][live]["own"] is True
+        assert [a["title"] for a in before["ads"][:live]] == titles[:live]                    # прежние на своих местах
+        assert http.get(base).json()["spend"]["spent_usd"] == round(spent + 0.01, 2)
+        assert http.post(f"{base}/ads/ab-copy", json={"unit_id": 99999}).status_code == 404
+
+
 def test_address_is_saved_goes_to_texts_and_is_not_an_invented_fact(monkeypatch):
     from app.creative.texts_ai import build_prompt, facts_of, parse_variants
     from app.direct.texts import draft_variants

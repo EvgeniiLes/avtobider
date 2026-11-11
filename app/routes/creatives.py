@@ -696,6 +696,59 @@ def rewrite_text(business_id: int, index: int, user: sqlite3.Row = Depends(curre
     return {"title": pick["title"], "text": pick["text"], "angle": pick.get("angle", ""), "hook": pick.get("hook", ""), "why": pick.get("why", "")}
 
 
+class AbCopyIn(BaseModel):
+    unit_id: int
+
+
+@router.post("/ads/ab-copy")
+def ab_copy(business_id: int, data: AbCopyIn, user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connection = Depends(get_db),
+            transport=Depends(creative_transport)):
+    """A/B для идущего объявления: ИИ пишет второй вариант с тем же смыслом, но другим заголовком и словами. Он встаёт в список сразу за теми, что идут
+    в рекламу, и входит в число показываемых; баннер к нему владелец рисует в редакторе. Объявление создаётся в своей кампании, чтобы Директ показывал оба."""
+    biz = _own(conn, user, business_id)
+    s = get_settings()
+    if not (s.anthropic_api_key or s.fal_key):
+        raise HTTPException(503, detail={"message": "ИИ для текстов пока не подключён на сервере."})
+    unit = conn.execute("SELECT * FROM ad_units WHERE id = ? AND business_id = ?", (data.unit_id, business_id)).fetchone()
+    if unit is None or unit["ad_kind"] == "responsive":
+        raise HTTPException(404, detail={"message": "Для этого объявления A/B создать нельзя: нужно обычное объявление."})
+    variants, count, _pool = _ad_variants(conn, biz)
+    if count >= MAX_VARIANTS:
+        raise HTTPException(400, detail={"message": f"В рекламе уже максимум объявлений ({MAX_VARIANTS}). Остановите или уберите одно, потом создайте A/B."})
+    used = {r["title"].lower() for r in conn.execute("SELECT title FROM creatives WHERE business_id = ? AND kind = 'text'", (business_id,))}
+    used |= {v["title"].lower() for v in variants} | {r["title"].lower() for r in conn.execute("SELECT title FROM ad_units WHERE business_id = ?", (business_id,))}
+    _charge(conn, business_id, "text")
+    hint = (f"Нужен второй вариант для A/B-сравнения с этим объявлением: «{unit['title']}. {unit['body']}». Тот же смысл и то же предложение клиенту, "
+            f"но другой заголовок и другие слова: не повторяй его формулировки. " + (f"Угол подачи: {unit['angle']}." if unit["angle"] else ""))
+    fresh = asyncio.run(generate_texts(biz, 4, s.anthropic_api_key, s.anthropic_model, hint, transport, s.fal_key, s.fal_text_model,
+                                       texts_context(conn, biz, date.today().isoformat())))
+    fresh = [v for v in fresh if v["title"].lower() not in used]
+    same = [v for v in fresh if unit["angle"] and v["angle"] == unit["angle"]]
+    pick = (same or fresh or [None])[0]
+    if pick is None:
+        conn.execute("DELETE FROM generations WHERE id = (SELECT MAX(id) FROM generations WHERE business_id = ? AND kind = 'text')", (business_id,))
+        conn.commit()
+        raise HTTPException(502, detail={"message": "ИИ не предложил подходящий второй вариант. Попробуйте ещё раз."})
+    conn.execute("INSERT INTO creatives (business_id, kind, title, body, source, angle, status, hook, position) VALUES (?, 'text', ?, ?, 'claude', ?, 'approved', ?, 1000)",
+                 (business_id, pick["title"], pick["text"], pick.get("angle", ""), pick.get("hook", "")))
+    after, _count, _pool = _ad_variants(conn, biz)
+    keys = [(v["title"], v["text"]) for v in after]
+    new_key = (pick["title"], pick["text"])
+    order = [k for k in keys if k != new_key]
+    order.insert(min(count, len(order)), new_key)   # сразу за теми, что идут в рекламу
+    current = {(v["title"], v["text"]): v for v in after}
+    for place, key in enumerate(order):
+        v = current[key]
+        if v["creative_id"]:
+            conn.execute("UPDATE creatives SET position = ? WHERE id = ?", (place, v["creative_id"]))
+        else:
+            conn.execute("INSERT INTO creatives (business_id, kind, title, body, angle, source, status, position) VALUES (?, 'text', ?, ?, ?, 'template', 'approved', ?)",
+                         (business_id, v["title"], v["text"], v.get("angle", ""), place))
+    conn.execute("UPDATE businesses SET ads_live = ?, separate_campaigns = 1 WHERE id = ?", (count + 1, business_id))   # в показ на одно больше, и каждое в своей кампании
+    conn.commit()
+    return {"title": pick["title"], "text": pick["text"], "angle": pick.get("angle", ""), "key": f"{pick['title']}\u0000{pick['text']}", "source_title": unit["title"]}
+
+
 @router.post("/ads/{index}/text-options")
 def text_options(business_id: int, index: int, user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connection = Depends(get_db),
                  transport=Depends(creative_transport)):

@@ -2636,6 +2636,22 @@ function campaignGroup(g, several, number) {
       });
       pauseCell.append(button);
     }
+    if (shared && u.active && u.kind !== "responsive") {   // A/B: второй вариант с тем же смыслом, другими словами и новым баннером; баннер рисуют в редакторе
+      const ab = el("button", { type: "button", className: "small secondary", textContent: "Создать A/B", title: "Новый вариант с тем же смыслом: другой текст и баннер" });
+      ab.addEventListener("click", async (event) => {
+        event.stopPropagation();
+        ab.disabled = true; ab.textContent = "Пишем…";
+        const result = await creativeCall("POST", "/ads/ab-copy", { unit_id: u.id });
+        ab.disabled = false; ab.textContent = "Создать A/B";
+        if (!result.ok) { say(errorText(result), "err"); return; }
+        selectedAd = result.data.key;
+        say(`Новый вариант: «${result.data.title}». Нарисуйте к нему баннер и отредактируйте текст, затем добавьте в рекламу на шаге «Запуск».`);
+        showPage("creatives");
+        setStep("banners");
+        await loadCreatives();
+      });
+      pauseCell.append(ab);
+    }
     const verdict = el("td", {}, badge);
     verdict.setAttribute("data-label", "Оценка");
     const row = el("tr", { className: u.active ? "" : "off" }, name, pauseCell, verdict, ...(shared ? [] : [cell(money(u.weekly_budget), "Бюджет в неделю", true)]),
