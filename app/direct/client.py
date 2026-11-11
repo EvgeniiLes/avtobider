@@ -436,6 +436,27 @@ class DirectClient:
         }]})
         return self._result_item(result, "AddResults")["AdImageHash"]
 
+    async def upload_video(self, data: bytes, name: str) -> str:
+        """Загружает видео в кабинет и возвращает его номер: Директ конвертирует файл несколько минут, готовность смотрим через video_statuses."""
+        import base64
+        result = await self.call("advideos", "add", {"AdVideos": [{"VideoData": base64.b64encode(data).decode(), "Name": name[:255]}]})
+        return str(self._result_item(result, "AddResults")["Id"])
+
+    async def video_statuses(self, video_ids: list[str]) -> dict[str, str]:
+        """Состояние загруженных видео: NEW или CONVERTING (обрабатывается), READY, ERROR."""
+        result = await self.call("advideos", "get", {"SelectionCriteria": {"Ids": video_ids[:10]}, "FieldNames": ["Id", "Status"]})
+        return {str(v["Id"]): v.get("Status", "") for v in result.get("AdVideos", [])}
+
+    async def create_video_creative(self, video_id: str) -> int:
+        """Из готового видео делает креатив-видеодополнение: к объявлению привязывается он, а не само видео."""
+        result = await self.call("creatives", "add", {"Creatives": [{"VideoExtensionCreative": {"VideoId": video_id}}]})
+        return self._result_item(result, "AddResults")["Id"]
+
+    async def attach_video(self, ad_id: int, creative_id: int) -> None:
+        """Привязывает видеодополнение к текстово-графическому объявлению (у объявления одно видео, новое заменяет прежнее)."""
+        result = await self.call("ads", "update", {"Ads": [{"Id": ad_id, "TextAd": {"VideoExtension": {"CreativeId": creative_id}}}]})
+        self._result_item(result, "UpdateResults")
+
     async def update_text_ad(self, ad_id: int, title: str, text: str, title2: str | None = None) -> None:
         """Меняет заголовок и текст готового объявления (после правки Директ снова проверяет его). title2: None оставляет второй заголовок как есть."""
         ad: dict = {"Title": title, "Text": text}

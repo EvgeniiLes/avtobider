@@ -377,6 +377,11 @@ ADDED_COLUMNS = [
     ("businesses", "separate_campaigns", "INTEGER NOT NULL DEFAULT 0"),            # 1: каждое объявление в своей кампании (бюджет запуска делится поровну), иначе до трёх объявлений в одной
     ("ad_units", "ad_kind", "TEXT NOT NULL DEFAULT ''"),                           # responsive: одно комбинаторное объявление на группу; пусто: обычное
     ("ad_units", "variants_json", "TEXT NOT NULL DEFAULT ''"),                       # заголовки и тексты комбинаторного объявления (JSON)
+    ("ad_units", "video_id", "TEXT NOT NULL DEFAULT ''"),                            # номер загруженного в Директ видео (AdVideos)
+    ("ad_units", "video_creative", "INTEGER"),                                       # номер креатива-видеодополнения (Creatives), его привязываем к объявлению
+    ("ad_units", "video_state", "TEXT NOT NULL DEFAULT ''"),                         # converting: Директ обрабатывает; attached: привязано к объявлению; error: не вышло; пусто: видео не отправляли
+    ("ad_units", "video_note", "TEXT NOT NULL DEFAULT ''"),                          # причина, если не вышло
+    ("ad_units", "video_asset", "INTEGER"),                                          # какое наше видео (business_assets.id) ушло в Директ
     ("campaigns", "external_id", "INTEGER"),                          # номер кампании в Директе
     ("campaigns", "weekly_micro", "INTEGER NOT NULL DEFAULT 0"),      # недельный лимит кампании
     ("campaigns", "strategy", "TEXT NOT NULL DEFAULT 'clicks'"),      # clicks: «Максимум кликов», conversions: «Максимум конверсий»

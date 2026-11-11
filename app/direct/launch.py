@@ -22,6 +22,7 @@ from app.direct.bids import ensure_bids
 from app.direct.goals import goal_ids_for_report
 from app.direct.marking import is_filled
 from app.direct import extras as ad_extras
+from app.direct import videos
 from app.direct.groups import GROUP_LIMIT, RESPONSIVE_PARTS, SEPARATE_LIMIT, build_groups, group_sizes, score  # noqa: F401  (GROUP_LIMIT и group_sizes берут из launch другие модули)
 from app.direct.audience import autotargeting_for, effective_negatives, intents_for
 from app.direct.texts import check, draft_variants, mentions_district, near_variants
@@ -840,6 +841,10 @@ async def sync_units(client: DirectClient, conn: sqlite3.Connection, biz, today:
     ).fetchall()
     if not units:
         return {"units": 0, "rows": 0}
+    try:
+        await videos.advance(client, conn, biz["id"])   # видео, которые Директ уже обработал, встают к своим объявлениям
+    except DirectError:
+        pass   # не вышло сейчас, повторим при следующей синхронизации: на статистику это не влияет
     ids = sorted({u["external_campaign_id"] for u in units})
     result = await client.call("campaigns", "get", {
         "SelectionCriteria": {"Ids": ids},

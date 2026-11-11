@@ -21,8 +21,12 @@ from app.creative.compose import add_logo, find_price, prepare_for_direct, style
 from app.creative.art import art_direction, layout_for, palette_hint, smart_placement
 from app.creative.texts_ai import (check_photo)
 from app.db import get_db
-from app.deps import creative_transport, current_user
+from app.deps import client_factory, creative_transport, current_user
+from app.direct import videos as direct_videos
+from app.direct.client import DirectError
 from app.direct.launch import banner_layout, logo_for, media_typed, photo_for, render_banner
+from app.direct.runner import account_token
+from app.engine.util import EngineError
 from app.routes.businesses import _asset_path, _own
 
 
@@ -460,6 +464,48 @@ def generate_images(business_id: int, data: ImagesIn, user: sqlite3.Row = Depend
                      (business_id, prompt, json.dumps(job)))
     conn.commit()
     return {"started": data.count}
+
+
+VIDEO_SENT = {"converting": "Видео отправлено в Директ, он обрабатывает его несколько минут. Нажмите «Проверить», чтобы узнать, готово ли.",
+              "attached": "Видео привязано к объявлению в Директе. Его проверит модерация Директа."}
+
+
+@router.post("/{creative_id}/direct")
+def video_to_direct(business_id: int, creative_id: int, user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connection = Depends(get_db),
+                    factory=Depends(client_factory)):
+    """Отправляет готовое видео в Директ к тому объявлению, из баннера которого оно сделано. Повторное нажатие, пока Директ обрабатывает видео, только проверяет готовность."""
+    biz = _own(conn, user, business_id)
+    video = _own_creative(conn, business_id, creative_id)
+    asset = conn.execute("SELECT * FROM business_assets WHERE id = ?", (video["asset_id"],)).fetchone() if video["asset_id"] else None
+    if video["kind"] != "video" or video["status"] == "working" or asset is None:
+        raise HTTPException(400, detail={"message": "Видео ещё не готово."})
+    if not video["title"]:
+        raise HTTPException(400, detail={"message": "Это видео не привязано к объявлению. Сделайте видео из баннера нужного объявления."})
+    unit = conn.execute("SELECT * FROM ad_units WHERE business_id = ? AND title = ? AND body = ? AND external_ad_id IS NOT NULL ORDER BY id DESC LIMIT 1",
+                        (business_id, video["title"], video["body"])).fetchone()
+    if unit is None:
+        raise HTTPException(400, detail={"message": "Это объявление ещё не запущено в Директе: отправить видео можно после запуска."})
+    if not biz["account_id"]:
+        raise HTTPException(400, detail={"message": "Сначала подключите рекламный кабинет Директа."})
+    s = get_settings()
+    again = unit["video_asset"] == asset["id"] and unit["video_state"] in ("converting", "attached")
+    try:
+        token, login = account_token(conn, biz["account_id"])
+
+        async def go():
+            async with factory(token, api_version=s.direct_api_version, login=login) as client:
+                if again:
+                    await direct_videos.advance(client, conn, business_id)
+                    return conn.execute("SELECT video_state FROM ad_units WHERE id = ?", (unit["id"],)).fetchone()[0]
+                return await direct_videos.send(client, conn, unit, _asset_path(business_id, asset["stored_name"]).read_bytes(), asset["id"])
+
+        state = asyncio.run(go())
+    except (EngineError, DirectError) as e:
+        raise HTTPException(400, detail={"message": e.message}) from e
+    except OSError as e:
+        raise HTTPException(400, detail={"message": "Файл видео не найден. Сделайте видео заново."}) from e
+    note = conn.execute("SELECT video_note FROM ad_units WHERE id = ?", (unit["id"],)).fetchone()[0]
+    return {"state": state, "message": VIDEO_SENT.get(state) or note or "Видео не отправлено."}
 
 
 class VideoIn(BaseModel):

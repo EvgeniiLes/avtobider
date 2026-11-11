@@ -25,6 +25,9 @@ class FakeDirect:
         self.negatives: dict[int, list[str]] = {}
         self.excluded: dict[int, list[str]] = {}   # отключённые площадки кампании
         self.images: list[str] = []
+        self.videos: dict[str, dict] = {}            # загруженные видео: номер → название, размер, состояние (CONVERTING, READY, ERROR)
+        self.video_creatives: dict[int, str] = {}    # креативы-видеодополнения: номер → видео
+        self.reject_video = False                    # Директ не принимает файл видео
         self.advertiser = {"tin_type": None, "tin": None, "name": None, "phone": ""}  # данные рекламодателя в «кабинете»
         self.update_error = ""
         self.settings_error = ""   # Директ отказывает включить мониторинг сайта
@@ -244,6 +247,19 @@ class FakeDirect:
             item = params["AdImages"][0]
             self.images.append(item["Name"])
             return ok({"AddResults": [{"AdImageHash": f"hash{len(self.images)}"}]})
+        if service == "advideos":
+            if method == "add":
+                item = params["AdVideos"][0]
+                if self.reject_video:
+                    return ok({"AddResults": [{"Errors": [{"Code": 8000, "Message": "Параметры запроса указаны неверно", "Details": "Недопустимый формат видео"}]}]})
+                video_id = f"vid{len(self.videos) + 1}"
+                self.videos[video_id] = {"name": item["Name"], "bytes": len(item["VideoData"]), "status": "CONVERTING"}
+                return ok({"AddResults": [{"Id": video_id}]})
+            return ok({"AdVideos": [{"Id": i, "Status": self.videos[i]["status"]} for i in params["SelectionCriteria"]["Ids"] if i in self.videos]})
+        if service == "creatives":
+            creative_id = self._next()
+            self.video_creatives[creative_id] = params["Creatives"][0]["VideoExtensionCreative"]["VideoId"]
+            return ok({"AddResults": [{"Id": creative_id}]})
         if service == "adgroups":
             if method == "delete":
                 for i in ids():

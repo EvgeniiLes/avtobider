@@ -243,8 +243,15 @@ def list_creatives(business_id: int, user: sqlite3.Row = Depends(current_user), 
             if (r["title"], r["body"]) not in shown or stamp > shown[(r["title"], r["body"])][0]:
                 shown[(r["title"], r["body"])] = (stamp, r["id"])
     items = [_row(r, business_id) for r in rows]
+    assets = {r["id"]: r["asset_id"] for r in rows}
     for item in items:
         item["current"] = item["kind"] == "ai_banner" and shown.get((item["title"], item["body"]), (None, None))[1] == item["id"]
+        if item["kind"] == "video" and item["title"] and item["url"]:   # видео объявления: можно ли отправить в Директ и что с уже отправленным
+            unit = conn.execute("SELECT external_ad_id, ad_kind, video_state, video_note, video_asset FROM ad_units WHERE business_id = ? AND title = ? AND body = ? "
+                                "AND external_ad_id IS NOT NULL ORDER BY id DESC LIMIT 1", (business_id, item["title"], item["body"])).fetchone()
+            mine = unit is not None and unit["video_asset"] == assets[item["id"]]
+            item["direct"] = {"can": unit is not None and not unit["ad_kind"], "combo": unit is not None and bool(unit["ad_kind"]),
+                              "state": unit["video_state"] if mine else "", "note": unit["video_note"] if mine else ""}
     return {
         "creatives": items,
         "caps": _caps(),

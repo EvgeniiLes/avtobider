@@ -1,3 +1,25 @@
+// Отправка готового видео в Директ к этому объявлению и что с ним сейчас
+function videoDirect(v) {
+  const d = v.direct;
+  const box = el("div", { className: "ed-video-direct" });
+  if (d.combo) { box.append(el("p", { className: "hint", textContent: "У комбинаторного объявления видео в Директ пока не отправляется." })); return box; }
+  if (!d.can) { box.append(el("p", { className: "hint", textContent: "Объявление ещё не запущено в Директе: отправить видео можно после запуска." })); return box; }
+  if (d.state === "attached") { box.append(el("p", { className: "hint", textContent: "Видео привязано к объявлению в Директе, его проверяет модерация." })); return box; }
+  const waiting = d.state === "converting";
+  if (waiting) box.append(el("p", { className: "hint", textContent: "Директ обрабатывает видео, это занимает несколько минут." }));
+  else if (d.state === "error") box.append(el("p", { className: "hint", textContent: `Не получилось: ${d.note || "Директ не принял видео."}` }));
+  const send = el("button", { type: "button", className: "small", textContent: waiting ? "Проверить" : d.state === "error" ? "Отправить заново" : "Отправить в Директ" });
+  send.addEventListener("click", async () => {
+    send.disabled = true;
+    const r = await creativeCall("POST", `/${v.id}/direct`);
+    if (!r.ok) { send.disabled = false; say(errorText(r), "err"); return; }
+    say(r.data.message, r.data.state === "attached" ? "ok" : undefined);
+    await loadCreatives();
+  });
+  box.append(send);
+  return box;
+}
+
 // Оживление баннера в видео: идеи от ИИ под это объявление или своя строка, видео этого объявления ниже
 function motionBlock(a, ready) {
   const box = el("div", { className: "ed-motion" }, el("h3", { textContent: "Оживить баннер в видео" }));
@@ -45,7 +67,10 @@ function motionBlock(a, ready) {
     const card = el("div", { className: "ed-video" });
     if (v.status === "working") card.append(el("div", { className: "spinner" }), el("span", { className: "hint", textContent: "Видео готовится: 5–7 минут" }));
     else if (v.status === "failed") card.append(el("span", { className: "hint", textContent: v.error || "Видео не получилось. Попробуйте ещё раз." }));
-    else if (v.url) card.append(el("video", { src: v.url, controls: true, muted: true, loop: true, playsInline: true, preload: "metadata" }));
+    else if (v.url) {
+      card.append(el("video", { src: v.url, controls: true, muted: true, loop: true, playsInline: true, preload: "metadata" }));
+      if (v.direct) card.append(videoDirect(v));
+    }
     const drop = el("button", { type: "button", className: "link", textContent: "Удалить" });
     drop.addEventListener("click", async () => { await creativeCall("DELETE", `/${v.id}`); await loadCreatives(); });
     card.append(drop);
