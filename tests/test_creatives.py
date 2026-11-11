@@ -596,21 +596,14 @@ def test_ai_banner_with_extra_small_text_is_rejected_but_a_stray_word_is_not(mon
         assert http.post(f"{base}/ads/4/accept-rejected").status_code == 400              # повторно принимать нечего
 
 
-def test_the_caption_says_who_advertises_what_and_skips_what_cannot_be_checked():
+def test_banner_prompts_name_no_caption_and_ask_for_no_empty_strip_at_the_bottom():
     from app.creative import fal
     shop = {"name": "Лотос", "kind": "Маникюрный салон", "description": "Маникюр и педикюр.", "allow_promo": 0, "color_main": "", "color_extra": "", "visual_hint": ""}
-    assert fal.caption_parts(shop) == ["Лотос", "Маникюрный салон"] and fal.caption_for(shop) == "Лотос · Маникюрный салон"
-    assert fal.caption_parts({**shop, "name": "Студия маникюра «Лилия»", "kind": "Маникюрная студия"}) == ["Студия маникюра «Лилия»"]   # вид уже сказан в названии: не повторяем
-    assert fal.caption_parts({**shop, "name": "Бар", "kind": "Бар"}) == ["Бар"]                                                          # короткие слова основы не дают, дубль убирает прежняя проверка
-    assert fal.caption_parts({**shop, "name": "Лилия", "kind": "Студия маникюра"}) == ["Лилия", "Студия маникюра"]                      # названия вида в названии нет: подпись полная
-    assert fal.caption_parts({**shop, "name": "burocart.ru"}) == ["Маникюрный салон"]                   # адрес сайта в подпись нельзя: проверка такие надписи бракует
-    assert fal.caption_parts({**shop, "kind": "Карточные игры с ИИ ведущим: мафия, бункер, шпион и другие игры"}) == ["Лотос"]   # длинное не берём
-    assert fal.caption_parts({**shop, "name": "burocart.ru", "kind": "x" * 60}) == []
-
     for prompt in (fal.banner_prompt(shop, "Маникюр", "", "Записаться"), fal.photo_banner_prompt(shop, "Маникюр", "", "Записаться"),
                    fal.reference_banner_prompt(shop, "Маникюр", "", "Записаться", "takes inspiration")):
-        assert "Лотос · Маникюрный салон" not in prompt and "bottom 8%" in prompt                           # подпись нейросеть не рисует: низ баннера просто оставляем свободным
-        assert "the business name," in prompt                                                              # и название бизнеса ей по-прежнему писать нельзя
+        assert "Лотос · Маникюрный салон" not in prompt                                                    # подписи на баннере нет совсем
+        assert "bottom 8%" not in prompt and "caption strip" not in prompt                                 # и низ модель не оставляет пустым ради неё
+        assert "the business name," in prompt                                                              # название бизнеса ей по-прежнему писать нельзя
 
     # цена уже названа в заголовке: отдельную плашку не рисуем, а когда в заголовке цены нет, плашка есть
     assert "price badge" not in fal.banner_prompt(shop, "Аудит от 9 000 ₽", "от 9 000 ₽", "Записаться")
@@ -625,7 +618,7 @@ def test_people_on_banners_are_natural_and_the_service_itself_rejects_stock_clic
     assert "театральное удивление или шок" in art.REVIEW_SYSTEM and "стоковая метафора" in art.REVIEW_SYSTEM            # а проверка готового баннера такое бракует
 
 
-def test_the_service_draws_the_caption_on_every_finished_banner_even_with_a_custom_prompt(monkeypatch):
+def test_the_service_adds_nothing_at_the_bottom_of_a_finished_banner_even_with_a_custom_prompt(monkeypatch):
     monkeypatch.setenv("FAL_KEY", "fal-test")
     fakes = Fakes(fal_done=True)
     out = BytesIO()
@@ -646,12 +639,12 @@ def test_the_service_draws_the_caption_on_every_finished_banner_even_with_a_cust
         http.get(base)
         assert _ai_ad(http, bid)["ai"]["status"] == "ready"
         bottom, top = bottom_and_top()
-        assert bottom[1] > 200 and bottom[0] < 70 and top[1] < 140               # внизу светлые буквы на тёмной полосе, выше картинка не тронута
+        assert bottom[1] < 140 and bottom[0] > 80 and top[1] < 140               # низ такой же, как верх: ни полосы, ни подписи, картинка не тронута
 
         own = "Нарисуй спокойный баннер: крупный план рук мастера и короткий заголовок слева."
-        assert http.post(f"{base}/ads/4/ai-banner", json={"prompt": own}).status_code == 200   # свой промпт: подпись всё равно ставит сервис
+        assert http.post(f"{base}/ads/4/ai-banner", json={"prompt": own}).status_code == 200   # свой промпт: сервис тоже ничего не дописывает
         http.get(base)
-        assert _ai_ad(http, bid)["ai"]["status"] == "ready" and bottom_and_top()[0][1] > 200
+        assert _ai_ad(http, bid)["ai"]["status"] == "ready" and bottom_and_top()[0][1] < 140
 
 
 def test_the_model_is_told_where_ads_are_shown_and_not_to_write_a_city_for_a_nationwide_business(monkeypatch):

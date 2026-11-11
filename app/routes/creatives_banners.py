@@ -96,7 +96,7 @@ def _order_banner(conn, biz, variants: list[dict], index: int, key: str, transpo
             if placement:
                 prompt += f" Art director's placement instructions for the business photo (follow them): {placement}"
         what = f"фото «{PHOTO_TAGS.get(kind, kind)}», " + (f"по мотивам референса {brief['ref_id']}" if ref_bytes else f"оформление: {look}")
-        meta = {"scheme": scheme or ("smart" if use_smart else "direct"), "placement": placement, "expect": expected, "caption": fal.caption_for(biz), "logo": False, "screen": False, "mode": "photo", "concept": kind, "look": look,
+        meta = {"scheme": scheme or ("smart" if use_smart else "direct"), "placement": placement, "expect": expected, "logo": False, "screen": False, "mode": "photo", "concept": kind, "look": look,
                 "look_no": look_no % len(fal.PHOTO_LOOKS), "photo_id": getattr(data, "asset_id", None), "varied": varied,
                 "ref": brief["ref_id"] if ref_bytes else None,
                 "audience": brief["audience"] if brief else "", "hypothesis": brief["hypothesis"] if brief else "", "scene": what,
@@ -150,7 +150,7 @@ def _order_banner(conn, biz, variants: list[dict], index: int, key: str, transpo
     prompt = custom_prompt or fal.banner_prompt(biz, _headline(v), price, cta, logo_corner=use_logo, index=index + done_before, screen=screen,
                                                 logo_ratio=_logo_ratio(logo), scene=art["scene"], direction=direction)
     meta = {"scheme": scheme or ("free" if free else "direct"), "layout": layout[1] if layout else "",
-            "expect": expected, "caption": fal.caption_for(biz), "logo": use_logo, "screen": screen, "concept": art["concept"], "audience": art["audience"], "scene": art["scene"],
+            "expect": expected, "logo": use_logo, "screen": screen, "concept": art["concept"], "audience": art["audience"], "scene": art["scene"],
             "mode": "scratch", "ref": ref_id, "ref_img": bool(ref_bytes), "varied": varied,
             "logo_reason": art["logo_reason"], "prompt_text": prompt,
             "brief": ("ВАЖНО: на экране телефона вставлен НАСТОЯЩИЙ скриншот приложения владельца. Это не выдумка нейросети и не недостаток: "

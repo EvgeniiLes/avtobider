@@ -18,7 +18,7 @@ from app.config import get_settings
 from app.creative import fal, refs
 from app.creative.angles import effective_description, label as angle_label, profile
 from app.assets import PHOTO_TAGS
-from app.creative.compose import add_caption, add_logo, find_price, style_for
+from app.creative.compose import add_logo, find_price, style_for
 from app.creative.art import review_banner, scene_label
 from app.creative.screen import insert_logo, insert_screenshot
 from app.creative.texts_ai import (EXTRA_WORDS_OK, alt_texts, check_facts, extra_words, facts_of, foreign_prices, generate_texts, invented_links,
@@ -132,14 +132,12 @@ def _finish_test(conn, business_id: int, r: sqlite3.Row, url: str, key: str, tra
     meta = json.loads(r["prompt"] or "{}")
     try:
         data = asyncio.run(fal.download(url, transport))
-        read = asyncio.run(read_image_text(url, key, s.fal_vision_model, transport))   # читаем до подписи: она не часть заданного текста
+        read = asyncio.run(read_image_text(url, key, s.fal_vision_model, transport))
         expected = meta.get("expect", [])
         meta["check"] = {"missing": missing_phrases(expected, read), "extra": extra_words(expected, read)[:6], "read": read[:12]} if read is not None else {}
         verdict = asyncio.run(review_banner(_bytes_url(data), meta["brief"], key, s.fal_vision_model, transport)) if meta.get("brief") else None
         meta["score"] = verdict["score"] if verdict else 0
         meta["issues"] = verdict["issues"] if verdict else []
-        if meta.get("caption"):
-            data = add_caption(data, meta["caption"])
         asset_id = _save_asset(conn, business_id, "image", data, f"creative-{r['id']}")
     except (fal.FalError, AssetError) as e:
         conn.execute("UPDATE creatives SET status = 'failed', error = ? WHERE id = ?", (e.message if hasattr(e, "message") else str(e), r["id"]))
@@ -213,8 +211,6 @@ def _refresh_working(conn, business_id: int, transport) -> None:
                 if mark:
                     data = insert_logo(data, mark) or add_logo(data, mark)
                     meta["baked"] = True
-            if r["kind"] == "ai_banner" and meta.get("caption"):   # «название · вид деятельности» дорисовывает код: так подпись всегда читается, без искажённых букв
-                data = add_caption(data, meta["caption"])
             if r["kind"] == "ai_banner" and meta.get("brief"):  # самопроверка итоговой картинки: слабую не принимаем, чтобы не платить за неё рекламой
                 verdict = asyncio.run(review_banner(_bytes_url(data), meta["brief"], key, get_settings().fal_vision_model, transport))
                 if verdict is not None and verdict["score"] <= 2:

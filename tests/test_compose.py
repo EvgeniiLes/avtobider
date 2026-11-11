@@ -84,20 +84,5 @@ def test_price_from_the_description_is_used_only_when_it_is_unambiguous():
     assert find_price("Бесплатный разбор, потом от 9 000 ₽", "", fallback=prices) == "от 9 000 ₽"                  # а названная в тексте остаётся
 
 
-def test_caption_is_drawn_on_a_dark_strip_at_the_bottom_and_a_long_one_shrinks_and_never_overflows():
-    from app.creative.compose import add_caption
-    out = BytesIO()
-    Image.new("RGB", (1200, 900), (200, 200, 220)).save(out, "PNG")
-    base = out.getvalue()
-    im = Image.open(BytesIO(add_caption(base, "Лотос · Маникюрный салон"))).convert("L")
-    assert im.size == (1200, 900)
-    bottom, top = im.crop((0, int(900 * 0.93), 1200, 900)).getextrema(), im.crop((0, 0, 1200, 450)).getextrema()
-    assert bottom[1] > 200 and bottom[0] < 80                      # светлые буквы на затемнённой полосе
-    assert top[0] > 190 and top[1] < 215                           # выше картинка не тронута
-    assert add_caption(base, "") == base and add_caption(base, "   ") == base                          # нет подписи: баннер не меняется
-    long = Image.open(BytesIO(add_caption(base, "ООО «Очень длинное название» · " + "Агентство по внедрению ИИ и автоматизации бизнеса " * 3))).convert("L")
-    assert long.size == (1200, 900) and long.crop((int(1200 * 0.97), int(900 * 0.93), 1200, 900)).getextrema()[1] < 235   # у правого края букв нет: текст влез
-
-
 def test_bad_color_falls_back_to_default():
     assert Image.open(BytesIO(make_banner(img(900, 900), "Текст", "красный"))).size == (1200, 900)

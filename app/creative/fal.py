@@ -111,32 +111,6 @@ AVOID = ("Avoid: any other text or invented words, the business name, website ad
          "effects (the text must stay flat and readable); distorted hands or extra fingers, plastic skin, warped, blurred or duplicated letters.")
 
 
-_URLISH = re.compile(r"https?://|www\.|\.(?:ru|com|net|org|io|рф)\b", re.IGNORECASE)
-
-
-def caption_parts(biz) -> list[str]:
-    """Подпись внизу баннера: название бизнеса и вид деятельности. Без неё по заголовку вроде «Пилот на 30 дней» не понять,
-    кто и что рекламирует. Подпись дорисовывает на готовом баннере код (compose.add_caption), а не нейросеть: так она всегда читается
-    и без искажённых букв. Адрес сайта в подпись не берём (проверка баннера такие надписи бракует), слишком длинное тоже."""
-    parts: list[str] = []
-    for value, limit in ((biz["name"], 28), (biz["kind"], 52)):
-        value = re.sub(r"\s+", " ", value or "").strip()
-        if value and len(value) <= limit and not _URLISH.search(value) and value.lower() not in {p.lower() for p in parts}:
-            if parts and _stems(value) and _stems(value) <= _stems(parts[0]):   # вид деятельности уже сказан в названии («Студия маникюра «Лилия»» и «Маникюрная студия»): повтор путает
-                continue
-            parts.append(value)
-    return parts
-
-
-def _stems(text: str) -> set[str]:
-    """Основы слов (первые пять букв): по ним видно, что «маникюра» и «маникюрная» говорят об одном."""
-    return {w[:5] for w in re.findall(r"[а-яёa-z]{4,}", text.lower())}
-
-
-def caption_for(biz) -> str:
-    return " · ".join(caption_parts(biz))
-
-
 def _text_block(title: str, price: str, cta: str, by_direction: bool = False) -> str:
     """Что написано на баннере: точные строки в кавычках и как их набирать. Короткие русские фразы модель держит стабильнее длинных.
     by_direction: размер, регистр и место заголовка задаёт направление (приём референса вроде гигантского слова), общий шрифт не навязываем."""
@@ -147,9 +121,8 @@ def _text_block(title: str, price: str, cta: str, by_direction: bool = False) ->
              "with strong contrast against their background. " if by_direction else
              "The headline is heavy bold sans-serif with tight letter spacing, very large, left aligned, at most 4 lines, the first thing the eye sees, "
              "with strong contrast against its background. ")
-    tail = "Keep the bottom 8% of the banner calm: no text and no button there, a caption strip is added at the bottom edge later. "
     return ("Text in Russian, spelled EXACTLY as written between the quotes: not translated, not abbreviated, no letter added or lost, and no other large text "
-            f"anywhere. {style}Text to show: {shown}, and a solid rounded button «{cta}». " + tail)
+            f"anywhere. {style}Text to show: {shown}, and a solid rounded button «{cta}». ")
 
 
 FRAMING = ("The hero subject is large and fully inside the frame: no person's head, face or hands and no product is cut off by the edge of the picture or of a frame; "
