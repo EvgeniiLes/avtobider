@@ -15,7 +15,7 @@ def _html_ids(html: str) -> set[str]:
 
 def test_every_element_script_looks_up_exists_in_page():
     html = (WEB / "index.html").read_text(encoding="utf-8")
-    script = (WEB / "app.js").read_text(encoding="utf-8")
+    script = "\n".join(p.read_text(encoding="utf-8") for p in sorted(WEB.glob("app*.js")))
     wanted = set(re.findall(r'\$\("([\w-]+)"\)', script)) | set(re.findall(r'getElementById\("([\w-]+)"\)', script))
     wanted |= {f"nav-{p}" for p in re.search(r"const PAGES = \[([^\]]+)\]", script).group(1).replace('"', "").replace(" ", "").split(",")}
     wanted |= {f"page-{p}" for p in re.search(r"const PAGES = \[([^\]]+)\]", script).group(1).replace('"', "").replace(" ", "").split(",")}

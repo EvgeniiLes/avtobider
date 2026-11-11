@@ -890,6 +890,17 @@
     <p id="lightbox-cap"></p>
   </div>
   <div id="toasts" class="toasts" aria-live="polite"></div>
+  <!-- обычные скрипты делят одну область видимости: порядок важен, последним идёт app.js с запуском -->
+  <script src="/static/app-core.js"></script>
+  <script src="/static/app-auth.js"></script>
+  <script src="/static/app-business.js"></script>
+  <script src="/static/app-creatives.js"></script>
+  <script src="/static/app-ads.js"></script>
+  <script src="/static/app-editor.js"></script>
+  <script src="/static/app-metrika.js"></script>
+  <script src="/static/app-results.js"></script>
+  <script src="/static/app-stats.js"></script>
+  <script src="/static/app-launch.js"></script>
   <script src="/static/app.js"></script>
 </body>
 </html>
