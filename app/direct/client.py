@@ -31,10 +31,10 @@ ERROR_HINTS = {
 }
 
 
-def bidding_strategy(strategy: str, weekly_limit_micro: int, goal_id: str | None = None) -> dict:
+def bidding_strategy(strategy: str, weekly_limit_micro: int, goal_id: str | None = None, network: bool = True) -> dict:
     """Стратегия показов. clicks: «Максимум кликов» с недельным лимитом. conversions: «Максимум конверсий» по цели Метрики
     (Яндекс сам подбирает ставки под обращения; ему нужно не меньше 10 конверсий в неделю). Сети (сайты-партнёры, Карты и др.) идут
-    следом за поиском (NETWORK_DEFAULT): недельный лимит один на все площадки."""
+    следом за поиском (NETWORK_DEFAULT): недельный лимит один на все площадки. network=False: только поиск, сети выключены (SERVING_OFF)."""
     if strategy == "conversions":
         try:
             goal = int(goal_id or 0)
@@ -46,7 +46,7 @@ def bidding_strategy(strategy: str, weekly_limit_micro: int, goal_id: str | None
                   "WbMaximumConversionRate": {"WeeklySpendLimit": weekly_limit_micro, "GoalId": goal}}
     else:
         search = {"BiddingStrategyType": "WB_MAXIMUM_CLICKS", "WbMaximumClicks": {"WeeklySpendLimit": weekly_limit_micro}}
-    return {"Search": search, "Network": {"BiddingStrategyType": "NETWORK_DEFAULT"}}
+    return {"Search": search, "Network": {"BiddingStrategyType": "NETWORK_DEFAULT" if network else "SERVING_OFF"}}
 
 
 class DirectError(Exception):
@@ -273,11 +273,11 @@ class DirectClient:
         return item
 
     async def create_text_campaign(self, name: str, weekly_limit_micro: int, start_date: str,
-                                   counter_ids: list[int] | None = None, negative_keywords: list[str] | None = None) -> int:
+                                   counter_ids: list[int] | None = None, negative_keywords: list[str] | None = None, network: bool = True) -> int:
         """Кампания с автоматической стратегией и жёстким недельным бюджетом: поиск, Карты и сайты-партнёры.
 
-        Сети идут следом за поиском (NETWORK_DEFAULT), недельный лимит один на все площадки."""
-        text_campaign = {"BiddingStrategy": bidding_strategy("clicks", weekly_limit_micro)}
+        Сети идут следом за поиском (NETWORK_DEFAULT), недельный лимит один на все площадки. network=False: только поиск."""
+        text_campaign = {"BiddingStrategy": bidding_strategy("clicks", weekly_limit_micro, network=network)}
         if counter_ids:
             text_campaign["CounterIds"] = {"Items": counter_ids}
         item = {"Name": name, "StartDate": start_date, "TextCampaign": text_campaign}
@@ -480,11 +480,11 @@ class DirectClient:
         for i in range(len(ad_ids)):
             self._result_item(result, "ModerateResults", i)
 
-    async def set_strategy(self, campaign_id: int, strategy: str, weekly_limit_micro: int, goal_id: str | None = None) -> None:
-        """Меняет стратегию и недельный лимит кампании (Директ хранит её как единую перфоманс-кампанию)."""
+    async def set_strategy(self, campaign_id: int, strategy: str, weekly_limit_micro: int, goal_id: str | None = None, network: bool = True) -> None:
+        """Меняет стратегию и недельный лимит кампании (Директ хранит её как единую перфоманс-кампанию). Сети остаются такими, какие просит network."""
         result = await self.call("campaigns", "update", {"Campaigns": [{
             "Id": campaign_id,
-            "UnifiedCampaign": {"BiddingStrategy": bidding_strategy(strategy, weekly_limit_micro, goal_id)},
+            "UnifiedCampaign": {"BiddingStrategy": bidding_strategy(strategy, weekly_limit_micro, goal_id, network)},
         }]})
         self._result_item(result, "UpdateResults")
 
@@ -497,29 +497,33 @@ class DirectClient:
         found = result.get("Campaigns", [])
         return found[0] if found else None
 
-    async def ensure_network(self, campaign_id: int) -> str:
-        """Включает показы в сетях (сайты-партнёры, Карты) кампаниям, созданным раньше с выключенными сетями. Стратегию поиска и лимит не меняет.
-        Возвращает ошибку Директа текстом (пусто, если всё в порядке или сети уже включены)."""
+    async def set_network(self, campaign_id: int, on: bool) -> str:
+        """Включает или выключает показы в сетях (сайты-партнёры, Карты). Стратегию поиска и лимит не меняет.
+        Возвращает ошибку Директа текстом (пусто, если всё в порядке или сети уже в нужном состоянии)."""
         result = await self.call("campaigns", "get", {
             "SelectionCriteria": {"Ids": [campaign_id]}, "FieldNames": ["Id"], "UnifiedCampaignFieldNames": ["BiddingStrategy"]})
         found = result.get("Campaigns") or []
         strategy = ((found[0].get("UnifiedCampaign") or {}).get("BiddingStrategy") if found else None) or {}
-        if (strategy.get("Network") or {}).get("BiddingStrategyType") != "SERVING_OFF":
+        if ((strategy.get("Network") or {}).get("BiddingStrategyType") != "SERVING_OFF") == on:
             return ""
         search = strategy.get("Search") or {}
         if search.get("BiddingStrategyType") == "WB_MAXIMUM_CLICKS":
-            keep = bidding_strategy("clicks", search["WbMaximumClicks"]["WeeklySpendLimit"])
+            keep = bidding_strategy("clicks", search["WbMaximumClicks"]["WeeklySpendLimit"], network=on)
         elif search.get("BiddingStrategyType") == "WB_MAXIMUM_CONVERSION_RATE":
             conversion = search["WbMaximumConversionRate"]
-            keep = bidding_strategy("conversions", conversion["WeeklySpendLimit"], str(conversion["GoalId"]))
+            keep = bidding_strategy("conversions", conversion["WeeklySpendLimit"], str(conversion["GoalId"]), on)
         else:
             return ""   # стратегию, которую сервис не создавал, не трогаем
         try:
             answer = await self.call("campaigns", "update", {"Campaigns": [{"Id": campaign_id, "UnifiedCampaign": {"BiddingStrategy": keep}}]})
             self._result_item(answer, "UpdateResults")
         except DirectError as e:
-            return f"Не удалось включить показы в сетях: {e.full_message()}"
+            return f"Не удалось {'включить' if on else 'выключить'} показы в сетях: {e.full_message()}"
         return ""
+
+    async def ensure_network(self, campaign_id: int) -> str:
+        """Включает показы в сетях кампаниям, созданным раньше с выключенными сетями (см. set_network)."""
+        return await self.set_network(campaign_id, True)
 
     async def ensure_alerts(self, campaign_id: int) -> list[str]:
         """Включает в кампании мониторинг сайта (Директ остановит показы, если сайт недоступен). Что уже включено, не трогает.

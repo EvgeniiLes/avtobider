@@ -23,6 +23,7 @@ from app.direct.goals import goal_ids_for_report
 from app.direct.marking import is_filled
 from app.direct import extras as ad_extras
 from app.direct import videos
+from app.direct.placement import network_wanted
 from app.direct.groups import GROUP_LIMIT, RESPONSIVE_PARTS, SEPARATE_LIMIT, build_groups, group_sizes, score  # noqa: F401  (GROUP_LIMIT и group_sizes берут из launch другие модули)
 from app.direct.audience import autotargeting_for, effective_negatives, intents_for
 from app.direct.texts import check, draft_variants, mentions_district, near_variants
@@ -68,6 +69,7 @@ class Plan:
     groups: list[dict] | None = None        # группы-намерения: [{intent, keywords, variants, indexes}], по одной кампании на группу
     separate: bool = False                  # каждое объявление в своей кампании, недельный бюджет запуска делится между ними поровну
     extras: dict | None = None              # второй заголовок, уточнения и отображаемая ссылка (app/direct/extras.py); None: объявления без дополнений
+    network: bool = True                    # показывать и в рекламной сети; False: только поиск (режим бизнеса, см. app/direct/placement.py)
 
 
 def ad_description_of(biz) -> str:
@@ -258,7 +260,7 @@ def plan_launch(biz, region_id: int | None, min_weekly_micro: int = MIN_WEEKLY, 
         responsive=responsive, separate=separate, groups=groups, count=count, campaign_micro=per_campaign, variants=variants, region_id=RUSSIA_REGION_ID if nationwide else region_id, ad_description=ad_description_of(biz),
         city="вся Россия" if nationwide else biz["city"], href=biz["site_url"], business_id=_maps_id(biz), warnings=warnings, counter_ids=counters,
         own_count=own, negatives=effective_negatives(biz, audience), keywords=keywords, autotargeting=autotargeting_for(audience), audience=audience,
-        region_ids=list(district_ids) if by_district and not nationwide else None, districts=districts or None,
+        region_ids=list(district_ids) if by_district and not nationwide else None, districts=districts or None, network=network_wanted(biz),
     )
 
 
@@ -297,7 +299,7 @@ async def create_campaign(client: DirectClient, plan: Plan, name: str, start_dat
     campaign_id = None
     try:
         campaign_id = await client.create_text_campaign(
-            name, plan.campaign_micro, start_date, counter_ids=plan.counter_ids, negative_keywords=plan.negatives)
+            name, plan.campaign_micro, start_date, counter_ids=plan.counter_ids, negative_keywords=plan.negatives, network=plan.network)
         group_id = await client.create_ad_group(campaign_id, (intent or "Основная")[:255], plan.region_ids or [plan.region_id])
         added = await client.add_keywords(group_id, plan.keywords or [] if keywords is None else keywords, plan.autotargeting)
         ad_ids, kind, fallback = [], "text", ""
@@ -890,7 +892,7 @@ async def sync_units(client: DirectClient, conn: sqlite3.Connection, biz, today:
             cstate = "paused"
         conn.execute("UPDATE campaigns SET state = ? WHERE business_id = ? AND external_id = ?", (cstate, biz["id"], cid))
         alert_errors = await client.ensure_alerts(cid)   # мониторинг сайта и почтовые предупреждения включает сам сервис
-        network_error = await client.ensure_network(cid)   # поиск, Карты и сайты-партнёры: кампании, созданные раньше с выключенными сетями, получают их
+        network_error = await client.set_network(cid, network_wanted(biz))   # сети включены или выключены так, как выбрано для бизнеса (по умолчанию онлайн-услуге только поиск)
         alert_errors = [*alert_errors, *([network_error] if network_error else [])]
         alerts_note = f"Не удалось включить настройки кампании. {' '.join(alert_errors)}" if alert_errors else ""
         for u in mine:

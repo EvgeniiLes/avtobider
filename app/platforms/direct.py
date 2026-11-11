@@ -117,12 +117,17 @@ class DirectPlatform:
         row = self.conn.execute("SELECT metrika_goal_id FROM businesses WHERE id = ?", (campaign["business_id"],)).fetchone()
         return (row["metrika_goal_id"] or None) if row else None
 
+    def _network(self, campaign: sqlite3.Row) -> bool:
+        from app.direct.placement import network_wanted
+        row = self.conn.execute("SELECT * FROM businesses WHERE id = ?", (campaign["business_id"],)).fetchone()
+        return network_wanted(row) if row else True
+
     def set_campaign_budget(self, campaign_id: int, weekly_micro: int, day: str) -> None:
         camp = self._campaign(campaign_id)
-        self._run(lambda c: c.set_strategy(camp["external_id"], camp["strategy"], weekly_micro, self._goal(camp)))
+        self._run(lambda c: c.set_strategy(camp["external_id"], camp["strategy"], weekly_micro, self._goal(camp), self._network(camp)))
         self.conn.execute("UPDATE campaigns SET weekly_micro = ?, last_changed_day = ? WHERE id = ?", (weekly_micro, day, campaign_id))
 
     def set_strategy(self, campaign_id: int, strategy: str, day: str) -> None:
         camp = self._campaign(campaign_id)
-        self._run(lambda c: c.set_strategy(camp["external_id"], strategy, camp["weekly_micro"], self._goal(camp)))
+        self._run(lambda c: c.set_strategy(camp["external_id"], strategy, camp["weekly_micro"], self._goal(camp), self._network(camp)))
         self.conn.execute("UPDATE campaigns SET strategy = ?, last_changed_day = ? WHERE id = ?", (strategy, day, campaign_id))

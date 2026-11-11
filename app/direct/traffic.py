@@ -3,12 +3,14 @@
 Признак: кампания идёт не меньше двух суток, есть активные объявления, а показов за последние двое суток ноль. Лестница (раз в два дня, пока показов нет):
 1. включить категорию «сопутствующие» запросы автотаргетинга, 2. «альтернативные», 3. «широкие»; на первых двух шагах (и всегда, когда у многих фраз
 статус «мало показов») добавить в группы более широкие фразы, которые подбирает ИИ. Если категории выбрал сам владелец, их не трогаем, только фразы.
+4. Если бизнес начал только с поиска (онлайн-услуга, режим не выбирал владелец), включить рекламную сеть.
 Показы появились: лестница больше не идёт. Каждый шаг записывается в профиль (traffic) и приходит владельцу в Telegram.
 """
 import sqlite3
 
 from app.config import get_settings
 from app.direct import audience as aud
+from app.direct import placement
 from app.direct.autotarget import ensure_autotargeting
 from app.direct.client import DirectClient, DirectError
 from app.engine.util import day_add, days_between
@@ -17,6 +19,23 @@ STALL_DAYS = 2      # столько суток кампания идёт без
 STEP_GAP = 2        # и столько суток ждём между шагами
 ORDER = ("accessory", "alternative", "broader")
 RARELY_SHARE = 0.5  # доля фраз с малым числом показов, после которой фразы расширяем в любом случае
+
+
+async def _open_network(client: DirectClient, conn: sqlite3.Connection, biz, profile: dict, traffic: dict, today: str) -> None:
+    """Реклама без сетей (так начинают онлайн-услуги) всё равно не показывается: включаем сети и записываем режим «поиск и сети», чтобы сервис его не откатил.
+    Если режим выбрал сам владелец, его решение не трогаем."""
+    if placement.mode_of(biz) or placement.network_wanted(biz):
+        return
+    placement.save(conn, biz["id"], "all")
+    fresh = conn.execute("SELECT * FROM businesses WHERE id = ?", (biz["id"],)).fetchone()
+    try:
+        await placement.apply(client, conn, fresh)
+    except DirectError:
+        pass   # сети включит и обычная синхронизация: режим уже записан
+    traffic["step"] += 1
+    traffic["day"] = today
+    traffic["log"] = (list(traffic.get("log", [])) + [{"day": today, "step": traffic["step"], "did": ["включили показы в рекламной сети: только в поиске показов нет"], "rarely": 0}])[-10:]
+    aud.save(conn, biz["id"], {**profile, "traffic": traffic})
 
 
 def stalled(conn: sqlite3.Connection, biz, today: str) -> bool:
@@ -35,7 +54,10 @@ async def ensure_traffic(client: DirectClient, conn: sqlite3.Connection, busines
     if profile is None or not stalled(conn, biz, today):
         return
     traffic = dict(profile.get("traffic") or {"step": 0, "day": "", "log": []})
-    if traffic["step"] >= len(ORDER) or (traffic["day"] and days_between(traffic["day"], today) < STEP_GAP):
+    if traffic["day"] and days_between(traffic["day"], today) < STEP_GAP:
+        return
+    if traffic["step"] >= len(ORDER):
+        await _open_network(client, conn, biz, profile, traffic, today)   # категории кончились, показов всё нет: последний шаг, сети
         return
     s = get_settings()
     did: list[str] = []

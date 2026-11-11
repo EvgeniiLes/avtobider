@@ -377,6 +377,7 @@ ADDED_COLUMNS = [
     ("businesses", "separate_campaigns", "INTEGER NOT NULL DEFAULT 0"),            # 1: каждое объявление в своей кампании (бюджет запуска делится поровну), иначе до трёх объявлений в одной
     ("ad_units", "ad_kind", "TEXT NOT NULL DEFAULT ''"),                           # responsive: одно комбинаторное объявление на группу; пусто: обычное
     ("ad_units", "variants_json", "TEXT NOT NULL DEFAULT ''"),                       # заголовки и тексты комбинаторного объявления (JSON)
+    ("businesses", "placement", "TEXT NOT NULL DEFAULT ''"),                         # где показывать: пусто (по типу бизнеса), search (только поиск), all (поиск и рекламная сеть), см. app/direct/placement.py
     ("ad_units", "video_id", "TEXT NOT NULL DEFAULT ''"),                            # номер загруженного в Директ видео (AdVideos)
     ("ad_units", "video_creative", "INTEGER"),                                       # номер креатива-видеодополнения (Creatives), его привязываем к объявлению
     ("ad_units", "video_state", "TEXT NOT NULL DEFAULT ''"),                         # converting: Директ обрабатывает; attached: привязано к объявлению; error: не вышло; пусто: видео не отправляли
@@ -397,6 +398,8 @@ def _add_missing_columns(conn: sqlite3.Connection) -> None:
         have = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
         if column not in have:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+            if column == "placement":   # один раз, когда колонка появилась: уже запущенная реклама показывалась и в сетях, фиксируем это, чтобы режим «по типу бизнеса» её сам не переключил
+                conn.execute("UPDATE businesses SET placement = 'all' WHERE EXISTS (SELECT 1 FROM ad_units u WHERE u.business_id = businesses.id AND u.external_campaign_id IS NOT NULL)")
     # раньше число объявлений в показе без выбора считалось по бюджету, теперь по умолчанию идёт одно: у уже запущенной рекламы фиксируем то, что идёт сейчас
     conn.execute("UPDATE businesses SET ads_live = (SELECT MIN(6, COUNT(*)) FROM ad_units u WHERE u.business_id = businesses.id AND u.state IN ('active', 'moderation')) "
                  "WHERE ads_live IS NULL AND EXISTS (SELECT 1 FROM ad_units u WHERE u.business_id = businesses.id AND u.state IN ('active', 'moderation'))")

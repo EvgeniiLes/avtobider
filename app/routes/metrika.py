@@ -14,6 +14,7 @@ from app.deps import client_factory, current_user, yandex_http
 from app.direct.client import DirectError
 from app.direct.counter_health import check_counter, load_health
 from app.direct.goals import save_goals
+from app.direct.placement import network_wanted
 from app.direct.runner import account_token
 from app.engine.util import EngineError
 from app.routes.businesses import _own
@@ -280,7 +281,7 @@ def save(business_id: int, data: MetrikaIn, user: sqlite3.Row = Depends(current_
                 for u in units:
                     await client.set_counters(u["external_campaign_id"], [int(data.counter_id)])
                 if on_goal is not None and data.goal_id != (biz["metrika_goal_id"] or ""):
-                    await client.set_strategy(on_goal["external_id"], "conversions", on_goal["weekly_micro"], data.goal_id)
+                    await client.set_strategy(on_goal["external_id"], "conversions", on_goal["weekly_micro"], data.goal_id, network_wanted(biz))
 
         try:
             asyncio.run(attach())

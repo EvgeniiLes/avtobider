@@ -58,6 +58,7 @@ async function start() {
   $("q-analyze").addEventListener("click", analyzeQueries);
   $("q-apply").addEventListener("click", applyQueries);
   $("aud-bids-apply").addEventListener("click", () => changeBids("POST"));
+  $("aud-placement").addEventListener("change", changePlacement);
   $("aud-bids-clear").addEventListener("click", () => changeBids("DELETE"));
   $("aud-build").addEventListener("click", buildAudience);
   $("aud-save").addEventListener("click", saveAudience);

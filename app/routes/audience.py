@@ -11,7 +11,9 @@ from app.creative import fal
 from app.db import get_db
 from app.deps import client_factory, creative_transport, current_user
 from app.direct import audience as aud
-from app.direct import bids
+from typing import Literal
+
+from app.direct import bids, placement
 from app.direct.client import DirectError
 from app.direct.runner import account_token
 from app.engine.util import EngineError
@@ -28,7 +30,8 @@ def _campaign_id(conn: sqlite3.Connection, business_id: int) -> int | None:
 
 
 def _full(conn: sqlite3.Connection, biz, profile: dict | None) -> dict:
-    return {**aud.view(biz, profile), "ai_ready": bool(get_settings().fal_key), "bids": bids.describe(profile, _campaign_id(conn, biz["id"]) is not None)}
+    return {**aud.view(biz, profile), "ai_ready": bool(get_settings().fal_key), "bids": bids.describe(profile, _campaign_id(conn, biz["id"]) is not None),
+            "placement": {"mode": placement.mode_of(biz), "network": placement.network_wanted(biz)}}
 
 
 def make_profile(conn: sqlite3.Connection, biz, transport=None) -> dict | None:
@@ -124,6 +127,24 @@ def _with_client(conn: sqlite3.Connection, biz, factory, work):
         return asyncio.run(go())
     except (EngineError, DirectError) as e:
         raise HTTPException(400, detail={"message": e.message}) from e
+
+
+class PlacementIn(BaseModel):
+    mode: Literal["", "search", "all"]   # пусто: по типу бизнеса; search: только поиск; all: поиск и рекламная сеть
+
+
+@router.put("/placement")
+def put_placement(business_id: int, data: PlacementIn, user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connection = Depends(get_db),
+                  factory=Depends(client_factory)):
+    """Где показывать рекламу. Если реклама уже создана, кампании в Директе переключаются сразу."""
+    biz = _own(conn, user, business_id)
+    placement.save(conn, business_id, data.mode)
+    biz = conn.execute("SELECT * FROM businesses WHERE id = ?", (business_id,)).fetchone()
+    if _campaign_id(conn, business_id) is not None and biz["account_id"]:
+        errors = _with_client(conn, biz, factory, lambda client, _campaign_id: placement.apply(client, conn, biz))
+        if errors:
+            raise HTTPException(400, detail={"message": " ".join(errors)})
+    return _full(conn, biz, aud.load(biz))
 
 
 @router.post("/bids")

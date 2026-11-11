@@ -68,6 +68,7 @@ function renderAudience(data) {
   $("aud-gender").value = p.gender;
   switches("aud-ages", Object.fromEntries(L.ages.map((a) => [a, a])), Object.fromEntries(p.ages.map((a) => [a, true])));
   renderBids(data.bids);
+  renderPlacement(data.placement || { mode: "", network: true });
   $("aud-keywords").value = data.keywords.join("\n");
   $("aud-negatives").value = (p.negatives || []).join("\n");
   $("aud-negatives-hint").textContent = `В Директ уйдёт минус-слов: ${data.negatives.length}. Общий список вашей сферы добавляется сам, слова, которые режут вашу услугу, сервис не пропустит.`;
@@ -80,6 +81,24 @@ function renderAudience(data) {
   const launched = launchedText(p.launched);
   $("aud-launched").hidden = !launched;
   $("aud-launched").textContent = launched;
+}
+
+function renderPlacement(p) {
+  $("aud-placement").value = p.mode;
+  $("aud-placement-hint").textContent = p.network
+    ? "Сейчас реклама идёт в поиске и в рекламной сети (сайты-партнёры, приложения): кликов больше и они дешевле, но среди них много случайных. Услуги, которые люди ищут сами, надёжнее начинать с поиска."
+    : "Сейчас реклама идёт только в поиске Яндекса: люди сами ищут вашу услугу, клики дороже, но точнее. " +
+      (p.mode === "search" ? "Если показов не будет, включите рекламную сеть здесь." : "Если показов совсем нет, сервис сам включит рекламную сеть и скажет об этом.");
+}
+
+async function changePlacement() {
+  const select = $("aud-placement");
+  select.disabled = true;
+  const r = await api("PUT", `/api/businesses/${currentBusiness.id}/audience/placement`, { mode: select.value });
+  select.disabled = false;
+  if (!r.ok) { setStatus("aud-status", errorText(r), "err"); await loadAudience(); return; }
+  renderAudience(r.data);
+  setStatus("aud-status", r.data.placement.network ? "Реклама будет идти в поиске и в рекламной сети." : "Реклама будет идти только в поиске.", "ok");
 }
 
 function renderBids(b) {

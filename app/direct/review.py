@@ -9,8 +9,9 @@ import json
 import sqlite3
 from datetime import date, timedelta
 
+from app.creative.angles import is_nationwide
 from app.direct import audience as aud
-from app.direct import bids
+from app.direct import bids, placement
 from app.direct.client import DirectClient
 from app.engine.util import MICRO, plural, rub
 
@@ -19,7 +20,10 @@ MIN_SPEND = 30 * MICRO        # меньше этой суммы за срез �
 MIN_AGE_SHARE = 0.05          # возраст предлагаем выключить, если на него ушло не меньше 5% расхода
 MAX_SITES = 100               # площадок в одном предложении
 MAX_EXCLUDED = 1000           # столько площадок Директ принимает в списке кампании
-PACE_RATIO = 1.5              # расход в неделю при текущем темпе больше лимита в столько раз: сообщаем
+MIN_NETWORK_SPEND = 300 * MICRO   # сеть предлагаем выключить, когда она потратила не меньше 300 ₽, набрала не меньше 100 кликов
+MIN_NETWORK_CLICKS = 100          # и занимает не меньше половины расхода, а обращений ни одного
+MIN_NETWORK_SHARE = 0.5
+PACE_RATIO = 1.5             # расход в неделю при текущем темпе больше лимита в столько раз: сообщаем
 
 # Последняя часть названия у настоящих сайтов: sibling.yandex.ru. У приложений названия вида com.vitastudio.mahjong, их конец не доменная зона.
 ZONES = {"ru", "com", "net", "org", "su", "by", "kz", "ua", "io", "info", "biz", "online", "site", "рф", "uz", "az", "ge", "md", "kg", "am", "tj", "de", "uk", "eu"}
@@ -90,10 +94,38 @@ def _ages(conn: sqlite3.Connection, biz, since: str) -> dict | None:
     return {"kind": "ages", "key": _digest(ages), "text": text, "payload": {"ages": ages}}
 
 
+def _network(conn: sqlite3.Connection, biz, since: str) -> dict | None:
+    """Рекламная сеть тратит заметные деньги и не дала ни одного обращения: предлагаем оставить только поиск."""
+    if not placement.network_wanted(biz):
+        return None   # сети уже выключены
+    rows = {r["key"]: r for r in conn.execute(
+        "SELECT key, SUM(clicks) c, SUM(spend_micro) s, SUM(leads) l FROM dimension_stats WHERE business_id = ? AND dimension = 'network' AND day >= ? GROUP BY key",
+        (biz["id"], since)).fetchall()}
+    net, search = rows.get("AD_NETWORK"), rows.get("SEARCH")
+    if net is None or net["s"] < MIN_NETWORK_SPEND or net["c"] < MIN_NETWORK_CLICKS or net["l"] > 0:
+        return None
+    total = sum(r["s"] for r in rows.values())
+    if net["s"] < MIN_NETWORK_SHARE * total:
+        return None
+    measured = bool(biz["metrika_counter_id"] and biz["metrika_goal_id"])
+    if search is not None and search["l"] > 0:
+        why = f"а с поиска обращения есть ({plural(search['l'], 'обращение', 'обращения', 'обращений')})"
+    elif is_nationwide(biz):
+        why = "а такую услугу люди ищут сами, поэтому сначала проверяем её на поиске"
+    elif measured:
+        why = "ни одного обращения не пришло и с поиска, но деньги из сети уходят быстрее"
+    else:
+        return None   # обращения не измеряются и услуга местная: решать по одним кликам нельзя
+    text = (f"Реклама «{biz['name']}»: за {WINDOW_DAYS} дней в рекламной сети {plural(net['c'], 'клик', 'клика', 'кликов')} и {rub(net['s'])} "
+            f"({round(100 * net['s'] / total)}% расхода), обращений ни одного, {why}.\n\n"
+            "Предлагаю оставить только поиск Яндекса и выключить показы в рекламной сети (сайты-партнёры, приложения). Вернуть сети можно в любой момент на шаге «Запуск». Выключить?")
+    return {"kind": "network", "key": "network-off", "text": text, "payload": {"mode": "search"}}
+
+
 def proposals(conn: sqlite3.Connection, biz, today: str) -> list[dict]:
     """Правки, которые стоит предложить владельцу сегодня."""
     since = (date.fromisoformat(today) - timedelta(days=WINDOW_DAYS)).isoformat()
-    return [p for p in (_apps(conn, biz, since), _ages(conn, biz, since)) if p]
+    return [p for p in (_apps(conn, biz, since), _ages(conn, biz, since), _network(conn, biz, since)) if p]
 
 
 def pace_note(conn: sqlite3.Connection, biz, today: str) -> str | None:
@@ -139,8 +171,18 @@ async def apply_ages(client: DirectClient, conn: sqlite3.Connection, biz, payloa
     return "показы выключены для возрастов: " + ", ".join(bids.AGE_LABELS[a] for a in payload["ages"])
 
 
+async def apply_network(client: DirectClient, conn: sqlite3.Connection, biz, payload: dict) -> str:
+    if not bids.campaign_ids(conn, biz["id"]):
+        raise ReviewError("В Директе нет кампании этого бизнеса.")
+    placement.save(conn, biz["id"], payload.get("mode", "search"))
+    errors = await placement.apply(client, conn, conn.execute("SELECT * FROM businesses WHERE id = ?", (biz["id"],)).fetchone())
+    if errors:
+        raise ReviewError(" ".join(errors))
+    return "показы в рекламной сети выключены, реклама идёт только в поиске"
+
+
 async def apply_ask(client: DirectClient, conn: sqlite3.Connection, biz, payload: dict) -> str:
     return "принято"
 
 
-APPLY = {"sites": apply_sites, "ages": apply_ages, "ask": apply_ask}
+APPLY = {"sites": apply_sites, "ages": apply_ages, "network": apply_network, "ask": apply_ask}
