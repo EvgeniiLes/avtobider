@@ -2591,7 +2591,7 @@ function campaignGroup(g, several, number) {
     show();
     group.append(budget, el("p", { className: "hint", textContent: campaignHint(g) }));
     if (g.splittable) {
-      const split = el("button", { type: "button", className: "small secondary", textContent: "Сравнить объявления в отдельных кампаниях" });
+      const split = el("button", { type: "button", className: "small secondary", textContent: "Создать A/B-тест: каждое объявление в своей кампании" });
       split.addEventListener("click", async () => {
         if (!confirm("Каждое работающее объявление получит свою кампанию, лимит этой кампании поделится между ними поровну, а сама она остановится. "
                      + "Новые объявления уйдут на проверку в Яндекс. Через несколько дней сервис сравнит их и оставит лучшее. Продолжить?")) return;
