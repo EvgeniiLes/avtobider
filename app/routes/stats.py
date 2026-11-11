@@ -425,8 +425,8 @@ def mark_clients(business_id: int, data: ClientsIn, user: sqlite3.Row = Depends(
     _own(conn, user, business_id)
     try:
         day = date.fromisoformat(data.day)
-    except ValueError:
-        raise HTTPException(400, detail={"message": "Дата указана неверно."})
+    except ValueError as exc:
+        raise HTTPException(400, detail={"message": "Дата указана неверно."}) from exc
     if day > date.today():
         raise HTTPException(400, detail={"message": "Нельзя указать клиентов из будущего."})
     conn.execute(
@@ -453,7 +453,7 @@ def sim_start(business_id: int, user: sqlite3.Row = Depends(current_user), conn:
     try:
         start_demo(conn, biz, target_lead_micro(biz))
     except EngineError as e:
-        raise _fail(e)
+        raise _fail(e) from e
     return {"ok": True}
 
 
@@ -472,7 +472,7 @@ def sim_advance(
             today = advance_day(conn, biz)
             made += len(run_cycle(conn, biz, platform, today))
     except EngineError as e:
-        raise _fail(e)
+        raise _fail(e) from e
     return {"today": today, "changes_made": made}
 
 
@@ -516,7 +516,7 @@ def _decide(business_id: int, change_id: int, user, conn, fn):
     try:
         fn(biz, _platform(conn, biz), today)
     except (EngineError, DirectError) as e:
-        raise _fail(e)
+        raise _fail(e) from e
     return {"ok": True}
 
 
@@ -537,7 +537,7 @@ def stop_everything(business_id: int, user: sqlite3.Row = Depends(current_user),
     try:
         return {"stopped": stop_all(conn, _platform(conn, biz), biz, today)}
     except (EngineError, DirectError) as e:
-        raise _fail(e)
+        raise _fail(e) from e
 
 
 @router.post("/resume-all")
@@ -547,7 +547,7 @@ def resume_everything(business_id: int, user: sqlite3.Row = Depends(current_user
     try:
         return {"resumed": resume_all(conn, _platform(conn, biz), biz, today)}
     except (EngineError, DirectError) as e:
-        raise _fail(e)
+        raise _fail(e) from e
 
 
 class PauseIn(BaseModel):
@@ -563,7 +563,7 @@ def change_unit_pause(business_id: int, unit_id: int, data: PauseIn, user: sqlit
     try:
         set_unit_paused_by_owner(conn, _platform(conn, biz), biz, unit_id, data.paused, today)
     except (EngineError, DirectError) as e:
-        raise _fail(e)
+        raise _fail(e) from e
     return {"ok": True}
 
 
@@ -583,7 +583,7 @@ def reconcile_with_direct(business_id: int, user: sqlite3.Row = Depends(current_
 
         result = asyncio.run(go())
     except (EngineError, DirectError) as e:
-        raise _fail(e)
+        raise _fail(e) from e
     return {**result, "text": reconcile_summary(result)}
 
 
@@ -651,7 +651,7 @@ def change_campaign_budget(business_id: int, campaign_id: int, data: BudgetIn, u
     try:
         change_id = set_budget_by_owner(conn, _platform(conn, biz), biz, campaign_id, data.weekly * MICRO, today, MIN_WEEKLY)
     except (EngineError, DirectError) as e:
-        raise _fail(e)
+        raise _fail(e) from e
     return {"ok": True, "changed": change_id is not None}
 
 
@@ -672,5 +672,5 @@ def change_rollback(
     try:
         rollback(conn, _platform(conn, biz), biz, change_id, today, data.force)
     except (EngineError, DirectError) as e:
-        raise _fail(e)
+        raise _fail(e) from e
     return {"ok": True}

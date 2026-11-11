@@ -66,8 +66,8 @@ def register(data: Credentials, request: Request, response: Response, conn: sqli
     try:
         cur = conn.execute("INSERT INTO users (email, password_hash) VALUES (?, ?)", (email, hash_password(data.password)))
         conn.commit()
-    except sqlite3.IntegrityError:
-        raise HTTPException(409, detail={"message": "Этот e-mail уже зарегистрирован. Попробуйте войти."})
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(409, detail={"message": "Этот e-mail уже зарегистрирован. Попробуйте войти."}) from exc
     _signups[ip].append(now)
     _set_cookie(request, response, create_session(conn, cur.lastrowid))
     return {"email": email}

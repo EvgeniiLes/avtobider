@@ -181,7 +181,6 @@ def insert_logo(banner: bytes, logo: bytes) -> bytes | None:
     if len(pts) < (x1 - x0) * (y1 - y0) * 0.8:  # не прямоугольник: это не слот, а случайное зелёное место
         return None
     box = (x0 - 3, y0 - 3, x1 + 3, y1 + 3)
-    gray = base.convert("L")
     ring = [(max(0, x0 - 12), max(0, y0 - 12), min(w, x1 + 12), max(0, y0 - 4)), (max(0, x0 - 12), min(h, y1 + 4), min(w, x1 + 12), min(h, y1 + 12)),
             (max(0, x0 - 12), y0, max(0, x0 - 4), y1), (min(w, x1 + 4), y0, min(w, x1 + 12), y1)]
     ring = [r for r in ring if r[2] > r[0] and r[3] > r[1]]

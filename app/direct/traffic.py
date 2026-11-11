@@ -6,7 +6,6 @@
 Показы появились: лестница больше не идёт. Каждый шаг записывается в профиль (traffic) и приходит владельцу в Telegram.
 """
 import sqlite3
-from datetime import date
 
 from app.config import get_settings
 from app.direct import audience as aud

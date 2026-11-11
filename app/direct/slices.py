@@ -9,7 +9,7 @@
 import json
 import re
 import sqlite3
-from datetime import date, datetime
+from datetime import datetime
 
 import httpx
 
@@ -60,7 +60,7 @@ def label(dimension: str, key: str) -> str:
     if dimension == "age":
         m = re.fullmatch(r"AGE_(\d+)_(\d+)", key)
         if m:
-            return f"до 18" if m.group(1) == "0" else f"{m.group(1)}–{m.group(2)}"
+            return "до 18" if m.group(1) == "0" else f"{m.group(1)}–{m.group(2)}"
         m = re.fullmatch(r"AGE_(\d+)", key)
         return f"{m.group(1)} и старше" if m else key
     if dimension == "hour":

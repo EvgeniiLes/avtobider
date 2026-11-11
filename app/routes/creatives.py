@@ -30,7 +30,7 @@ from app.db import get_db
 from app.deps import creative_transport, current_user
 from app.direct.launch import MAX_VARIANTS, ads_for_budget, banner_layout, choose_variants, existing_campaign, group_sizes, logo_for, media_typed, photo_for, render_banner, start_split, text_candidates, usable_photos
 from app.direct.textctx import texts_context
-from app.direct.texts import HOOK_MAX, TEXT_MAX, TITLE_MAX, check, check_hook, draft_variants
+from app.direct.texts import TEXT_MAX, TITLE_MAX, check, check_hook, draft_variants
 from app.routes.businesses import _asset_path, _own
 
 import secrets
@@ -609,7 +609,7 @@ def make_ai_banner(business_id: int, index: int, data: BannerIn | None = None, u
         _order_banner(conn, biz, variants, index, key, transport, _other_scenes(conn, business_id, variants, index), custom)
     except fal.FalError as e:
         conn.rollback()
-        raise HTTPException(502, detail={"message": e.message})
+        raise HTTPException(502, detail={"message": e.message}) from e
     conn.commit()
     row = _ai_row(conn, business_id, variants[index])
     varied = json.loads(row["prompt"] or "{}").get("varied", "") if row is not None else ""
@@ -643,7 +643,7 @@ def model_test(business_id: int, index: int, data: ModelTestIn | None = None, us
         _order_banner(conn, biz, variants, index, key, transport, _other_scenes(conn, business_id, variants, index), "", models, scheme)
     except fal.FalError as e:
         conn.rollback()
-        raise HTTPException(400 if "выберите" in e.message else 502, detail={"message": e.message})
+        raise HTTPException(400 if "выберите" in e.message else 502, detail={"message": e.message}) from e
     conn.commit()
     return {"started": len(models), "run": run, "scheme": scheme}
 
@@ -792,7 +792,7 @@ def make_all_ai_banners(business_id: int, redo: bool = False, user: sqlite3.Row 
             conn.rollback()
             if started:
                 conn.commit()
-            raise HTTPException(502, detail={"message": e.message})
+            raise HTTPException(502, detail={"message": e.message}) from e
         started += 1
     conn.commit()
     return {"started": started}
@@ -890,7 +890,7 @@ def ad_video(business_id: int, index: int, data: AdVideoIn, user: sqlite3.Row = 
         job = asyncio.run(fal.start_video(_bytes_url(picture, 1280), prompt, key, get_settings().fal_video_model, transport))
     except fal.FalError as e:
         conn.commit()
-        raise HTTPException(502, detail={"message": e.message})
+        raise HTTPException(502, detail={"message": e.message}) from e
     conn.execute("INSERT INTO creatives (business_id, kind, title, body, prompt, status, source, external_id) VALUES (?, 'video', ?, ?, ?, 'working', 'fal', ?)",
                  (business_id, variant["title"], variant["text"], (data.prompt.strip() or "Плавное движение")[:400], json.dumps(job)))
     conn.commit()
@@ -1303,7 +1303,7 @@ def generate_images(business_id: int, data: ImagesIn, user: sqlite3.Row = Depend
             job = asyncio.run(fal.start_image(prompt, key, s.fal_image_model, transport))
         except fal.FalError as e:
             conn.commit()
-            raise HTTPException(502, detail={"message": e.message})
+            raise HTTPException(502, detail={"message": e.message}) from e
         conn.execute("INSERT INTO creatives (business_id, kind, prompt, status, source, external_id) VALUES (?, 'image', ?, 'working', 'fal', ?)",
                      (business_id, prompt, json.dumps(job)))
     conn.commit()
@@ -1331,7 +1331,7 @@ def generate_video(business_id: int, data: VideoIn, user: sqlite3.Row = Depends(
                                           get_settings().fal_video_model, transport))
     except fal.FalError as e:
         conn.commit()
-        raise HTTPException(502, detail={"message": e.message})
+        raise HTTPException(502, detail={"message": e.message}) from e
     conn.execute("INSERT INTO creatives (business_id, kind, prompt, status, source, external_id) VALUES (?, 'video', ?, 'working', 'fal', ?)",
                  (business_id, f"из картинки #{image['id']}", json.dumps(job)))
     conn.commit()

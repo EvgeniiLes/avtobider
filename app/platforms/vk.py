@@ -43,8 +43,8 @@ class VkAdsClient:
         try:
             r = await self._http.post("/api/v2/oauth2/token.json", data={
                 "grant_type": "client_credentials", "client_id": self._id, "client_secret": self._secret})
-        except httpx.HTTPError:
-            raise VkError("Не удалось связаться с VK Рекламой. Попробуйте позже.", "network")
+        except httpx.HTTPError as exc:
+            raise VkError("Не удалось связаться с VK Рекламой. Попробуйте позже.", "network") from exc
         if r.status_code in (400, 401, 403):
             raise VkError("VK Реклама не приняла ключи. Проверьте client_id и client_secret.", "auth")
         if r.status_code >= 400:
@@ -60,8 +60,8 @@ class VkAdsClient:
         headers = {"Authorization": f"Bearer {await self._auth()}"}
         try:
             r = await self._http.request(method, path, headers=headers, **kw)
-        except httpx.HTTPError:
-            raise VkError("Не удалось связаться с VK Рекламой. Попробуйте позже.", "network")
+        except httpx.HTTPError as exc:
+            raise VkError("Не удалось связаться с VK Рекламой. Попробуйте позже.", "network") from exc
         if r.status_code == 401 and retry:   # токен мог протухнуть раньше срока
             self._token = ""
             return await self._call(method, path, retry=False, **kw)
@@ -137,7 +137,7 @@ class VkPlatform:
         try:
             return asyncio.run(go())
         except VkError as e:
-            raise EngineError(e.message, e.code)
+            raise EngineError(e.message, e.code) from e
 
     def _unit(self, unit_id: int) -> sqlite3.Row:
         row = self.conn.execute("SELECT * FROM ad_units WHERE id = ?", (unit_id,)).fetchone()

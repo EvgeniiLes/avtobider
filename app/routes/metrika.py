@@ -47,14 +47,14 @@ def _token(conn, user, biz) -> str:
     try:
         return account_token(conn, account)[0]
     except EngineError as e:
-        raise HTTPException(409, detail={"message": e.message})
+        raise HTTPException(409, detail={"message": e.message}) from e
 
 
 async def _get(http: httpx.AsyncClient, token: str, path: str) -> dict:
     try:
         r = await http.get(f"{BASE}{path}", headers={"Authorization": f"OAuth {token}"})
-    except httpx.HTTPError:
-        raise HTTPException(502, detail={"message": "Не удалось связаться с Яндекс Метрикой. Попробуйте позже."})
+    except httpx.HTTPError as exc:
+        raise HTTPException(502, detail={"message": "Не удалось связаться с Яндекс Метрикой. Попробуйте позже."}) from exc
     if r.status_code in (401, 403):
         raise HTTPException(409, detail={"message": "У сервиса нет доступа к Метрике. Подключите кабинет заново и разрешите доступ."})
     if r.status_code != 200:
@@ -95,8 +95,8 @@ def goals(business_id: int, counter_id: str, user: sqlite3.Row = Depends(current
 async def _post(http: httpx.AsyncClient, token: str, path: str, body: dict) -> httpx.Response:
     try:
         return await http.post(f"{BASE}{path}", json=body, headers={"Authorization": f"OAuth {token}"})
-    except httpx.HTTPError:
-        raise HTTPException(502, detail={"message": "Не удалось связаться с Яндекс Метрикой. Попробуйте позже."})
+    except httpx.HTTPError as exc:
+        raise HTTPException(502, detail={"message": "Не удалось связаться с Яндекс Метрикой. Попробуйте позже."}) from exc
 
 
 @router.post("/auto")
@@ -285,7 +285,7 @@ def save(business_id: int, data: MetrikaIn, user: sqlite3.Row = Depends(current_
         try:
             asyncio.run(attach())
         except DirectError as e:
-            raise HTTPException(400, detail={"message": f"Не получилось привязать счётчик к кампаниям: {e.message}"})
+            raise HTTPException(400, detail={"message": f"Не получилось привязать счётчик к кампаниям: {e.message}"}) from e
 
     conn.execute("UPDATE businesses SET metrika_counter_id = ?, metrika_goal_id = ?, counter_health = '' WHERE id = ?", (data.counter_id, data.goal_id, business_id))
     conn.commit()

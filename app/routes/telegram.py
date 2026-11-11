@@ -135,7 +135,7 @@ def check_chat(user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connecti
     except telegram.TelegramError as e:
         if "webhook" in e.message.lower():   # приём ответов из Telegram включён: бот сам привяжет чат, когда владелец нажмёт «Start»
             return {**_status(conn, user), "found": False, "name": ""}
-        raise HTTPException(502, detail={"message": e.message})
+        raise HTTPException(502, detail={"message": e.message}) from e
     return {**_status(conn, user), "found": bool(found), "name": found["title"] if found else ""}
 
 
@@ -148,7 +148,7 @@ def send_test(user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connectio
     try:
         asyncio.run(telegram.send_message(s.telegram_token, s.telegram_api, chat, "Проверка связи: если вы это читаете, отчёты и тревоги будут доходить.", transport))
     except telegram.TelegramError as e:
-        raise HTTPException(502, detail={"message": e.message})
+        raise HTTPException(502, detail={"message": e.message}) from e
     return {"sent": True}
 
 

@@ -203,8 +203,7 @@ def _cohort_step(conn, platform, biz, today, as_of, cfg, propose=False) -> list[
         wins = (lambda s: s["leads"]) if measured else (lambda s: s["clicks"])
         if any(trials(s) == 0 or s["clicks"] < cfg.cohort_min_clicks for s in stats.values()) and age < cfg.cohort_max_days:
             continue
-        rate = lambda m: (wins(stats[m["id"]]) + 1) / (trials(stats[m["id"]]) + 2)
-        best = max(members, key=rate)
+        best = max(members, key=lambda m, stats=stats, wins=wins, trials=trials: (wins(stats[m["id"]]) + 1) / (trials(stats[m["id"]]) + 2))
         sb = stats[best["id"]]
         best_weekly = best["camp_weekly"]
         for m in members:

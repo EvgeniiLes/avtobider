@@ -45,8 +45,8 @@ def prepare_image(data: bytes, kind: str) -> Prepared:
     try:
         img = Image.open(BytesIO(data))
         img.load()
-    except (UnidentifiedImageError, OSError, Image.DecompressionBombError):
-        raise AssetError("Не получилось открыть файл. Загрузите картинку в формате JPG, PNG или WEBP.")
+    except (UnidentifiedImageError, OSError, Image.DecompressionBombError) as exc:
+        raise AssetError("Не получилось открыть файл. Загрузите картинку в формате JPG, PNG или WEBP.") from exc
     img = ImageOps.exif_transpose(img)
     min_side = MIN_LOGO_SIDE if kind == "logo" else MIN_PHOTO_SIDE
     if min(img.size) < min_side:

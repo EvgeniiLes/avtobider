@@ -71,8 +71,8 @@ def health():
             conn.execute("SELECT 1").fetchone()
         finally:
             conn.close()
-    except Exception:
-        raise HTTPException(503, detail={"ok": False, "message": "База данных недоступна"})
+    except Exception as exc:
+        raise HTTPException(503, detail={"ok": False, "message": "База данных недоступна"}) from exc
     return {"ok": True}
 
 

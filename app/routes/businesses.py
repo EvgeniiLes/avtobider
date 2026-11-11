@@ -396,7 +396,7 @@ async def upload_asset(
         data = await _read_limited(file, VIDEO_MAX_BYTES if kind == "video" else IMAGE_MAX_BYTES)
         prepared = prepare_video(data) if kind == "video" else prepare_image(data, kind)
     except AssetError as e:
-        raise HTTPException(400, detail={"message": str(e)})
+        raise HTTPException(400, detail={"message": str(e)}) from e
 
     cut_by = "none"
     if kind == "logo" and remove_bg and not has_transparency(prepared.data):  # только если владелец попросил: фон убирает ИИ, при неудаче код

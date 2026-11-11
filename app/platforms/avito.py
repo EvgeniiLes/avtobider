@@ -44,8 +44,8 @@ class AvitoClient:
             return self._token
         try:
             r = await self._http.post("/token", data={"grant_type": "client_credentials", "client_id": self._id, "client_secret": self._secret})
-        except httpx.HTTPError:
-            raise AvitoError("Не удалось связаться с Авито. Попробуйте позже.", "network")
+        except httpx.HTTPError as exc:
+            raise AvitoError("Не удалось связаться с Авито. Попробуйте позже.", "network") from exc
         if r.status_code in (400, 401, 403):
             raise AvitoError("Авито не приняло ключи. Проверьте client_id и client_secret.", "auth")
         if r.status_code >= 400:
@@ -61,8 +61,8 @@ class AvitoClient:
         headers = {"Authorization": f"Bearer {await self._auth()}"}
         try:
             r = await self._http.request(method, path, headers=headers, **kw)
-        except httpx.HTTPError:
-            raise AvitoError("Не удалось связаться с Авито. Попробуйте позже.", "network")
+        except httpx.HTTPError as exc:
+            raise AvitoError("Не удалось связаться с Авито. Попробуйте позже.", "network") from exc
         if r.status_code == 401 and retry:
             self._token = ""
             return await self._call(method, path, retry=False, **kw)
@@ -124,7 +124,7 @@ class AvitoPlatform:
         try:
             return asyncio.run(go())
         except AvitoError as e:
-            raise EngineError(e.message, e.code)
+            raise EngineError(e.message, e.code) from e
 
     def _unit(self, unit_id: int) -> sqlite3.Row:
         row = self.conn.execute("SELECT * FROM ad_units WHERE id = ?", (unit_id,)).fetchone()

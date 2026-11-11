@@ -6,7 +6,7 @@ import httpx
 
 from app.creative.angles import ANGLES, business_block, districts_of, effective_description, prompt_block, where_text
 from app.direct.audience import for_prompt as audience_prompt, load as load_audience
-from app.direct.texts import TEXT_MAX, TITLE_MAX, check, check_hook, fit, unsupported_claims
+from app.direct.texts import TEXT_MAX, TITLE_MAX, check, check_hook, unsupported_claims
 
 API_URL = "https://api.anthropic.com/v1/messages"
 

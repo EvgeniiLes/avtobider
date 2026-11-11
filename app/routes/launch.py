@@ -129,7 +129,7 @@ def preview(business_id: int, account_id: int | None = None, ad_format: str | No
     try:
         account, _, _, plan = _plan_for(conn, user, biz, account_id, factory, transport, ad_format, separate)
     except (EngineError, DirectError) as e:
-        raise _fail(e)
+        raise _fail(e) from e
     target = existing_campaign(conn, business_id)
     pairs = new_variants(conn, biz, plan) if target else None
     fresh = [v for _, v in pairs] if target else None
@@ -203,7 +203,7 @@ def start_launch(business_id: int, data: LaunchIn, user: sqlite3.Row = Depends(c
         conn.execute("UPDATE businesses SET marking_confirmed = 1 WHERE id = ?", (business_id,))
         reset_demo(conn, business_id)  # примерные данные заменяются настоящей рекламой
     except (EngineError, DirectError) as e:
-        raise _fail(e)
+        raise _fail(e) from e
     groups = conn.execute(f"SELECT COUNT(DISTINCT campaign_id) FROM ad_units WHERE id IN ({','.join('?' * len(unit_ids))})", unit_ids).fetchone()[0] if unit_ids else 1
     message = ("Кампания с объявлениями создана и отправлена на проверку в Яндекс." if groups == 1
                else f"Созданы кампании по группам объявлений ({groups}), у каждой свой бюджет. Они отправлены на проверку в Яндекс.")
@@ -237,7 +237,7 @@ def split(business_id: int, data: SplitIn, user: sqlite3.Row = Depends(current_u
 
         unit_ids = asyncio.run(go())
     except (EngineError, DirectError) as e:
-        raise _fail(e)
+        raise _fail(e) from e
     conn.execute("UPDATE businesses SET separate_campaigns = 1 WHERE id = ?", (business_id,))
     conn.commit()
     return {"created": len(unit_ids), "message": f"Создали {plural(len(unit_ids), 'кампанию', 'кампании', 'кампаний')} по одному объявлению, старую остановили. "
@@ -260,7 +260,7 @@ def refresh_campaigns_now(business_id: int, user: sqlite3.Row = Depends(current_
     try:
         report = asyncio.run(go())
     except (EngineError, DirectError) as e:
-        raise _fail(e)
+        raise _fail(e) from e
     message = "; ".join(report["changes"]) or ("Всё уже актуально, добавлять нечего." if not report["problems"] else "")
     return {**report, "message": message}
 

@@ -123,7 +123,7 @@ def _with_client(conn: sqlite3.Connection, biz, factory, work):
 
         return asyncio.run(go())
     except (EngineError, DirectError) as e:
-        raise HTTPException(400, detail={"message": e.message})
+        raise HTTPException(400, detail={"message": e.message}) from e
 
 
 @router.post("/bids")

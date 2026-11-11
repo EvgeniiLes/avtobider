@@ -39,8 +39,8 @@ async def start(user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connect
         try:
             r = await http.post(CODE_URL, data={"client_id": s.client_id, "device_id": str(uuid.uuid4()), "device_name": "Автобидер"})
             data = r.json()
-        except (httpx.HTTPError, ValueError):
-            raise HTTPException(502, detail={"message": "Не удалось связаться с Яндексом. Попробуйте ещё раз чуть позже."})
+        except (httpx.HTTPError, ValueError) as exc:
+            raise HTTPException(502, detail={"message": "Не удалось связаться с Яндексом. Попробуйте ещё раз чуть позже."}) from exc
     if r.status_code != 200 or "device_code" not in data:
         raise HTTPException(502, detail={"message": "Яндекс не выдал код для подключения. Попробуйте ещё раз чуть позже."})
     now = datetime.now(timezone.utc)

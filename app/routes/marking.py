@@ -45,7 +45,7 @@ def read(business_id: int, user: sqlite3.Row = Depends(current_user), conn: sqli
     try:
         data = _read(conn, user, biz, factory)
     except (EngineError, DirectError) as e:
-        raise _fail(e)
+        raise _fail(e) from e
     if is_filled(data) and not biz["marking_confirmed"]:
         conn.execute("UPDATE businesses SET marking_confirmed = 1 WHERE id = ?", (business_id,))
         conn.commit()
@@ -93,7 +93,7 @@ def save(business_id: int, data: MarkingIn, user: sqlite3.Row = Depends(current_
     try:
         after = asyncio.run(go())
     except (EngineError, DirectError) as e:
-        raise _fail(e)
+        raise _fail(e) from e
     if is_filled(after):
         conn.execute("UPDATE businesses SET marking_confirmed = 1 WHERE id = ?", (business_id,))
         conn.commit()

@@ -27,12 +27,12 @@ async def call(token: str, api: str, method: str, payload: dict, transport: http
     try:
         async with httpx.AsyncClient(timeout=15, transport=transport) as http:
             r = await http.post(f"{api}/bot{token}/{method}", json=payload)
-    except httpx.HTTPError:
-        raise TelegramError(UNREACHABLE)
+    except httpx.HTTPError as exc:
+        raise TelegramError(UNREACHABLE) from exc
     try:
         data = r.json()
-    except ValueError:
-        raise TelegramError("Telegram ответил непонятно. Попробуйте позже.")
+    except ValueError as exc:
+        raise TelegramError("Telegram ответил непонятно. Попробуйте позже.") from exc
     if not data.get("ok"):
         raise TelegramError(data.get("description") or "Telegram не принял запрос.")
     return data.get("result")

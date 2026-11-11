@@ -9,7 +9,7 @@ import re
 
 import httpx
 
-from app.creative.angles import ANGLES, available, effective_description, profile, prompt_block, where_text
+from app.creative.angles import ANGLES, available, profile, prompt_block, where_text
 from app.creative.refs import REFS, catalog_text
 from app.creative.texts_ai import FAL_CHAT_URL, JUDGE_SYSTEM, facts_of, parse_scores, pick_best
 from app.direct.texts import check, check_hook, unsupported_claims

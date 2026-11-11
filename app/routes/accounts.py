@@ -64,7 +64,7 @@ async def add_keys_account(data: NewKeysAccount, user: sqlite3.Row = Depends(cur
             await client.check()
             found = await client.list_campaigns(limit=10)
     except error_cls as e:
-        raise HTTPException(502, detail={"message": e.message, "code": e.code})
+        raise HTTPException(502, detail={"message": e.message, "code": e.code}) from e
     s = get_settings()
     keys = json.dumps({"client_id": data.client_id.strip(), "client_secret": data.client_secret.strip()})
     title = data.title.strip() or f"Мой кабинет {label(data.platform)}"
@@ -121,7 +121,7 @@ async def add_account(
             campaigns = await client.list_campaigns()
             units = _units(client)
     except DirectError as e:
-        raise _direct_error(e)
+        raise _direct_error(e) from e
 
     title = data.title.strip() or "Мой кабинет"
     cur = conn.execute(
@@ -164,9 +164,9 @@ async def account_campaigns(
             async with client_cls(keys["client_id"], keys["client_secret"], transport) as client:
                 items = await client.list_campaigns()
         except error_cls as e:
-            raise HTTPException(502, detail={"message": e.message, "code": e.code})
-        except (ValueError, KeyError):
-            raise HTTPException(409, detail={"message": "Не удалось прочитать сохранённые ключи. Удалите кабинет и подключите заново."})
+            raise HTTPException(502, detail={"message": e.message, "code": e.code}) from e
+        except (ValueError, KeyError) as exc:
+            raise HTTPException(409, detail={"message": "Не удалось прочитать сохранённые ключи. Удалите кабинет и подключите заново."}) from exc
         return {"account": _public(row), "units": None,
                 "campaigns": [{"id": c["id"], "name": c["name"], "type": c["kind"], "state": c["status"], "status": "",
                                "currency": "", "start_date": ""} for c in items]}
@@ -175,5 +175,5 @@ async def account_campaigns(
             items = await client.list_campaigns()
             units = _units(client)
     except DirectError as e:
-        raise _direct_error(e)
+        raise _direct_error(e) from e
     return {"account": _public(row), "campaigns": [describe_campaign(c) for c in items], "units": units}

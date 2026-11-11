@@ -175,8 +175,8 @@ class DirectClient:
 
             try:
                 data = response.json()
-            except ValueError:
-                raise DirectError("Яндекс Директ ответил непонятно. Попробуйте позже.", request_id=request_id)
+            except ValueError as exc:
+                raise DirectError("Яндекс Директ ответил непонятно. Попробуйте позже.", request_id=request_id) from exc
 
             if "error" in data:
                 err = data["error"]
@@ -235,8 +235,8 @@ class DirectClient:
             try:
                 async with self._slots:
                     response = await self._http.post(url, json=body, headers=headers)
-            except httpx.TransportError:
-                raise DirectError("Не удалось связаться с Яндекс Директом. Проверьте интернет и попробуйте снова.")
+            except httpx.TransportError as exc:
+                raise DirectError("Не удалось связаться с Яндекс Директом. Проверьте интернет и попробуйте снова.") from exc
             self.last_units = parse_units(response.headers.get("Units")) or self.last_units
             if response.status_code in (201, 202):
                 await asyncio.sleep(float(response.headers.get("retryIn", poll_seconds)))

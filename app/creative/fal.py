@@ -214,8 +214,8 @@ async def why_down(key: str, model: str, transport=None) -> str:
 async def _submit(http: httpx.AsyncClient, model: str, key: str, payload: dict) -> dict:
     try:
         r = await http.post(f"{QUEUE}/{model}", json=payload, headers=_headers(key))
-    except httpx.HTTPError:
-        raise FalError("Не удалось связаться с сервисом генерации. Попробуйте позже.")
+    except httpx.HTTPError as exc:
+        raise FalError("Не удалось связаться с сервисом генерации. Попробуйте позже.") from exc
     if is_locked(r.status_code, r.text):
         raise FalError(TOPUP_MESSAGE)
     if r.status_code in (401, 403):
@@ -356,8 +356,8 @@ async def download(url: str, transport=None) -> bytes:
     async with httpx.AsyncClient(timeout=120, transport=transport, follow_redirects=True) as http:
         try:
             r = await http.get(url)
-        except httpx.HTTPError:
-            raise FalError("Не удалось скачать результат генерации.")
+        except httpx.HTTPError as exc:
+            raise FalError("Не удалось скачать результат генерации.") from exc
     if r.status_code != 200:
         raise FalError("Не удалось скачать результат генерации.")
     return r.content

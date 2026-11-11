@@ -11,7 +11,6 @@ import dataclasses
 import json
 import sqlite3
 from dataclasses import dataclass
-from datetime import date, timedelta
 from urllib.parse import urlsplit, urlunsplit
 
 from app.creative.compose import style_for
@@ -877,7 +876,7 @@ async def sync_units(client: DirectClient, conn: sqlite3.Connection, biz, today:
     except DirectError as first:
         try:
             if len(all_goals) <= 1:
-                raise first
+                raise first from first
             rows = await client.ad_stats(start, today, goal_id=goal)   # Директ не принял часть целей (чужой счётчик, цель удалена): хотя бы «обращение» не теряем
         except DirectError as second:
             goal = None

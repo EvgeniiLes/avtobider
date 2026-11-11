@@ -36,8 +36,9 @@ def _sent(conn: sqlite3.Connection, business_id: int, kind: str, key: str | None
     return False
 
 
-def _record(conn: sqlite3.Connection, business_id: int, kind: str, key: str) -> None:
-    conn.execute("INSERT OR IGNORE INTO notifications (business_id, kind, key) VALUES (?,?,?)", (business_id, kind, key))
+def _record(conn: sqlite3.Connection, business_id: int, kind: str, key: str, now: datetime | None = None) -> None:
+    sent_at = (now or datetime.now(timezone.utc)).strftime("%Y-%m-%d %H:%M:%S")   # время считаем тем же «сейчас», по которому проверяется пауза повтора
+    conn.execute("INSERT OR IGNORE INTO notifications (business_id, kind, key, sent_at) VALUES (?,?,?,?)", (business_id, kind, key, sent_at))
     conn.commit()
 
 
@@ -69,7 +70,7 @@ def run(conn: sqlite3.Connection, biz, send, now: datetime | None = None) -> lis
         except telegram.TelegramError as e:
             log.warning("бизнес %s: не удалось отправить в Telegram: %s", biz["id"], e.message)
             break   # дальше пытаться бессмысленно: повторим при следующем проходе
-        _record(conn, biz["id"], kind, key)
+        _record(conn, biz["id"], kind, key, now_utc)
         if kind == "mod_ok_batch":
             moderation.record_accepted(conn, biz["id"], accepted)   # каждое принятое объявление уведомляет один раз
         sent.append(text)

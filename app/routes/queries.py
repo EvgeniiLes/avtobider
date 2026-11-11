@@ -80,6 +80,6 @@ def apply_queries(business_id: int, data: ApplyIn, user: sqlite3.Row = Depends(c
 
         return asyncio.run(go())
     except q.QueriesError as e:
-        raise HTTPException(400, detail={"message": e.message})
+        raise HTTPException(400, detail={"message": e.message}) from e
     except (EngineError, DirectError) as e:
-        raise HTTPException(400, detail={"message": e.message})
+        raise HTTPException(400, detail={"message": e.message}) from e
