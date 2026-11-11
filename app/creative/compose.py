@@ -151,7 +151,7 @@ def _service_stems(text: str) -> set[str]:
     return {w[:5] for w in re.findall(r"[а-яёa-z]{5,}", (text or "").lower()) if w[:5] not in GENERIC_STEMS}
 
 
-STYLES = ("photo", "luxe", "pastel", "bold", "ai")  # пять непохожих шаблонов: основа для сравнения вариантов (A/B)
+STYLES = ("photo", "luxe", "pastel", "ai", "bold")  # пять непохожих шаблонов: основа для сравнения вариантов (A/B); ИИ-дизайн стоит четвёртым, чтобы попадать в четыре показываемых объявления
 
 SERIF_CANDIDATES = [
     "C:/Windows/Fonts/georgiab.ttf", "C:/Windows/Fonts/timesbd.ttf",

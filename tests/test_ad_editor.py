@@ -143,10 +143,10 @@ def test_first_order_takes_a_different_niche_reference_for_each_ad(monkeypatch):
         bid = setup(http, kind="Барбершоп", description="Мужские стрижки и оформление бороды. Работаем ежедневно с 10 до 22.")
         base = f"/api/businesses/{bid}/creatives"
         shown = [a["ref_id"] for a in http.get(f"{base}/ads").json()["ads"]]
-        assert all(shown[:3]) and len(set(shown[:3])) == 3 and shown[3:] == [None] * 3   # приёмы ниши только у трёх первых объявлений, у остальных обычное оформление
+        assert all(shown[:3]) and len(set(shown[:3])) == 3 and shown[3:] == [None]   # приёмы ниши только у трёх первых объявлений, у остальных обычное оформление
         assert 29 in shown and 36 not in shown                                     # кресло барбера берём, приём про зачёркнутую цену нет: скидки не разрешены
 
-        assert http.post(f"{base}/ads/ai-banners").json() == {"started": 6}            # заказаны все шесть объявлений (запасные тоже)
+        assert http.post(f"{base}/ads/ai-banners").json() == {"started": 4}            # заказаны все четыре объявления (запасное тоже)
         assert [a["ref_id"] for a in http.get(f"{base}/ads").json()["ads"]] == shown   # выбранные подачи сохранились на карточках
 
 
@@ -157,9 +157,9 @@ def test_a_niche_with_two_references_gives_the_other_ads_references_of_neighbour
         bid = setup(http)    # маникюр: в каталоге два приёма, остальные берутся у соседних ниш (косметика, парикмахерские)
         base = f"/api/businesses/{bid}/creatives"
         shown = [a["ref_id"] for a in http.get(f"{base}/ads").json()["ads"]]
-        assert all(shown[:3]) and len(set(shown[:3])) == 3 and set(shown[:2]) == {17, 18} and shown[3:] == [None] * 3
+        assert all(shown[:3]) and len(set(shown[:3])) == 3 and set(shown[:2]) == {17, 18} and shown[3:] == [None]
         assert refs.REFS[shown[2]][0] in {"cosmetics", "hair"}
-        assert http.post(f"{base}/ads/ai-banners").json() == {"started": 6}
+        assert http.post(f"{base}/ads/ai-banners").json() == {"started": 4}
         assert [a["ref_id"] for a in http.get(f"{base}/ads").json()["ads"]] == shown
 
 
@@ -173,9 +173,9 @@ def _draw(http, base, fakes, ad):
 
 def test_redrawing_keeps_the_reference_even_when_neighbours_use_all_of_them(monkeypatch):
     monkeypatch.setenv("FAL_KEY", "fal-test")
-    monkeypatch.setattr(refs, "NEIGHBOR_NICHES", {})      # только своя ниша: шесть приёмов барбершопа на шесть объявлений, свободных нет
+    monkeypatch.setattr(refs, "NEIGHBOR_NICHES", {})      # только своя ниша: приёмы барбершопа достаются всем четырём объявлениям, свободных нет
     monkeypatch.setattr(refs, "GENERIC_REFS", ())
-    monkeypatch.setattr("app.routes.creatives.REF_ADS", 6)   # в этом тесте приёмы получают все шесть объявлений
+    monkeypatch.setattr("app.routes.creatives.REF_ADS", 4)   # в этом тесте приёмы получают все четыре объявления
     fakes = Fakes(fal_done=True)
     with TestClient(app) as http:
         bid = setup(http, kind="Барбершоп", description="Мужские стрижки и оформление бороды. Работаем ежедневно с 10 до 22.")
@@ -185,7 +185,7 @@ def test_redrawing_keeps_the_reference_even_when_neighbours_use_all_of_them(monk
             _draw(http, base, fakes, ad)
         assert all(a["ai"]["status"] == "ready" for a in ads())
         taken = {a["ref_id"] for a in ads()}
-        assert len(taken) == 6
+        assert len(taken) == 4
         before = ads()[0]["ref_id"]
 
         first = _draw(http, base, fakes, ads()[0])                              # перерисовка не меняет референс
@@ -285,11 +285,11 @@ def test_redraw_all_redraws_every_live_ad_with_a_new_style_and_skips_the_ones_st
         ads = lambda: http.get(f"{base}/ads").json()["ads"]
         for ad in ads()[:3]:
             _draw(http, base, fakes, ad)                                                  # у каждого объявления свой текст на баннере
-        assert [a["ai"]["status"] for a in ads()] == ["ready"] * 3 + ["none"] * 3
-        assert http.post(f"{base}/ads/ai-banners").json() == {"started": 3}               # без redo заказаны только те, у кого баннера нет (запасные тоже)
+        assert [a["ai"]["status"] for a in ads()] == ["ready"] * 3 + ["none"]
+        assert http.post(f"{base}/ads/ai-banners").json() == {"started": 1}               # без redo заказаны только те, у кого баннера нет (запасное тоже)
         refs_before = [a["ref_id"] for a in ads()[:3]]
-        assert http.post(f"{base}/ads/ai-banners?redo=true").json() == {"started": 3}     # три готовых заново, остальные три уже рисуются и пропущены
-        assert [a["ai"]["status"] for a in ads()] == ["working"] * 6
+        assert http.post(f"{base}/ads/ai-banners?redo=true").json() == {"started": 3}     # три готовых заново, четвёртое уже рисуется и пропущено
+        assert [a["ai"]["status"] for a in ads()] == ["working"] * 4
         assert all(a["ref_id"] == before for a, before in zip(ads()[:3], refs_before))      # у каждого референс прежний
         assert http.post(f"{base}/ads/ai-banners?redo=true").json() == {"started": 0}     # пока рисуются, второй раз не заказываем
         versions = [c for c in http.get(f"{base}").json()["creatives"] if c["kind"] == "ai_banner" and c["status"] in ("draft", "approved")]

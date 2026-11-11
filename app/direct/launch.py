@@ -29,7 +29,7 @@ from app.direct.audience import autotargeting_for, effective_negatives, intents_
 from app.direct.texts import check, draft_variants, mentions_district, near_variants
 from app.engine.util import EngineError, MICRO, day_add, plural, rub
 
-MAX_VARIANTS = 6   # столько вариантов готовим и показываем в редакторе; в кампанию входят первые MAX_ADS, остальные запасные
+MAX_VARIANTS = 4   # столько вариантов готовим и показываем в редакторе; в кампанию входят первые MAX_ADS, остальные запасные
 MAX_ADS = 3        # объявлений в кампании: на малом бюджете больше не успеют набрать клики для сравнения
 DEFAULT_LIVE = 1   # сколько объявлений идёт в показ, пока владелец не выбрал сам; остальные из списка запасные
 START_SHARE = 0.7   # какую часть доступного бюджета отдаём кампании сразу, остальное про запас для роста

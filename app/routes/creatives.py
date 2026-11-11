@@ -527,7 +527,7 @@ def ab_copy(business_id: int, data: AbCopyIn, user: sqlite3.Row = Depends(curren
     conn.execute("INSERT INTO creatives (business_id, kind, title, body, source, angle, status, hook, position, ab_of) VALUES (?, 'text', ?, ?, 'claude', ?, 'approved', ?, 1000, ?)",
                  (business_id, pick["title"], pick["text"], pick.get("angle", ""), pick.get("hook", ""), unit["id"]))
     # порядок строим по списку ДО вставки: в нём ровно MAX_VARIANTS мест, и новый вариант с позицией 1000 в него бы не попал. Он встаёт сразу за идущими,
-    # а лишнее с конца списка уходит за пределы показываемых (запасные дальше шестого места не нужны)
+    # а лишнее с конца списка уходит за пределы показываемых (запасные дальше четвёртого места не нужны)
     new_key = (pick["title"], pick["text"])
     order = [(v["title"], v["text"]) for v in variants]
     order.insert(min(count, len(order)), new_key)

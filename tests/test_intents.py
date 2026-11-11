@@ -1,4 +1,4 @@
-import json
+﻿import json
 
 from fastapi.testclient import TestClient
 
@@ -71,9 +71,14 @@ def test_a_new_ad_joins_the_group_with_room_instead_of_opening_a_new_campaign(is
     with TestClient(app) as http:
         bid = setup(http, fake, isolated)
         assert http.post(f"/api/businesses/{bid}/audience").status_code == 200
+        monkeypatch.setattr("app.direct.launch.MAX_VARIANTS", 6)                                   # пятое объявление в показ можно взять только при большем списке: ставим число прямо в базе
         assert http.put(f"/api/businesses/{bid}/creatives/ads/live", json={"count": 4}).status_code == 200
         assert http.post(f"/api/businesses/{bid}/launch", json={"marking_confirmed": True}).status_code == 200
-        assert http.put(f"/api/businesses/{bid}/creatives/ads/live", json={"count": 5}).status_code == 200
+        from app.db import connect
+        conn = connect(isolated)
+        conn.execute("UPDATE businesses SET ads_live = 5 WHERE id = ?", (bid,))
+        conn.commit()
+        conn.close()
         plan = http.get(f"/api/businesses/{bid}/launch/preview").json()
         assert plan["adding"] and plan["groups"] == 0                                              # в группах по два объявления, место есть: новая кампания не нужна
         assert http.post(f"/api/businesses/{bid}/launch", json={"marking_confirmed": True}).status_code == 200

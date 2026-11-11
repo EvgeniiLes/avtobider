@@ -206,14 +206,14 @@ def test_more_than_three_ads_at_launch_go_into_several_campaigns_each_with_its_o
     fake = FakeDirect()
     with TestClient(app) as http:
         bid = setup(http, fake, isolated)
-        assert http.put(f"/api/businesses/{bid}/creatives/ads/live", json={"count": 5}).status_code == 200
+        assert http.put(f"/api/businesses/{bid}/creatives/ads/live", json={"count": 4}).status_code == 200
         preview = http.get(f"/api/businesses/{bid}/launch/preview").json()
         assert preview["groups"] == 2 and preview["total"] == preview["weekly"] * 2   # бюджет на каждую группу, всего вдвое больше
         r = http.post(f"/api/businesses/{bid}/launch", json={"marking_confirmed": True})
-        assert r.status_code == 200 and r.json()["created"] == 5 and len(fake.ads) == 5
+        assert r.status_code == 200 and r.json()["created"] == 4 and len(fake.ads) == 4
         assert len(fake.campaigns) == 2 and len({c["Limit"] for c in fake.campaigns.values()}) == 1   # две кампании, у каждой свой лимит
         sizes = sorted(sum(1 for a in fake.ads.values() if a["group"] == g) for g in fake.groups)
-        assert sizes == [2, 3]
+        assert sizes == [2, 2]
         first, second = list(fake.groups)
         assert {k["keyword"] for k in fake.keywords if k["group"] == first} == {k["keyword"] for k in fake.keywords if k["group"] == second}
         assert len({row["external_group_id"] for row in rows(isolated, "SELECT external_group_id FROM ad_units")}) == 2

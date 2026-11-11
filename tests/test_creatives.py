@@ -1,4 +1,4 @@
-import json
+﻿import json
 import sqlite3
 from io import BytesIO
 
@@ -296,8 +296,8 @@ def test_ready_ads_pair_text_with_banner():
         bid = setup(http)
         base = f"/api/businesses/{bid}/creatives"
         data = http.get(f"{base}/ads").json()
-        assert data["count"] == 3 and len(data["ads"]) == 6 and data["has_images"] is False   # в кампанию войдут три, ещё три запасные
-        assert [a["reserve"] for a in data["ads"]] == [False] * 3 + [True] * 3 and data["weekly"] > 0
+        assert data["count"] == 3 and len(data["ads"]) == 4 and data["has_images"] is False   # в кампанию войдут три, ещё одно запасное
+        assert [a["reserve"] for a in data["ads"]] == [False] * 3 + [True] and data["weekly"] > 0
         assert all(a["banner_url"] == "" and not a["own"] for a in data["ads"])  # без картинок и своих текстов
         assert http.get(f"{base}/ads/0/banner.jpg").status_code == 404
 
@@ -321,12 +321,12 @@ def test_dragging_a_spare_ad_into_the_live_places_changes_what_is_launched(isola
         base = f"/api/businesses/{bid}/creatives"
         ads = http.get(f"{base}/ads").json()["ads"]
         keys = [{"title": a["title"], "text": a["text"]} for a in ads]
-        spare = keys[4]                                         # запасное объявление, шаблонный текст без записи
-        new = [spare] + keys[:4] + keys[5:]                     # перетащили на первое место
+        spare = keys[3]                                         # запасное объявление, шаблонный текст без записи
+        new = [spare] + keys[:3]                                # перетащили на первое место
         assert http.put(f"{base}/ads/order", json={"ads": new}).status_code == 200
         after = http.get(f"{base}/ads").json()["ads"]
         assert [{"title": a["title"], "text": a["text"]} for a in after] == new
-        assert after[0]["reserve"] is False and after[2]["reserve"] is False and after[3]["reserve"] is True and sum(a["reserve"] for a in after) == 3
+        assert after[0]["reserve"] is False and after[2]["reserve"] is False and after[3]["reserve"] is True and sum(a["reserve"] for a in after) == 1
         assert http.put(f"{base}/ads/order", json={"ads": new}).status_code == 200   # повтор ничего не ломает
         assert [a["title"] for a in http.get(f"{base}/ads").json()["ads"]] == [k["title"] for k in new]
         from app.db import connect
@@ -361,22 +361,22 @@ def test_the_owner_can_take_fewer_or_more_ads_into_the_campaign_than_the_budget_
         base = f"/api/businesses/{bid}/creatives"
         data = http.get(f"{base}/ads").json()
         assert data["count"] == 3 and data["advised"] == 3
-        assert http.put(f"{base}/ads/live", json={"count": 5}).status_code == 200
+        assert http.put(f"{base}/ads/live", json={"count": 4}).status_code == 200
         data = http.get(f"{base}/ads").json()
-        assert data["count"] == 5 and data["advised"] == 3 and [a["reserve"] for a in data["ads"]] == [False] * 5 + [True]
+        assert data["count"] == 4 and data["advised"] == 3 and [a["reserve"] for a in data["ads"]] == [False] * 4
         assert http.put(f"{base}/ads/live", json={"count": 1}).status_code == 200
-        assert [a["reserve"] for a in http.get(f"{base}/ads").json()["ads"]] == [False] + [True] * 5
-        assert http.put(f"{base}/ads/live", json={"count": 0}).status_code == 422 and http.put(f"{base}/ads/live", json={"count": 9}).status_code == 422
+        assert [a["reserve"] for a in http.get(f"{base}/ads").json()["ads"]] == [False] + [True] * 3
+        assert http.put(f"{base}/ads/live", json={"count": 0}).status_code == 422 and http.put(f"{base}/ads/live", json={"count": 5}).status_code == 422
         conn = connect(isolated)
         biz = conn.execute("SELECT * FROM businesses WHERE id = ?", (bid,)).fetchone()
         assert start_split(biz)[1] == 1                                       # в кампанию уйдёт столько, сколько выбрано
         plan = plan_launch(biz, 213, custom=text_candidates(conn, biz))
         assert plan.count == 1 and len(plan.variants) == 1
-        http.put(f"{base}/ads/live", json={"count": 5})
+        http.put(f"{base}/ads/live", json={"count": 4})
         biz = conn.execute("SELECT * FROM businesses WHERE id = ?", (bid,)).fetchone()
         plan = plan_launch(biz, 213, custom=text_candidates(conn, biz))
         from app.direct.launch import group_sizes
-        assert plan.count == 5 and group_sizes(5) == [3, 2]
+        assert plan.count == 4 and group_sizes(4) == [2, 2]
         assert not any("подходит" in w for w in plan.warnings)                  # бюджет задан на группу, а в каждой группе не больше трёх
         conn.close()
         http.put(f"{base}/ads/live", json={"count": None})                  # вернуть число по бюджету
@@ -396,14 +396,14 @@ def test_the_order_of_ads_is_checked_and_private():
         assert http.put(f"{base}/ads/order", json={"ads": [keys[0], keys[0]]}).status_code == 400
         assert http.put(f"{base}/ads/order", json={"ads": keys[::-1][:2]}).status_code == 200   # неполный список: остальные идут следом
         titles = [a["title"] for a in http.get(f"{base}/ads").json()["ads"]]
-        assert titles[:2] == [keys[5]["title"], keys[4]["title"]] and len(titles) == 6
+        assert titles[:2] == [keys[3]["title"], keys[2]["title"]] and len(titles) == 4
     with TestClient(app) as other:
         other.post("/api/auth/register", json={"email": "x@example.com", "password": "password123"})
         assert other.put(f"{base}/ads/order", json={"ads": []}).status_code == 404
 
 
 def _ai_ad(http, bid):
-    ad = http.get(f"/api/businesses/{bid}/creatives/ads").json()["ads"][4]
+    ad = http.get(f"/api/businesses/{bid}/creatives/ads").json()["ads"][3]
     assert ad["style"] == "ai"
     return ad
 
@@ -417,8 +417,8 @@ def test_ai_banner_is_ordered_checked_and_used(monkeypatch):
         ad = _ai_ad(http, bid)
         assert ad["ai"]["status"] == "none" and ad["banner_url"] == ""
         assert http.post(f"{base}/ads/99/ai-banner").status_code == 400     # такого объявления нет
-        assert http.post(f"{base}/ads/4/ai-banner").json() == {"started": True}
-        assert http.post(f"{base}/ads/4/ai-banner").status_code == 400      # второй раз, пока рисуется, нельзя
+        assert http.post(f"{base}/ads/3/ai-banner").json() == {"started": True}
+        assert http.post(f"{base}/ads/3/ai-banner").status_code == 400      # второй раз, пока рисуется, нельзя
         host, path, body = next(r for r in fakes.requests if r[0] == "queue.fal.run")   # перед рисованием арт-директор придумывает сцену
         assert "nano-banana-2.1" in path
         assert b"Visual direction" in body and b"ONLY a style inspiration" not in body      # у объявления есть приём (свой или соседней ниши): референс уходит картинкой, размер и качество стоят после неё и в запомненную часть тела не входят
@@ -429,10 +429,10 @@ def test_ai_banner_is_ordered_checked_and_used(monkeypatch):
         fakes.claude_text = json.dumps([ad["title"], "Лотос", "ЗАПИСАТЬСЯ"], ensure_ascii=False)  # регистр и кавычки не важны
         http.get(base)
         ready = _ai_ad(http, bid)
-        assert ready["ai"]["status"] == "ready" and "/ads/4/banner.jpg?v=" in ready["banner_url"]
+        assert ready["ai"]["status"] == "ready" and "/ads/3/banner.jpg?v=" in ready["banner_url"]
         banner = http.get(ready["banner_url"])
         assert banner.status_code == 200 and banner.headers["content-type"] == "image/jpeg"
-        assert http.get(f"{base}/ads/4/banner.jpg").status_code == 200
+        assert http.get(f"{base}/ads/3/banner.jpg").status_code == 200
         assert http.get(base).json()["spend"]["spent_usd"] == 0.07   # четвёртое объявление рисуется без референса: только баннер, 7 центов
 
 
@@ -467,14 +467,14 @@ def test_banner_history_and_restore(monkeypatch):
         base = f"/api/businesses/{bid}/creatives"
         ad = _ai_ad(http, bid)
         fakes.claude_text = json.dumps([ad["title"], "ЗАПИСАТЬСЯ"], ensure_ascii=False)
-        assert http.post(f"{base}/ads/4/ai-banner").status_code == 200
+        assert http.post(f"{base}/ads/3/ai-banner").status_code == 200
         http.get(base)
         history = [c for c in http.get(base).json()["creatives"] if c["kind"] == "ai_banner"]
         assert len(history) == 1 and history[0]["status"] == "draft" and history[0]["url"]
         assert history[0]["meta"]["scene"]                                          # сюжет виден в истории
         first = history[0]["id"]
         fakes.claude_text = json.dumps(["не то", "совсем не то"], ensure_ascii=False)  # второй заказ с ошибками в тексте: не принят
-        assert http.post(f"{base}/ads/4/ai-banner").status_code == 200
+        assert http.post(f"{base}/ads/3/ai-banner").status_code == 200
         http.get(base)
         assert _ai_ad(http, bid)["ai"]["status"] == "failed"                        # на карточке видна ошибка, хорошего баннера там нет
         spent = http.get(base).json()["spend"]["spent_usd"]
@@ -502,26 +502,26 @@ def test_restoring_an_older_version_only_moves_the_marker(monkeypatch):
         banners = lambda: sorted((c for c in http.get(base).json()["creatives"] if c["kind"] == "ai_banner"), key=lambda c: c["id"])
         for color in ((200, 40, 40), (40, 40, 200)):
             out = BytesIO(); Image.new("RGB", (900, 900), color).save(out, "PNG"); fakes.image = out.getvalue()
-            assert http.post(f"{base}/ads/4/ai-banner").status_code == 200
+            assert http.post(f"{base}/ads/3/ai-banner").status_code == 200
             http.get(base)
         old, new = banners()
         assert [old["current"], new["current"]] == [False, True]
-        shown_new = http.get(f"{base}/ads/4/banner.jpg").content
+        shown_new = http.get(f"{base}/ads/3/banner.jpg").content
 
         assert http.post(f"{base}/{old['id']}/restore").json() == {"restored": True}
         after = banners()
         assert [b["id"] for b in after] == [old["id"], new["id"]] and [b["current"] for b in after] == [True, False]   # ни копий, ни перестановки
-        assert http.get(f"{base}/ads/4/banner.jpg").content != shown_new                       # на объявлении теперь прежняя версия
+        assert http.get(f"{base}/ads/3/banner.jpg").content != shown_new                       # на объявлении теперь прежняя версия
         assert http.post(f"{base}/{old['id']}/restore").status_code == 200                       # повторное нажатие ничего не ломает
         assert len(banners()) == 2
 
-        assert http.post(f"{base}/ads/4/ai-banner").status_code == 200                           # новый заказ снова становится показываемым
+        assert http.post(f"{base}/ads/3/ai-banner").status_code == 200                           # новый заказ снова становится показываемым
         http.get(base)
         third = banners()
         assert len(third) == 3 and [b["current"] for b in third] == [False, False, True]
 
         fakes.fal_done = False
-        assert http.post(f"{base}/ads/4/ai-banner").status_code == 200
+        assert http.post(f"{base}/ads/3/ai-banner").status_code == 200
         assert http.post(f"{base}/{old['id']}/restore").status_code == 400                     # пока рисуется новая, вернуть нельзя
 
 
@@ -532,14 +532,14 @@ def test_all_ai_banners_are_ordered_once_each_with_different_directions(monkeypa
     with TestClient(app) as http:
         bid = setup(http)
         base = f"/api/businesses/{bid}/creatives"
-        assert http.post(f"{base}/ads/ai-banners").json() == {"started": 6}        # все шесть объявлений: и кампании, и запасные
+        assert http.post(f"{base}/ads/ai-banners").json() == {"started": 4}        # все четыре объявления: и кампании, и запасное
         assert http.post(f"{base}/ads/ai-banners").json() == {"started": 0}        # повторно не платим за то, что уже рисуется
         prompts = [b.decode(errors="ignore") for h, _, b in fakes.requests if h == "queue.fal.run"]
-        assert len(prompts) == 6 and len({p.split("Visual direction:")[1][:170] for p in prompts}) == 6   # у каждого баннера своё направление
+        assert len(prompts) == 4 and len({p.split("Visual direction:")[1][:170] for p in prompts}) == 4   # у каждого баннера своё направление
         assert sum("ONLY a style inspiration" in p for p in prompts) == 3                                       # у маникюра в каталоге два приёма, ещё берутся приёмы соседних ниш: у каждого объявления свой референс
         ads = http.get(f"{base}/ads").json()["ads"]
-        assert [a["ai"]["status"] for a in ads] == ["working"] * 6 and [a["reserve"] for a in ads] == [False] * 3 + [True] * 3
-        assert http.get(base).json()["spend"]["spent_usd"] == 0.48     # шесть баннеров и три референса картинкой
+        assert [a["ai"]["status"] for a in ads] == ["working"] * 4 and [a["reserve"] for a in ads] == [False] * 3 + [True]
+        assert http.get(base).json()["spend"]["spent_usd"] == 0.34     # четыре баннера и три референса картинкой
 
 
 def test_ai_banner_with_typos_is_rejected(monkeypatch):
@@ -549,11 +549,11 @@ def test_ai_banner_with_typos_is_rejected(monkeypatch):
         bid = setup(http)
         base = f"/api/businesses/{bid}/creatives"
         _ai_ad(http, bid)
-        http.post(f"{base}/ads/4/ai-banner")
+        http.post(f"{base}/ads/3/ai-banner")
         http.get(base)
         ad = _ai_ad(http, bid)
         assert ad["ai"]["status"] == "failed" and "ошибки в тексте" in ad["ai"]["error"] and ad["banner_url"] == ""
-        assert http.get(f"{base}/ads/4/banner.jpg").status_code == 404
+        assert http.get(f"{base}/ads/3/banner.jpg").status_code == 404
 
 
 def test_extra_words_ignores_short_words_repeats_and_noise_in_expected_texts():
@@ -573,27 +573,27 @@ def test_ai_banner_with_extra_small_text_is_rejected_but_a_stray_word_is_not(mon
         base = f"/api/businesses/{bid}/creatives"
         ad = _ai_ad(http, bid)
         fakes.claude_text = json.dumps([ad["title"], "ЗАПИСАТЬСЯ", "Лотос"], ensure_ascii=False)   # одно постороннее слово: терпим
-        http.post(f"{base}/ads/4/ai-banner")
+        http.post(f"{base}/ads/3/ai-banner")
         http.get(base)
         assert _ai_ad(http, bid)["ai"]["status"] == "ready"
 
         fakes.claude_text = json.dumps([ad["title"], "ЗАПИСАТЬСЯ", "Маникюр 1500", "Педикюр 1800", "Наращивание ресниц"], ensure_ascii=False)
-        http.post(f"{base}/ads/4/ai-banner")
+        http.post(f"{base}/ads/3/ai-banner")
         http.get(base)
         bad = _ai_ad(http, bid)
         assert bad["ai"]["status"] == "failed" and "лишний текст" in bad["ai"]["error"]
         assert "педикюр" in bad["ai"]["error"] and "маникюр" not in bad["ai"]["error"]   # слова из заголовка лишними не считаются
-        assert http.get(f"{base}/ads/4/banner.jpg").status_code == 200                    # а прежний принятый баннер остаётся на объявлении
-        assert bad["ai"]["rejected_url"].endswith("/ads/4/rejected.jpg")                  # забракованную картинку тоже можно посмотреть: видно, что не так
-        shown = http.get(f"{base}/ads/4/rejected.jpg")
+        assert http.get(f"{base}/ads/3/banner.jpg").status_code == 200                    # а прежний принятый баннер остаётся на объявлении
+        assert bad["ai"]["rejected_url"].endswith("/ads/3/rejected.jpg")                  # забракованную картинку тоже можно посмотреть: видно, что не так
+        shown = http.get(f"{base}/ads/3/rejected.jpg")
         assert shown.status_code == 200 and shown.headers["content-type"] == "image/jpeg" and len(shown.content) > 100
-        assert http.get(f"{base}/ads/3/rejected.jpg").status_code == 404                  # у объявления без забракованного баннера её нет
-        assert http.post(f"{base}/ads/3/accept-rejected").status_code == 400              # принять нечего: забракованного баннера нет
+        assert http.get(f"{base}/ads/2/rejected.jpg").status_code == 404                  # у объявления без забракованного баннера её нет
+        assert http.post(f"{base}/ads/2/accept-rejected").status_code == 400              # принять нечего: забракованного баннера нет
 
-        assert http.post(f"{base}/ads/4/accept-rejected").json() == {"accepted": True}    # владелец считает баннер хорошим: он встаёт на объявление
+        assert http.post(f"{base}/ads/3/accept-rejected").json() == {"accepted": True}    # владелец считает баннер хорошим: он встаёт на объявление
         ok = _ai_ad(http, bid)
         assert ok["ai"]["status"] == "ready" and not ok["ai"]["error"] and "rejected_url" not in ok["ai"]
-        assert http.post(f"{base}/ads/4/accept-rejected").status_code == 400              # повторно принимать нечего
+        assert http.post(f"{base}/ads/3/accept-rejected").status_code == 400              # повторно принимать нечего
 
 
 def test_banner_prompts_name_no_caption_and_ask_for_no_empty_strip_at_the_bottom():
@@ -631,18 +631,18 @@ def test_the_service_adds_nothing_at_the_bottom_of_a_finished_banner_even_with_a
         fakes.claude_text = json.dumps([ad["title"], "ЗАПИСАТЬСЯ"], ensure_ascii=False)
 
         def bottom_and_top():
-            im = Image.open(BytesIO(http.get(f"{base}/ads/4/banner.jpg").content)).convert("L")
+            im = Image.open(BytesIO(http.get(f"{base}/ads/3/banner.jpg").content)).convert("L")
             w, h = im.size
             return im.crop((0, int(h * 0.92), w, h)).getextrema(), im.crop((0, 0, w, int(h * 0.6))).getextrema()
 
-        http.post(f"{base}/ads/4/ai-banner")
+        http.post(f"{base}/ads/3/ai-banner")
         http.get(base)
         assert _ai_ad(http, bid)["ai"]["status"] == "ready"
         bottom, top = bottom_and_top()
         assert bottom[1] < 140 and bottom[0] > 80 and top[1] < 140               # низ такой же, как верх: ни полосы, ни подписи, картинка не тронута
 
         own = "Нарисуй спокойный баннер: крупный план рук мастера и короткий заголовок слева."
-        assert http.post(f"{base}/ads/4/ai-banner", json={"prompt": own}).status_code == 200   # свой промпт: сервис тоже ничего не дописывает
+        assert http.post(f"{base}/ads/3/ai-banner", json={"prompt": own}).status_code == 200   # свой промпт: сервис тоже ничего не дописывает
         http.get(base)
         assert _ai_ad(http, bid)["ai"]["status"] == "ready" and bottom_and_top()[0][1] < 140
 
@@ -695,7 +695,7 @@ def test_banner_with_a_price_that_is_not_in_the_ad_is_rejected(monkeypatch):
         base = f"/api/businesses/{bid}/creatives"
         ad = _ai_ad(http, bid)
         fakes.claude_text = json.dumps([ad["title"], "ЗАПИСАТЬСЯ", "от 9 000 ₽"], ensure_ascii=False)   # у объявления цены нет, а на баннере она появилась
-        http.post(f"{base}/ads/4/ai-banner")
+        http.post(f"{base}/ads/3/ai-banner")
         http.get(base)
         bad = _ai_ad(http, bid)
         assert bad["ai"]["status"] == "failed" and "цена, которой нет" in bad["ai"]["error"] and "9 000" in bad["ai"]["error"]
@@ -708,7 +708,7 @@ def test_a_failed_text_reading_is_retried_so_the_banner_is_not_accepted_unchecke
         bid = setup(http)
         base = f"/api/businesses/{bid}/creatives"
         ad = _ai_ad(http, bid)
-        http.post(f"{base}/ads/4/ai-banner")                                  # заказ: арт-директору и художнику сбой не мешает
+        http.post(f"{base}/ads/3/ai-banner")                                  # заказ: арт-директору и художнику сбой не мешает
         fakes.fal_done = True
         fakes.claude_text = json.dumps([ad["title"], "ЗАПИСАТЬСЯ", "от 9 000 ₽"], ensure_ascii=False)   # на баннере чужая цена
         fakes.fail_chat = 1                                                    # первое чтение текста упало
@@ -725,7 +725,7 @@ def test_banner_that_contradicts_the_business_facts_is_rejected_and_a_clean_one_
         base = f"/api/businesses/{bid}/creatives"
         ad = _ai_ad(http, bid)
         fakes.claude_text = json.dumps([ad["title"], "ЗАПИСАТЬСЯ"], ensure_ascii=False)
-        order = lambda: (http.post(f"{base}/ads/4/ai-banner"), http.get(base), _ai_ad(http, bid))[2]
+        order = lambda: (http.post(f"{base}/ads/3/ai-banner"), http.get(base), _ai_ad(http, bid))[2]
 
         fakes.facts_text = '{"problems": ["срок указан 4 недели, а в описании 4–6 недель"]}'
         bad = order()
@@ -1078,11 +1078,11 @@ def test_ab_copy_works_when_the_ad_list_is_full_and_skips_texts_that_fail_the_ch
     with TestClient(app) as http:
         bid = setup(http, description=FACTS)
         base = f"/api/businesses/{bid}/creatives"
-        for n in range(6):   # шесть одобренных текстов с заданным порядком заполняют список целиком: новому варианту с большой позицией места в нём не осталось бы
+        for n in range(4):   # четыре одобренных текста с заданным порядком заполняют список целиком: новому варианту с большой позицией места в нём не осталось бы
             made = http.post(f"{base}/texts", json={"title": f"Маникюр вариант {n}", "body": f"Запишитесь на маникюр {n}"}).json()
             http.put(f"{base}/{made['id']}", json={"status": "approved"})
         listed = http.get(f"{base}/ads").json()["ads"]
-        assert len(listed) == 6
+        assert len(listed) == 4
         assert http.put(f"{base}/ads/order", json={"ads": [{"title": a["title"], "text": a["text"]} for a in listed]}).status_code == 200
         http.post(f"/api/businesses/{bid}/sim/start")
         unit = http.get(f"/api/businesses/{bid}/overview").json()["units"][0]
