@@ -7,6 +7,7 @@ import json
 import math
 import random
 import sqlite3
+from dataclasses import dataclass
 
 from app.engine.config import EngineConfig
 from app.engine.stats import classify, enough_data, prob_b_better, prob_ok
@@ -239,6 +240,138 @@ def _cohort_step(conn, platform, biz, today, as_of, cfg, propose=False) -> list[
     return made
 
 
+@dataclass
+class _Cycle:
+    """Всё, что нужно шагам одного цикла: база, площадка, бизнес, день и пороги (поведение шагов описано в run_cycle)."""
+    conn: sqlite3.Connection
+    platform: Platform
+    biz: sqlite3.Row
+    today: str
+    cfg: EngineConfig
+    propose: bool
+    lead_target: int
+    cpa: int
+
+    def cooling(self, u) -> bool:
+        return bool(u["last_changed_day"]) and days_between(u["last_changed_day"], self.today) < self.cfg.cooldown_days
+
+    def evidence(self, e) -> dict:
+        return {"clicks": e["stats"]["clicks"], "leads": e["stats"]["leads"], "spend": e["stats"]["spend"],
+                "p_ok": round(e["p"], 3), "target_lead": self.lead_target}
+
+
+def _active_units(conn, biz) -> list:
+    return conn.execute("SELECT * FROM ad_units WHERE business_id = ? AND state = 'active' ORDER BY id", (biz["id"],)).fetchall()
+
+
+def _evaluate(c: _Cycle, units: list, start: str, as_of: str) -> list[dict]:
+    """Оценка каждого объявления за окно: хватает ли данных, окупается ли, чем была вчера. Записывает оценки."""
+    evals = []
+    for u in units:
+        s = unit_stats(c.conn, u["id"], start, as_of)
+        if not enough_data(s["clicks"], s["spend"], c.cpa, c.cfg):
+            cls, p = "waiting", 0.0
+        else:
+            p = prob_ok(s["clicks"], s["leads"], s["spend"], c.lead_target, random.Random(f"{u['id']}:{c.today}"), c.cfg.samples)
+            cls = classify(p, c.cfg)
+            early = c.cfg.early_days > 0 and days_between(u["created_day"], c.today) < c.cfg.early_days   # первые дни: кликов мало, судим строже
+            if s["leads"] == 0 and s["spend"] >= (c.cfg.early_zero_factor if early else 2) * c.lead_target:
+                cls = "bad"  # потратили в несколько раз больше цены обращения, а обращений нет
+            elif early and cls == "bad" and p > c.cfg.early_p_bad:
+                cls = "borderline"  # по обычному правилу слабое, но данных ещё мало для такого вывода
+        prev = c.conn.execute(
+            "SELECT cls FROM evaluations WHERE unit_id = ? AND day < ? ORDER BY day DESC, id DESC LIMIT 1", (u["id"], c.today)
+        ).fetchone()
+        c.conn.execute(
+            "INSERT INTO evaluations (unit_id, day, cls, p_ok, clicks, leads, spend_micro) VALUES (?,?,?,?,?,?,?)",
+            (u["id"], c.today, cls, p, s["clicks"], s["leads"], s["spend"]),
+        )
+        evals.append({"unit": u, "stats": s, "cls": cls, "p": p, "prev": prev["cls"] if prev else None})
+    return evals
+
+
+def _stop_weak(c: _Cycle, evals: list[dict], units: list, in_test: set, shared: bool, free: int) -> tuple[list[int], int]:
+    """Слабые отключаем: освободившийся бюджет возвращается в общий запас. Возвращает (записи истории, запас)."""
+    made: list[int] = []
+    working: dict = {}   # сколько объявлений ещё работает в каждой кампании (в общей кампании последнее не останавливаем никогда)
+    for u in units:
+        working[u["campaign_id"]] = working.get(u["campaign_id"], 0) + 1
+    for e in evals:
+        u = e["unit"]
+        if e["cls"] == "bad" and e["prev"] == "bad" and not c.cooling(u) and u["id"] not in in_test:
+            if shared and working[u["campaign_id"]] <= 1:
+                continue
+            s = e["stats"]
+            change_id = _pause(
+                c.conn, c.platform, c.biz, u, c.today, "bad_unit",
+                f"Остановили «{u['title']}»: потратили {rub(s['spend'])}, {_lead_cost_text(s['spend'], s['leads'])}. "
+                f"Вы готовы платить за обращение не больше {rub(c.lead_target)}.",
+                c.evidence(e), propose=c.propose,
+            )
+            if change_id is not None:
+                made.append(change_id)
+                working[u["campaign_id"]] -= 1   # и предложенную остановку считаем: подтвердят все, последнее объявление кампании останется
+            if not c.propose:
+                free += u["budget_micro"]  # бюджет освободится, только когда остановка состоится
+    return made, free
+
+
+def _raise_good(c: _Cycle, evals: list[dict], in_test: set, free: int) -> tuple[list[int], int]:
+    """Хорошим добавляем бюджет, начиная с самых надёжных."""
+    made: list[int] = []
+    good = sorted((e for e in evals if e["cls"] == "good" and e["prev"] == "good"), key=lambda e: -e["p"])
+    for e in good:
+        u = e["unit"]
+        if c.cooling(u) or u["id"] in in_test:
+            continue
+        new = int(u["budget_micro"] * (1 + c.cfg.raise_step))
+        if new - u["budget_micro"] > free:
+            continue
+        if c.propose and has_open_proposal(c.conn, u["id"], "set_budget"):
+            continue
+        free -= new - u["budget_micro"]
+        s = e["stats"]
+        text = (
+            f"Добавили {round(c.cfg.raise_step * 100)}% бюджета для «{u['title']}»: {_lead_cost_text(s['spend'], s['leads'])}, "
+            f"это дешевле вашей цели ({rub(c.lead_target)}). Бюджет на неделю: {rub(u['budget_micro'])} → {rub(new)}."
+        )
+        before, after = {"budget_micro": u["budget_micro"]}, {"budget_micro": new}
+        if c.propose:
+            made.append(_propose(c.conn, c.biz, u["id"], c.today, "set_budget", "good_unit", text, before, after, c.evidence(e)))
+        else:
+            c.platform.set_budget(u["id"], new, c.today)
+            made.append(log_change(c.conn, c.biz["id"], u["id"], c.today, "auto", "set_budget", "good_unit", text, before, after, c.evidence(e)))
+    return made, free
+
+
+def _test_borderline(c: _Cycle, evals: list[dict], in_test: set, tested_before: set, free: int) -> list[int]:
+    """Пограничным даём шанс: сравниваем с новым вариантом."""
+    made: list[int] = []
+    for e in evals:
+        u = e["unit"]
+        if e["cls"] != "borderline" or e["prev"] != "borderline" or c.cooling(u):
+            continue
+        if u["id"] in in_test or u["id"] in tested_before or u["variant_of"] is not None:
+            continue
+        if u["budget_micro"] > free:
+            continue
+        if c.propose and has_open_proposal(c.conn, u["id"], "start_test"):
+            continue
+        s = e["stats"]
+        unclear = f"пока не ясно, окупается ли оно ({_lead_cost_text(s['spend'], s['leads'])}, цель {rub(c.lead_target)})"
+        if c.propose:
+            free -= u["budget_micro"]
+            made.append(_propose(
+                c.conn, c.biz, u["id"], c.today, "start_test", "borderline_unit",
+                f"Запустили сравнение для «{u['title']}»: {unclear}. Добавили второй вариант с таким же бюджетом.",
+                {}, {}, {**c.evidence(e), "free_text": unclear},
+            ))
+            continue
+        made.append(_start_test(c.conn, c.platform, c.biz, u, c.today, free_text=unclear, evidence=c.evidence(e)))
+        free -= u["budget_micro"]
+    return made
+
+
 def run_cycle(
     conn: sqlite3.Connection, biz: sqlite3.Row, platform: Platform, today: str,
     cfg: EngineConfig = EngineConfig(), propose: bool | None = None, decide: bool = True,
@@ -253,17 +386,15 @@ def run_cycle(
     cpa = target_cpa_micro(biz)
     if lead_target <= 0:
         raise EngineError("Не получилось рассчитать допустимую цену обращения. Проверьте цену клиента и долю обращений.", "no_target")
+    c = _Cycle(conn, platform, biz, today, cfg, propose, lead_target, cpa)
 
     as_of = day_add(today, -cfg.lag_days)
     start = day_add(as_of, -(cfg.window_days - 1))
     budget_total = total_budget(conn, biz)
     made: list[int] = []
 
-    def active_units():
-        return conn.execute("SELECT * FROM ad_units WHERE business_id = ? AND state = 'active' ORDER BY id", (biz["id"],)).fetchall()
-
     shared = bool(getattr(platform, "shared_budget", False))   # объявления делят бюджет одной кампании (Директ)
-    units = active_units()
+    units = _active_units(conn, biz)
     spent_by = conn.execute("SELECT * FROM ad_units WHERE business_id = ?", (biz["id"],)).fetchall() if shared else units   # остановленное тоже тратило
     week_spend = sum(unit_stats(conn, u["id"], day_add(as_of, -6), as_of)["spend"] for u in spent_by)
 
@@ -289,7 +420,7 @@ def run_cycle(
 
     # 2. Завершённые A/B-тесты.
     made += _finish_experiments(conn, platform, biz, today, as_of, cfg, propose=propose)
-    units = active_units()
+    units = _active_units(conn, biz)
     in_test = {
         uid for row in conn.execute("SELECT unit_a, unit_b FROM experiments WHERE business_id = ? AND status = 'running'", (biz["id"],))
         for uid in (row["unit_a"], row["unit_b"])
@@ -300,114 +431,21 @@ def run_cycle(
 
     # 3. Оценка каждого объявления.
     free = int((1 - cfg.reserve) * budget_total) - sum(u["budget_micro"] for u in units)
-    evals = []
-    for u in units:
-        s = unit_stats(conn, u["id"], start, as_of)
-        if not enough_data(s["clicks"], s["spend"], cpa, cfg):
-            cls, p = "waiting", 0.0
-        else:
-            p = prob_ok(s["clicks"], s["leads"], s["spend"], lead_target, random.Random(f"{u['id']}:{today}"), cfg.samples)
-            cls = classify(p, cfg)
-            early = cfg.early_days > 0 and days_between(u["created_day"], today) < cfg.early_days   # первые дни: кликов мало, судим строже
-            if s["leads"] == 0 and s["spend"] >= (cfg.early_zero_factor if early else 2) * lead_target:
-                cls = "bad"  # потратили в несколько раз больше цены обращения, а обращений нет
-            elif early and cls == "bad" and p > cfg.early_p_bad:
-                cls = "borderline"  # по обычному правилу слабое, но данных ещё мало для такого вывода
-        prev = conn.execute(
-            "SELECT cls FROM evaluations WHERE unit_id = ? AND day < ? ORDER BY day DESC, id DESC LIMIT 1", (u["id"], today)
-        ).fetchone()
-        conn.execute(
-            "INSERT INTO evaluations (unit_id, day, cls, p_ok, clicks, leads, spend_micro) VALUES (?,?,?,?,?,?,?)",
-            (u["id"], today, cls, p, s["clicks"], s["leads"], s["spend"]),
-        )
-        evals.append({"unit": u, "stats": s, "cls": cls, "p": p, "prev": prev["cls"] if prev else None})
+    evals = _evaluate(c, units, start, as_of)
 
-    def cooling(u) -> bool:
-        return bool(u["last_changed_day"]) and days_between(u["last_changed_day"], today) < cfg.cooldown_days
-
-    def evidence(e):
-        return {"clicks": e["stats"]["clicks"], "leads": e["stats"]["leads"], "spend": e["stats"]["spend"],
-                "p_ok": round(e["p"], 3), "target_lead": lead_target}
-
-    # 4. Слабые отключаем: освободившийся бюджет возвращается в общий запас.
-    working: dict = {}   # сколько объявлений ещё работает в каждой кампании (в общей кампании последнее не останавливаем никогда)
-    for u in units:
-        working[u["campaign_id"]] = working.get(u["campaign_id"], 0) + 1
-    for e in evals:
-        u = e["unit"]
-        if e["cls"] == "bad" and e["prev"] == "bad" and not cooling(u) and u["id"] not in in_test:
-            if shared and working[u["campaign_id"]] <= 1:
-                continue
-            s = e["stats"]
-            change_id = _pause(
-                conn, platform, biz, u, today, "bad_unit",
-                f"Остановили «{u['title']}»: потратили {rub(s['spend'])}, {_lead_cost_text(s['spend'], s['leads'])}. "
-                f"Вы готовы платить за обращение не больше {rub(lead_target)}.",
-                evidence(e), propose=propose,
-            )
-            if change_id is not None:
-                made.append(change_id)
-                working[u["campaign_id"]] -= 1   # и предложенную остановку считаем: подтвердят все, последнее объявление кампании останется
-            if not propose:
-                free += u["budget_micro"]  # бюджет освободится, только когда остановка состоится
+    # 4. Слабые отключаем.
+    stopped, free = _stop_weak(c, evals, units, in_test, shared, free)
+    made += stopped
 
     if shared:
         # 5-6. В общей кампании бюджет и стратегия общие: решаем про кампанию целиком. Отдельных сравнений не запускаем:
         # варианты и так показываются в одних аукционах, и слабый уходит по правилу выше.
         for camp in conn.execute("SELECT * FROM campaigns WHERE business_id = ? AND external_id IS NOT NULL ORDER BY id", (biz["id"],)).fetchall():
             made += _campaign_step(conn, platform, biz, today, as_of, cfg, lead_target, cpa, propose, block_growth, camp)
-    # 5. Хорошим добавляем бюджет, начиная с самых надёжных.
     elif not block_growth:
-        good = sorted((e for e in evals if e["cls"] == "good" and e["prev"] == "good"), key=lambda e: -e["p"])
-        for e in good:
-            u = e["unit"]
-            if cooling(u) or u["id"] in in_test:
-                continue
-            new = int(u["budget_micro"] * (1 + cfg.raise_step))
-            if new - u["budget_micro"] > free:
-                continue
-            if propose and has_open_proposal(conn, u["id"], "set_budget"):
-                continue
-            free -= new - u["budget_micro"]
-            s = e["stats"]
-            text = (
-                f"Добавили {round(cfg.raise_step * 100)}% бюджета для «{u['title']}»: {_lead_cost_text(s['spend'], s['leads'])}, "
-                f"это дешевле вашей цели ({rub(lead_target)}). Бюджет на неделю: {rub(u['budget_micro'])} → {rub(new)}."
-            )
-            before, after = {"budget_micro": u["budget_micro"]}, {"budget_micro": new}
-            if propose:
-                made.append(_propose(conn, biz, u["id"], today, "set_budget", "good_unit", text, before, after, evidence(e)))
-            else:
-                platform.set_budget(u["id"], new, today)
-                made.append(log_change(conn, biz["id"], u["id"], today, "auto", "set_budget", "good_unit", text, before, after, evidence(e)))
-
-        # 6. Пограничным даём шанс: сравниваем с новым вариантом.
-        for e in evals:
-            u = e["unit"]
-            if e["cls"] != "borderline" or e["prev"] != "borderline" or cooling(u):
-                continue
-            if u["id"] in in_test or u["id"] in tested_before or u["variant_of"] is not None:
-                continue
-            if u["budget_micro"] > free:
-                continue
-            if propose and has_open_proposal(conn, u["id"], "start_test"):
-                continue
-            s = e["stats"]
-            if propose:
-                free -= u["budget_micro"]
-                made.append(_propose(
-                    conn, biz, u["id"], today, "start_test", "borderline_unit",
-                    f"Запустили сравнение для «{u['title']}»: пока не ясно, окупается ли оно ({_lead_cost_text(s['spend'], s['leads'])}, "
-                    f"цель {rub(lead_target)}). Добавили второй вариант с таким же бюджетом.",
-                    {}, {}, {**evidence(e), "free_text": (
-                        f"пока не ясно, окупается ли оно ({_lead_cost_text(s['spend'], s['leads'])}, цель {rub(lead_target)})"
-                    )},
-                ))
-                continue
-            made.append(_start_test(conn, platform, biz, u, today, free_text=(
-                f"пока не ясно, окупается ли оно ({_lead_cost_text(s['spend'], s['leads'])}, цель {rub(lead_target)})"
-            ), evidence=evidence(e)))
-            free -= u["budget_micro"]
+        raised, free = _raise_good(c, evals, in_test, free)   # 5. Хорошим добавляем бюджет
+        made += raised
+        made += _test_borderline(c, evals, in_test, tested_before, free)   # 6. Пограничным даём шанс
 
     conn.commit()
     return made

@@ -35,12 +35,10 @@ def test_fonts_and_example_images_are_served_from_our_server():
         assert "fonts.googleapis" not in css and "/static/fonts/golos-cyrillic.woff2" in css
 
 
-def test_previous_versions_stay_available():
+def test_the_site_is_served_from_one_place_and_old_versions_are_gone():
     with TestClient(app) as http:
-        old2 = http.get("/old2")
-        assert old2.status_code == 200 and "/static-v2/app.js" in old2.text
-        assert http.get("/static-v2/app.js").status_code == 200 and http.get("/static-v2/style.css").status_code == 200
         assert "/static/app.js" in http.get("/").text
+        assert http.get("/old").status_code == 404 and http.get("/old2").status_code == 404
 
 
 def test_guest_home_has_one_example_and_the_form():

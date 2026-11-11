@@ -18,14 +18,6 @@ def upload(http, base, tag="work"):
     return r.json()["id"]
 
 
-def test_the_previous_version_of_the_site_stays_available():
-    with TestClient(app) as http:
-        page = http.get("/old")
-        assert page.status_code == 200 and "Новая версия сайта" in page.text and "/static-v1/app.js" in page.text
-        assert http.get("/static-v1/app.js").status_code == 200 and http.get("/static-v1/style.css").status_code == 200
-        assert "/static/app.js" in http.get("/").text and "Новая версия сайта" not in http.get("/").text
-
-
 def test_ads_carry_everything_the_editor_needs(monkeypatch):
     monkeypatch.setenv("FAL_KEY", "fal-test")
     Fakes()
