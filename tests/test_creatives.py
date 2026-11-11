@@ -1075,6 +1075,29 @@ def test_ab_copy_makes_a_draft_for_the_ab_page_without_changing_what_goes_into_t
         assert http.post(f"{base}/ads/ab-copy", json={"unit_id": 99999}).status_code == 404
 
 
+def test_ab_copy_works_when_the_ad_list_is_full_and_skips_texts_that_fail_the_checks(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+    too_long = "Маникюр с покрытием гель-лак в центре города для тех, кто ценит своё время и качество"   # длиннее заголовка объявления: в список не попадёт
+    fakes = Fakes(claude_text=json.dumps([{"title": too_long, "text": "Запись онлайн", "angle": "price"},
+                                          {"title": "Маникюр без ожидания", "text": "Запись онлайн", "angle": "price"}], ensure_ascii=False))
+    with TestClient(app) as http:
+        bid = setup(http, description=FACTS)
+        base = f"/api/businesses/{bid}/creatives"
+        for n in range(6):   # шесть одобренных текстов с заданным порядком заполняют список целиком: новому варианту с большой позицией места в нём не осталось бы
+            made = http.post(f"{base}/texts", json={"title": f"Маникюр вариант {n}", "body": f"Запишитесь на маникюр {n}"}).json()
+            http.put(f"{base}/{made['id']}", json={"status": "approved"})
+        listed = http.get(f"{base}/ads").json()["ads"]
+        assert len(listed) == 6
+        assert http.put(f"{base}/ads/order", json={"ads": [{"title": a["title"], "text": a["text"]} for a in listed]}).status_code == 200
+        http.post(f"/api/businesses/{bid}/sim/start")
+        unit = http.get(f"/api/businesses/{bid}/overview").json()["units"][0]
+        live = http.get(f"{base}/ads").json()["count"]
+        r = http.post(f"{base}/ads/ab-copy", json={"unit_id": unit["id"]})
+        assert r.status_code == 200, r.text
+        (draft,) = http.get(f"{base}/ab").json()["drafts"]
+        assert draft["title"] == "Маникюр без ожидания" and draft["index"] == live
+
+
 def test_address_is_saved_goes_to_texts_and_is_not_an_invented_fact(monkeypatch):
     from app.creative.texts_ai import build_prompt, facts_of, parse_variants
     from app.direct.texts import draft_variants

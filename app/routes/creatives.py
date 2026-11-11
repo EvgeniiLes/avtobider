@@ -514,7 +514,7 @@ def ab_copy(business_id: int, data: AbCopyIn, user: sqlite3.Row = Depends(curren
             f"но другой заголовок и другие слова: не повторяй его формулировки. " + (f"Угол подачи: {unit['angle']}." if unit["angle"] else ""))
     fresh = asyncio.run(generate_texts(biz, 4, s.anthropic_api_key, s.anthropic_model, hint, transport, s.fal_key, s.fal_text_model,
                                        texts_context(conn, biz, date.today().isoformat())))
-    fresh = [v for v in fresh if v["title"].lower() not in used]
+    fresh = [v for v in fresh if v["title"].lower() not in used and not check(v["title"], v["text"])]   # то, что не пройдёт проверку объявлений, в список всё равно не попадёт
     same = [v for v in fresh if unit["angle"] and v["angle"] == unit["angle"]]
     pick = (same or fresh or [None])[0]
     if pick is None:
@@ -523,19 +523,26 @@ def ab_copy(business_id: int, data: AbCopyIn, user: sqlite3.Row = Depends(curren
         raise HTTPException(502, detail={"message": "ИИ не предложил подходящий второй вариант. Попробуйте ещё раз."})
     conn.execute("INSERT INTO creatives (business_id, kind, title, body, source, angle, status, hook, position, ab_of) VALUES (?, 'text', ?, ?, 'claude', ?, 'approved', ?, 1000, ?)",
                  (business_id, pick["title"], pick["text"], pick.get("angle", ""), pick.get("hook", ""), unit["id"]))
-    after, _count, _pool = _ad_variants(conn, biz)
-    keys = [(v["title"], v["text"]) for v in after]
+    # порядок строим по списку ДО вставки: в нём ровно MAX_VARIANTS мест, и новый вариант с позицией 1000 в него бы не попал. Он встаёт сразу за идущими,
+    # а лишнее с конца списка уходит за пределы показываемых (запасные дальше шестого места не нужны)
     new_key = (pick["title"], pick["text"])
-    order = [k for k in keys if k != new_key]
-    order.insert(min(count, len(order)), new_key)   # сразу за теми, что идут в рекламу
-    current = {(v["title"], v["text"]): v for v in after}
+    order = [(v["title"], v["text"]) for v in variants]
+    order.insert(min(count, len(order)), new_key)
+    current = {(v["title"], v["text"]): v for v in variants}
     for place, key in enumerate(order):
-        v = current[key]
-        if v["creative_id"]:
-            conn.execute("UPDATE creatives SET position = ? WHERE id = ?", (place, v["creative_id"]))
-        else:
+        v = current.get(key)   # у нового варианта записи в списке ещё нет: его позицию ставит ветка ниже
+        visible = place < MAX_VARIANTS
+        if key == new_key:
+            conn.execute("UPDATE creatives SET position = ? WHERE business_id = ? AND ab_of = ? AND title = ?", (place, business_id, unit["id"], pick["title"]))
+        elif v["creative_id"]:
+            conn.execute("UPDATE creatives SET position = ? WHERE id = ?", (place if visible else 1000 + place, v["creative_id"]))
+        elif visible:
             conn.execute("INSERT INTO creatives (business_id, kind, title, body, angle, source, status, position) VALUES (?, 'text', ?, ?, ?, 'template', 'approved', ?)",
                          (business_id, v["title"], v["text"], v.get("angle", ""), place))
+    shown, _count, _pool = _ad_variants(conn, biz)
+    if new_key not in {(v["title"], v["text"]) for v in shown}:   # страховка: вариант не попал в список объявлений, и баннер к нему заказать было бы нельзя
+        conn.rollback()   # заодно откатывается и списание за текст: оно в той же незавершённой записи
+        raise HTTPException(502, detail={"message": "Новый вариант не встал в список объявлений. Попробуйте ещё раз."})
     conn.commit()   # число объявлений «в рекламу» не меняем: A/B запускается отдельно, со своей страницы
     return {"title": pick["title"], "text": pick["text"], "angle": pick.get("angle", ""), "key": f"{pick['title']}\u0000{pick['text']}", "source_title": unit["title"],
             "unit_id": unit["id"]}
