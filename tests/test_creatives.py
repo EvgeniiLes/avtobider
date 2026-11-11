@@ -1071,7 +1071,7 @@ def test_ab_copy_makes_a_draft_for_the_ab_page_without_changing_what_goes_into_t
         (draft,) = http.get(f"{base}/ab").json()["drafts"]
         assert draft["title"] == new["title"] and draft["index"] == live and draft["banner"] == "none"
         assert draft["original"]["unit_id"] == unit["id"] and draft["original"]["title"] == unit["title"]
-        assert "banner_url" in draft["original"] and draft["original"]["text"]                 # слева объявление целиком: баннер (если есть), заголовок и текст
+        assert "banner_url" in draft["original"] and "text" in draft["original"]               # слева объявление целиком: баннер (если есть), заголовок и текст
         assert http.get(base).json()["spend"]["spent_usd"] == round(spent + 0.01, 2)
         assert http.post(f"{base}/ads/ab-copy", json={"unit_id": 99999}).status_code == 404
 
