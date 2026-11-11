@@ -14,7 +14,7 @@ from app.direct import audience as aud
 from app.direct import extras as ad_extras
 from app.direct.bids import ensure_bids
 from app.direct.client import DirectError
-from app.direct.launch import (STATE_LABELS, add_ads, existing_campaign, group_sizes, launch, new_campaigns_for, new_variants, plan_launch,
+from app.direct.launch import (STATE_LABELS, add_ads, existing_campaign, group_sizes, launch, launch_ab, new_campaigns_for, new_variants, plan_launch,
                                split_campaign, tagged_href, text_candidates)
 from app.direct.refresh import refresh_campaigns
 from app.direct.runner import account_token, sync_and_run
@@ -22,6 +22,7 @@ from app.engine.util import EngineError, MICRO, plural
 from app.platforms.simulator import reset_demo
 from app.routes.audience import make_profile
 from app.routes.businesses import _own, fill_districts
+from app.routes.creatives import _ad_variants
 
 router = APIRouter(prefix="/api/businesses/{business_id}", tags=["launch"])
 
@@ -208,6 +209,47 @@ def start_launch(business_id: int, data: LaunchIn, user: sqlite3.Row = Depends(c
     message = ("Кампания с объявлениями создана и отправлена на проверку в Яндекс." if groups == 1
                else f"Созданы кампании по группам объявлений ({groups}), у каждой свой бюджет. Они отправлены на проверку в Яндекс.")
     return {"created": len(unit_ids), "message": message}
+
+
+class AbLaunchIn(BaseModel):
+    creative_id: int
+
+
+@router.post("/launch/ab")
+def launch_ab_test(business_id: int, data: AbLaunchIn, user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connection = Depends(get_db),
+                   factory=Depends(client_factory), transport=Depends(creative_transport)):
+    """A/B на идущей рекламе: запускает ОДНО новое объявление (черновик со страницы A/B-тестирования) в своей кампании и ставит его в сравнение с идущим."""
+    biz = _own(conn, user, business_id)
+    draft = conn.execute("SELECT * FROM creatives WHERE id = ? AND business_id = ? AND kind = 'text' AND ab_of IS NOT NULL", (data.creative_id, business_id)).fetchone()
+    if draft is None:
+        raise HTTPException(404, detail={"message": "Такого A/B-черновика нет. Создайте его кнопкой «Создать A/B» на странице «Результаты».", "code": "not_found"})
+    variants, _count, _pool = _ad_variants(conn, biz)
+    index = next((i for i, v in enumerate(variants) if v["title"] == draft["title"] and v["text"] == draft["body"]), None)
+    if index is None:
+        raise HTTPException(400, detail={"message": "Вариант пропал из списка объявлений. Создайте A/B заново.", "code": "gone"})
+    try:
+        account, token, login, plan = _plan_for(conn, user, biz, None, factory, transport, None, True)
+        s = get_settings()
+        today = date.today().isoformat()
+
+        async def go():
+            async with factory(token, api_version=s.direct_api_version, login=login) as client:
+                unit_id = await launch_ab(client, conn, biz, draft["ab_of"], {"title": draft["title"], "text": draft["body"], "angle": draft["angle"]}, index, plan, today)
+                await ensure_bids(client, conn, biz["id"], today)
+                for row in conn.execute("SELECT DISTINCT external_campaign_id FROM ad_units WHERE business_id = ? AND external_campaign_id IS NOT NULL", (biz["id"],)).fetchall():
+                    try:
+                        await client.ensure_alerts(row["external_campaign_id"])
+                    except DirectError:
+                        pass
+                return unit_id
+
+        asyncio.run(go())
+    except (EngineError, DirectError) as e:
+        raise _fail(e) from e
+    conn.execute("UPDATE creatives SET ab_of = NULL WHERE id = ?", (data.creative_id,))   # запущен: из черновиков уходит
+    conn.commit()
+    return {"message": "A/B запущен: новое объявление в своей кампании отправлено на проверку в Яндекс. Когда пройдёт проверка, сервис сравнит его с идущим "
+                       "(около недели или раньше, если наберётся достаточно кликов), оставит сильное и остановит слабое."}
 
 
 class SplitIn(BaseModel):

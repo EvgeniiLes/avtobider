@@ -703,7 +703,7 @@ def approve(conn: sqlite3.Connection, platform: Platform, biz: sqlite3.Row, chan
     unit = conn.execute("SELECT * FROM ad_units WHERE id = ?", (ch["unit_id"],)).fetchone()
     if unit is None or unit["state"] != "active":
         stale("Объявление уже остановлено или удалено.")
-    if ch["action"] == "pause" and not evidence.get("cohort") and getattr(platform, "shared_budget", False) and conn.execute(
+    if ch["action"] == "pause" and not evidence.get("cohort") and not evidence.get("experiment_id") and getattr(platform, "shared_budget", False) and conn.execute(
             "SELECT COUNT(*) FROM ad_units WHERE campaign_id = ? AND state = 'active'", (unit["campaign_id"],)).fetchone()[0] <= 1:
         stale("Это последнее работающее объявление кампании, его остановить нельзя.")
     active_total = conn.execute(

@@ -376,11 +376,8 @@ function campaignGroup(g, several, number) {
         const result = await creativeCall("POST", "/ads/ab-copy", { unit_id: u.id });
         ab.disabled = false; ab.textContent = "Создать A/B";
         if (!result.ok) { say(errorText(result), "err"); return; }
-        selectedAd = result.data.key;
-        say(`Новый вариант: «${result.data.title}». Нарисуйте к нему баннер и отредактируйте текст, затем добавьте в рекламу на шаге «Запуск».`);
-        showPage("creatives");
-        setStep("banners");
-        await loadCreatives();
+        say(`Новый вариант: «${result.data.title}». Отредактируйте его, нарисуйте баннер и запустите A/B.`);
+        showPage("ab");
       });
       pauseCell.append(ab);
     }

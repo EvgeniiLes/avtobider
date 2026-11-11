@@ -521,8 +521,8 @@ def ab_copy(business_id: int, data: AbCopyIn, user: sqlite3.Row = Depends(curren
         conn.execute("DELETE FROM generations WHERE id = (SELECT MAX(id) FROM generations WHERE business_id = ? AND kind = 'text')", (business_id,))
         conn.commit()
         raise HTTPException(502, detail={"message": "ИИ не предложил подходящий второй вариант. Попробуйте ещё раз."})
-    conn.execute("INSERT INTO creatives (business_id, kind, title, body, source, angle, status, hook, position) VALUES (?, 'text', ?, ?, 'claude', ?, 'approved', ?, 1000)",
-                 (business_id, pick["title"], pick["text"], pick.get("angle", ""), pick.get("hook", "")))
+    conn.execute("INSERT INTO creatives (business_id, kind, title, body, source, angle, status, hook, position, ab_of) VALUES (?, 'text', ?, ?, 'claude', ?, 'approved', ?, 1000, ?)",
+                 (business_id, pick["title"], pick["text"], pick.get("angle", ""), pick.get("hook", ""), unit["id"]))
     after, _count, _pool = _ad_variants(conn, biz)
     keys = [(v["title"], v["text"]) for v in after]
     new_key = (pick["title"], pick["text"])
@@ -536,9 +536,34 @@ def ab_copy(business_id: int, data: AbCopyIn, user: sqlite3.Row = Depends(curren
         else:
             conn.execute("INSERT INTO creatives (business_id, kind, title, body, angle, source, status, position) VALUES (?, 'text', ?, ?, ?, 'template', 'approved', ?)",
                          (business_id, v["title"], v["text"], v.get("angle", ""), place))
-    conn.execute("UPDATE businesses SET ads_live = ?, separate_campaigns = 1 WHERE id = ?", (count + 1, business_id))   # в показ на одно больше, и каждое в своей кампании
-    conn.commit()
-    return {"title": pick["title"], "text": pick["text"], "angle": pick.get("angle", ""), "key": f"{pick['title']}\u0000{pick['text']}", "source_title": unit["title"]}
+    conn.commit()   # число объявлений «в рекламу» не меняем: A/B запускается отдельно, со своей страницы
+    return {"title": pick["title"], "text": pick["text"], "angle": pick.get("angle", ""), "key": f"{pick['title']}\u0000{pick['text']}", "source_title": unit["title"],
+            "unit_id": unit["id"]}
+
+
+def _ab_drafts(conn, biz) -> list[dict]:
+    """Черновики A/B: новый вариант вместе с идущим объявлением, с которым его сравнят. Номер варианта в списке нужен, чтобы звать редактор баннера."""
+    variants, _count, _pool = _ad_variants(conn, biz)
+    out = []
+    for r in conn.execute("SELECT * FROM creatives WHERE business_id = ? AND kind = 'text' AND ab_of IS NOT NULL AND status != 'rejected' ORDER BY id DESC", (biz["id"],)):
+        orig = conn.execute("SELECT * FROM ad_units WHERE id = ? AND business_id = ?", (r["ab_of"], biz["id"])).fetchone()
+        index = next((i for i, v in enumerate(variants) if v["title"] == r["title"] and v["text"] == r["body"]), None)
+        if orig is None or index is None:
+            continue
+        stats = conn.execute("SELECT COALESCE(SUM(impressions),0) i, COALESCE(SUM(clicks),0) c, COALESCE(SUM(spend_micro),0) s, COALESCE(SUM(leads),0) l FROM stats_daily WHERE unit_id = ?", (orig["id"],)).fetchone()
+        ai = _ai_row(conn, biz["id"], {"title": r["title"], "text": r["body"]})
+        state = "none" if ai is None else "working" if ai["status"] == "working" else "failed" if ai["status"] == "failed" else "ready"
+        out.append({"creative_id": r["id"], "index": index, "title": r["title"], "text": r["body"], "banner": state,
+                    "banner_url": f"/api/businesses/{biz['id']}/creatives/ads/{index}/banner.jpg?v={ai['id']}" if state == "ready" else "",
+                    "original": {"unit_id": orig["id"], "title": orig["title"], "text": orig["body"], "state": orig["state"], "impressions": stats["i"],
+                                 "clicks": stats["c"], "spend": round(stats["s"] / 1_000_000, 2), "leads": stats["l"]}})
+    return out
+
+
+@router.get("/ab")
+def ab_drafts(business_id: int, user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connection = Depends(get_db)):
+    """Страница «A/B-тестирование»: новые варианты, ещё не запущенные в рекламу."""
+    return {"drafts": _ab_drafts(conn, _own(conn, user, business_id))}
 
 
 @router.post("/ads/{index}/text-options")

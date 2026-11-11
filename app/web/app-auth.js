@@ -75,7 +75,7 @@ async function showApp(email) {
   showPage(page, false);
 }
 
-const PAGES = ["home", "business", "creatives", "test", "media", "stats", "accounts"];
+const PAGES = ["home", "business", "creatives", "ab", "test", "media", "stats", "accounts"];
 let currentPage = "home";
 
 // Адрес страницы лежит в ссылке (#/business): перезагрузка остаётся на месте, «назад» и «вперёд» работают.
@@ -96,6 +96,8 @@ function showPage(name, push = true) {
   window.scrollTo(0, 0);
   if (name !== "creatives" && name !== "media") clearTimeout(creativeTimer);
   if (name !== "test") clearTimeout(testTimer);
+  if (name !== "ab") clearTimeout(abTimer);
+  if (name === "ab") loadAbPage();
   if (name === "creatives" || name === "media") loadCreatives();
   if (name === "test") loadTestPage();
   if (name === "home" || name === "stats") loadStats();

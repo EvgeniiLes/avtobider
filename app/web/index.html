@@ -32,6 +32,7 @@
       <span class="grp">Реклама</span>
       <button id="nav-home" title="Главная" class="active"><svg class="ic"><use href="#i-home"/></svg><span>Главная</span><span class="dot" id="nav-home-dot" hidden></span></button>
       <button id="nav-creatives" title="Объявления"><svg class="ic"><use href="#i-ads"/></svg><span class="long">Объявления</span><span class="short">Реклама</span></button>
+      <button id="nav-ab" title="A/B-тестирование" hidden><svg class="ic"><use href="#i-ads"/></svg><span>A/B</span></button>
       <button id="nav-test" title="Объявления (тест)"><svg class="ic"><use href="#i-ads"/></svg><span class="long">Объявления (тест)</span><span class="short">Тест</span></button>
       <button id="nav-stats" title="Результаты"><svg class="ic"><use href="#i-stats"/></svg><span class="long">Результаты</span><span class="short">Итоги</span></button>
       <span class="grp" id="grp-media">Материалы</span>
@@ -398,6 +399,15 @@
             <span id="mk-status" class="hint"></span>
           </div>
         </div>
+      </div>
+
+      <!-- A/B-тестирование: новый вариант против идущего объявления -->
+      <div id="page-ab" hidden>
+        <div class="page-head"><h1>Новое A/B-тестирование</h1></div>
+        <p class="hint">Сравниваем идущее объявление с новым вариантом того же смысла: другие слова и другой баннер. В рекламу идёт одно новое объявление в своей кампании, бюджет у неё такой же, как у идущего. Через неделю или раньше, если наберётся достаточно кликов, сервис оставит сильное и остановит слабое.</p>
+        <p id="ab-empty" class="hint" hidden>Черновиков A/B нет. Нажмите «Создать A/B» у идущего объявления на странице «Результаты».</p>
+        <div id="ab-list"></div>
+        <div class="row"><button type="button" class="secondary" id="ab-back">К результатам</button></div>
       </div>
 
       <!-- Объявления (тест): одно объявление рисуют три нейросети -->
@@ -901,6 +911,7 @@
   <script src="/static/app-results.js"></script>
   <script src="/static/app-stats.js"></script>
   <script src="/static/app-launch.js"></script>
+  <script src="/static/app-ab.js"></script>
   <script src="/static/app.js"></script>
 </body>
 </html>

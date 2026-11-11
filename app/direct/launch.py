@@ -619,6 +619,56 @@ async def split_campaign(client: DirectClient, conn: sqlite3.Connection, biz, ca
     return unit_ids
 
 
+async def launch_ab(client: DirectClient, conn: sqlite3.Connection, biz, original_id: int, variant: dict, index: int, plan: Plan, today: str) -> int:
+    """A/B на идущей рекламе: ОДНО новое объявление в своей кампании против идущего. Бюджет новой кампании равен доле идущего объявления в его кампании
+    (лимит кампании, поделённый на число её работающих объявлений), чтобы сравнение было честным. Запись в experiments: дальше сравнение ведёт движок
+    (через неделю или набрав кликов оставляет сильного и останавливает проигравшего). Нужен нарисованный баннер: без него сравнивать нечестно."""
+    orig = conn.execute(
+        "SELECT u.*, c.weekly_micro AS camp_weekly, c.account_id AS camp_account, c.intent AS camp_intent FROM ad_units u JOIN campaigns c ON c.id = u.campaign_id "
+        "WHERE u.id = ? AND u.business_id = ? AND c.source = 'direct'", (original_id, biz["id"])).fetchone()
+    if orig is None or orig["state"] != "active" or orig["ad_kind"] == "responsive":
+        raise EngineError("Сравнивать можно только с работающим обычным объявлением.", "nothing_to_compare")
+    if conn.execute("SELECT 1 FROM ad_units WHERE business_id = ? AND lower(title) = lower(?)", (biz["id"], variant["title"])).fetchone():
+        raise EngineError("Такое объявление уже есть в рекламе. Измените заголовок нового варианта.", "duplicate")
+    if conn.execute("SELECT 1 FROM experiments WHERE business_id = ? AND status = 'running' AND (unit_a = ? OR unit_b = ?)", (biz["id"], original_id, original_id)).fetchone():
+        raise EngineError("Это объявление уже участвует в сравнении. Дождитесь его конца.", "already")
+    ai_banners = ai_banners_for(conn, biz)
+    if (variant["title"], variant["text"]) not in ai_banners:
+        raise EngineError("Сначала нарисуйте баннер для нового варианта: без него сравнение с идущим объявлением нечестное.", "no_banner")
+    working = conn.execute("SELECT COUNT(*) FROM ad_units WHERE campaign_id = ? AND state = 'active'", (orig["campaign_id"],)).fetchone()[0]
+    budget = orig["camp_weekly"] // max(1, working)
+    if budget < MIN_WEEKLY:
+        raise EngineError(f"Доля идущего объявления {rub(budget)} в неделю меньше минимума Директа {rub(MIN_WEEKLY)}: на новую кампанию денег не хватит.", "budget_too_small")
+    share = dataclasses.replace(plan, campaign_micro=budget, separate=True)
+    photos, logo = media_typed(conn, biz)
+    ext_ids = await extension_ids(client, share)
+    keywords = next((g["keywords"] for g in plan.groups or [] if g["intent"] == orig["camp_intent"]), None) or share.keywords
+    have = conn.execute("SELECT COUNT(*) FROM campaigns WHERE business_id = ? AND source = 'direct'", (biz["id"],)).fetchone()[0]
+    name = campaign_name(biz, have, orig["camp_intent"])
+    ids = await create_campaign(client, share, name, day_add(today, 1), [variant], ext_ids, keywords, orig["camp_intent"], False)
+    try:
+        created = created_ads(ids, [variant], [index])
+        problems = await attach_banners(client, biz, created, photos, logo, ai_banners)
+        await client.moderate_ads(ids["ad_ids"])
+    except DirectError:
+        try:
+            await client.delete_campaigns([ids["campaign_id"]])
+        except DirectError:
+            pass
+        raise
+    row = conn.execute(
+        "INSERT INTO campaigns (business_id, account_id, name, source, external_id, weekly_micro, strategy, state, created_day, last_changed_day, intent) "
+        "VALUES (?,?,?, 'direct', ?,?, 'clicks', 'moderation', ?,?,?)",
+        (biz["id"], orig["camp_account"], name.replace("Автобидер", "Реклама", 1), ids["campaign_id"], budget, today, today, orig["camp_intent"]))
+    unit_id = save_unit(conn, biz, orig["camp_account"], row.lastrowid, variant, {"campaign_id": ids["campaign_id"], "group_id": ids["group_id"], "ad_id": created[0]["ad_id"]},
+                        0, today, variant_of=original_id, style=orig["style"], photo_type=orig["photo_type"], angle=variant.get("angle", ""))
+    conn.execute("INSERT INTO experiments (business_id, unit_a, unit_b, started_day) VALUES (?,?,?,?)", (biz["id"], original_id, unit_id, today))
+    if problems:
+        conn.execute("UPDATE ad_units SET status_note = ? WHERE id = ?", ("Картинка добавлена не ко всем объявлениям", unit_id))
+    conn.commit()
+    return unit_id
+
+
 def existing_campaign(conn: sqlite3.Connection, business_id: int) -> sqlite3.Row | None:
     """Кампания бизнеса в Директе вместе с её группой: куда добавлять новые объявления. None, если рекламы ещё нет."""
     return conn.execute(

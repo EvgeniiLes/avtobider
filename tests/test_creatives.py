@@ -1047,7 +1047,7 @@ def test_rewrite_puts_a_new_text_in_the_same_place(monkeypatch):
         assert http.post(f"{base}/ads/99/rewrite").status_code == 400
 
 
-def test_ab_copy_adds_a_second_variant_right_after_the_live_ads_and_keeps_the_original(monkeypatch):
+def test_ab_copy_makes_a_draft_for_the_ab_page_without_changing_what_goes_into_the_ads(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
     fakes = Fakes(claude_text=json.dumps([
         {"title": "Первый визит со скидкой 20%", "text": "Запишитесь на маникюр", "angle": "promo"},
@@ -1065,9 +1065,12 @@ def test_ab_copy_adds_a_second_variant_right_after_the_live_ads_and_keeps_the_or
         new = r.json()
         after = http.get(f"{base}/ads").json()
         titles = [a["title"] for a in after["ads"]]
-        assert titles.index(new["title"]) == live and after["count"] == live + 1             # сразу за идущими, и в показ на одно больше
-        assert not after["ads"][live]["reserve"] and after["ads"][live]["own"] is True
+        assert titles.index(new["title"]) == live and after["count"] == live                  # сразу за идущими, но в рекламу сам не идёт: запускается со страницы A/B
+        assert after["ads"][live]["reserve"] and after["ads"][live]["own"] is True
         assert [a["title"] for a in before["ads"][:live]] == titles[:live]                    # прежние на своих местах
+        (draft,) = http.get(f"{base}/ab").json()["drafts"]
+        assert draft["title"] == new["title"] and draft["index"] == live and draft["banner"] == "none"
+        assert draft["original"]["unit_id"] == unit["id"] and draft["original"]["title"] == unit["title"]
         assert http.get(base).json()["spend"]["spent_usd"] == round(spent + 0.01, 2)
         assert http.post(f"{base}/ads/ab-copy", json={"unit_id": 99999}).status_code == 404
 
