@@ -560,9 +560,12 @@ def _ab_drafts(conn, biz) -> list[dict]:
         stats = conn.execute("SELECT COALESCE(SUM(impressions),0) i, COALESCE(SUM(clicks),0) c, COALESCE(SUM(spend_micro),0) s, COALESCE(SUM(leads),0) l FROM stats_daily WHERE unit_id = ?", (orig["id"],)).fetchone()
         ai = _ai_row(conn, biz["id"], {"title": r["title"], "text": r["body"]})
         state = "none" if ai is None else "working" if ai["status"] == "working" else "failed" if ai["status"] == "failed" else "ready"
+        o_index = next((i for i, v in enumerate(variants) if v["title"].lower() == orig["title"].lower()), None)   # баннер идущего объявления: тот же, что видно в подробностях
+        o_ai = _ai_row(conn, biz["id"], {"title": variants[o_index]["title"], "text": variants[o_index]["text"]}) if o_index is not None else None
+        o_url = f"/api/businesses/{biz['id']}/creatives/ads/{o_index}/banner.jpg?v={o_ai['id']}" if o_ai is not None and o_ai["status"] not in ("working", "failed") else ""
         out.append({"creative_id": r["id"], "index": index, "title": r["title"], "text": r["body"], "banner": state,
                     "banner_url": f"/api/businesses/{biz['id']}/creatives/ads/{index}/banner.jpg?v={ai['id']}" if state == "ready" else "",
-                    "original": {"unit_id": orig["id"], "title": orig["title"], "text": orig["body"], "state": orig["state"], "impressions": stats["i"],
+                    "original": {"unit_id": orig["id"], "title": orig["title"], "text": orig["body"], "state": orig["state"], "banner_url": o_url, "impressions": stats["i"],
                                  "clicks": stats["c"], "spend": round(stats["s"] / 1_000_000, 2), "leads": stats["l"]}})
     return out
 

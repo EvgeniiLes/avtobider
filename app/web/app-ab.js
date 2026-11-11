@@ -19,10 +19,18 @@ function abStats(o) {
 }
 
 function abDraft(d) {
-  const original = el("div", { className: "ab-side" },
-    el("h3", { textContent: "A: идущее объявление" }),
-    el("div", { className: "t", textContent: d.original.title }),
-    el("p", { textContent: d.original.text }),
+  // слева то же объявление, что справа, но только для чтения: баннер, заголовок и текст как идут в рекламе
+  const oTitle = el("input", { type: "text", value: d.original.title, readOnly: true });
+  const oText = el("textarea", { rows: 3, value: d.original.text, readOnly: true });
+  oTitle.setAttribute("aria-label", "Заголовок идущего объявления");
+  oText.setAttribute("aria-label", "Текст идущего объявления");
+  const oPicture = d.original.banner_url
+    ? el("img", { src: d.original.banner_url, alt: "Баннер идущего объявления", className: "ab-banner" })
+    : el("div", { className: "ab-banner empty", textContent: "Баннера у идущего объявления нет" });
+  const original = el("div", { className: "ab-side readonly" },
+    el("h3", { textContent: "A: идущее объявление" }), oPicture,
+    el("label", { className: "sub", textContent: "Заголовок" }), oTitle,
+    el("label", { className: "sub", textContent: "Текст" }), oText,
     el("p", { className: "hint", textContent: abStats(d.original) }));
 
   const title = el("input", { type: "text", value: d.title, maxLength: creativeLimits.title });

@@ -294,6 +294,7 @@ tbody tr:last-child td { border-bottom: 0; }
 .ab-draft { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 18px; margin: 0 0 18px; padding: 18px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
 .ab-side h3 { margin: 0 0 10px; }
 .ab-side input, .ab-side textarea { width: 100%; }
+.ab-side.readonly input, .ab-side.readonly textarea { background: var(--surface-2, #f4f4f2); color: var(--muted); cursor: default; }
 .ab-side .row { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 0; }
 .ab-banner { display: block; width: 100%; max-width: 420px; aspect-ratio: 4 / 3; object-fit: cover; border-radius: var(--radius); margin: 0 0 12px; background: var(--surface-2, #f4f4f2); }
 .ab-banner.empty { display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 14px; text-align: center; padding: 10px; }
