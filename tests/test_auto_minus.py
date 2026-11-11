@@ -32,6 +32,16 @@ def test_wasteful_off_target_query_is_cut_by_the_service_itself(isolated):
         conn.close()
 
 
+def test_a_single_click_on_an_unrelated_query_is_cut_even_without_a_goal(isolated):
+    fake = FakeDirect()
+    with TestClient(app) as http:
+        bid = launched(http, fake, isolated, goal=False)
+        fake.query_rows = [("сбербанк бизнес онлайн вход", 5, 1, 33 * MICRO, 0), ("маникюр цена", 1000, 30, 900 * MICRO, 0)]
+        ai([{"query": "сбербанк бизнес онлайн вход", "minus": "сбербанк", "why": "ищут вход в банк"}])
+        sync(isolated, bid, fake)
+        assert "сбербанк" in minus_in_cabinet(fake) and "сбербанк" in saved_profile(isolated, bid)["negatives"]
+
+
 def test_word_from_a_query_that_brought_leads_is_never_cut(isolated):
     fake = FakeDirect()
     with TestClient(app) as http:

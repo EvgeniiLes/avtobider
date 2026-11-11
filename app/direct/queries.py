@@ -171,14 +171,15 @@ def auto_pick(groups: list[dict], conn: sqlite3.Connection, biz, profile: dict) 
 
 async def auto_minus(client: DirectClient, conn: sqlite3.Connection, biz, today: str, fal_key: str, model: str,
                      transport: httpx.AsyncBaseTransport | None = None) -> list[str]:
-    """Раз в день: запросы с расходом без обращений разбирает ИИ, и слова, которые он назвал и которые прошли проверку, сервис ставит в минус сам.
-    Шаг пишется в историю профиля с пометкой «auto», а владельцу уходит сообщение. Нет ключа ИИ, цели или профиля: ничего не делаем."""
-    if biz["auto_minus_day"] == today or not fal_key or not biz["metrika_goal_id"]:
+    """Раз в день: ИИ разбирает все запросы, по которым были клики и не было обращений, и слова нерелевантных запросов, которые прошли проверку, сервис
+    ставит в минус сам. Хватает одного клика, цель Метрики не нужна: автотаргетинг тратит деньги и на единичных клики по чужим темам (банки, CRM, субсидии).
+    Шаг пишется в историю профиля с пометкой «auto», а владельцу уходит сообщение. Нет ключа ИИ или профиля: ничего не делаем."""
+    if biz["auto_minus_day"] == today or not fal_key:
         return []
     profile = aud.load(biz)
     if profile is None:
         return []
-    spent = waste(conn, biz)
+    spent = [r for r in top_queries(conn, biz["id"], MAX_FOR_AI, min_clicks=1) if not r["leads"]]
     if not spent:
         return []
     conn.execute("UPDATE businesses SET auto_minus_day = ? WHERE id = ?", (today, biz["id"]))   # день отмечаем сразу: сбой ИИ не должен повторяться каждым запуском
