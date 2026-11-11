@@ -21,6 +21,7 @@ BUDGET = 20_000
 @pytest.fixture(autouse=True)
 def isolated(tmp_path, monkeypatch):
     monkeypatch.setenv("DB_PATH", str(tmp_path / "test.db"))
+    monkeypatch.setattr("app.direct.launch.DEFAULT_LIVE", 3)   # прежние сценарии рассчитаны на несколько объявлений в показе; что идёт по умолчанию, проверяет test_default_live
     monkeypatch.setenv("SECRET_KEY", "test-secret-key")
     monkeypatch.delenv("FAL_KEY", raising=False)   # запуск сам составляет профиль аудитории, если есть ключ; в тестах ходить к настоящему ИИ нельзя
     auth._fails.clear()

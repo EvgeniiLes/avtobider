@@ -397,6 +397,9 @@ def _add_missing_columns(conn: sqlite3.Connection) -> None:
         have = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
         if column not in have:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+    # раньше число объявлений в показе без выбора считалось по бюджету, теперь по умолчанию идёт одно: у уже запущенной рекламы фиксируем то, что идёт сейчас
+    conn.execute("UPDATE businesses SET ads_live = (SELECT MIN(6, COUNT(*)) FROM ad_units u WHERE u.business_id = businesses.id AND u.state IN ('active', 'moderation')) "
+                 "WHERE ads_live IS NULL AND EXISTS (SELECT 1 FROM ad_units u WHERE u.business_id = businesses.id AND u.state IN ('active', 'moderation'))")
     conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_yandex ON users (yandex_id) WHERE yandex_id IS NOT NULL")
 
 

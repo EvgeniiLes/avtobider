@@ -30,6 +30,7 @@ from app.engine.util import EngineError, MICRO, day_add, plural, rub
 
 MAX_VARIANTS = 6   # столько вариантов готовим и показываем в редакторе; в кампанию входят первые MAX_ADS, остальные запасные
 MAX_ADS = 3        # объявлений в кампании: на малом бюджете больше не успеют набрать клики для сравнения
+DEFAULT_LIVE = 1   # сколько объявлений идёт в показ, пока владелец не выбрал сам; остальные из списка запасные
 START_SHARE = 0.7   # какую часть доступного бюджета отдаём кампании сразу, остальное про запас для роста
 RESERVE = 0.10      # часть недельного бюджета, которую не раздаём вообще
 MIN_WEEKLY = 300 * MICRO  # минимум Директа на кампанию; точное значение берём из справочника
@@ -133,7 +134,7 @@ def start_split(biz, min_weekly_micro: int = MIN_WEEKLY) -> tuple[int, int]:
     if start_pool < min_weekly_micro:
         return start_pool, 0
     chosen = biz["ads_live"] if "ads_live" in biz.keys() else None   # владелец сам решил, сколько объявлений пустить в рекламу
-    return start_pool, max(1, min(MAX_VARIANTS, chosen)) if chosen else ads_for_budget(start_pool)
+    return start_pool, max(1, min(MAX_VARIANTS, chosen)) if chosen else DEFAULT_LIVE   # без выбора в показ идёт одно: весь бюджет на него, остальные запасные для сравнения и замены
 
 
 def choose_variants(biz, custom: list[dict] | None, count: int) -> tuple[list[dict], int]:
@@ -212,7 +213,7 @@ def plan_launch(biz, region_id: int | None, min_weekly_micro: int = MIN_WEEKLY, 
         raise EngineError(f"Бюджет слишком мал: на одну кампанию Яндекс требует минимум {rub(min_weekly_micro)} в неделю. Нужно хотя бы {need} в неделю.", "budget_too_small")
 
     if responsive and not (biz["ads_live"] if "ads_live" in biz.keys() else None):
-        count = min(count, RESPONSIVE_PARTS)   # комбинаторное объявление держит два заголовка и два текста: больше вариантов на группу не нужно
+        count = RESPONSIVE_PARTS   # комбинаторное объявление одно, но держит два заголовка и два текста
     separate = separate and not responsive
     if separate:
         count = max(1, min(count, start_pool // min_weekly_micro))   # у каждой кампании свой лимит, и он не меньше минимума Директа
@@ -230,9 +231,6 @@ def plan_launch(biz, region_id: int | None, min_weekly_micro: int = MIN_WEEKLY, 
     if per_group > advised:
         warnings.append(f"Вы выбрали {plural(count, 'объявление', 'объявления', 'объявлений')}: в группе их до {per_group}, а бюджету на группу подходит {advised}. "
                         "На каждое придётся меньше кликов, и сравнить варианты будет труднее.")
-    elif count < MAX_ADS:
-        warnings.append(f"При таком бюджете в кампанию войдёт {plural(count, 'объявление', 'объявления', 'объявлений')}: "
-                        "на каждое придётся мало кликов. Больше бюджет, больше вариантов для сравнения.")
     from app.direct.advice import budget_advice   # здесь, чтобы не было круга
     advice = budget_advice(biz, biz["description"])
     if advice["level"] == "low":   # хватает на запуск и сравнение, но не на подбор ставок под обращения: владелец должен знать об этом до запуска
