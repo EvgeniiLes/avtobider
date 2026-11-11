@@ -21,6 +21,22 @@ def draft(conn, bid, original_id):
     return conn.execute("SELECT id FROM creatives WHERE ab_of = ?", (original_id,)).fetchone()[0]
 
 
+def test_the_ab_page_shows_the_banner_of_the_running_ad_even_when_it_is_not_in_the_ad_list(isolated):
+    fake = FakeDirect()
+    with TestClient(app) as http:
+        bid, conn = launched(http, fake, isolated, separate=False, ads=2)
+        run(conn, bid, fake, TODAY)
+        original = conn.execute("SELECT id, title, body FROM ad_units ORDER BY id").fetchone()
+        conn.execute("INSERT INTO business_assets (business_id, kind, stored_name, mime, size_bytes) VALUES (?, 'photo', 'x.jpg', 'image/jpeg', 1)", (bid,))
+        asset = conn.execute("SELECT MAX(id) FROM business_assets").fetchone()[0]
+        conn.execute("INSERT INTO creatives (business_id, kind, title, body, source, status, asset_id) VALUES (?, 'ai_banner', ?, ?, 'ai', 'approved', ?)",
+                     (bid, original["title"], "другой текст: правили после запуска", asset))   # текст с тех пор правили: ищем по заголовку
+        draft(conn, bid, original["id"])                                  # внутри делает commit
+        (d,) = http.get(f"/api/businesses/{bid}/creatives/ab").json()["drafts"]
+        assert d["original"]["banner_url"] == f"/api/businesses/{bid}/assets/{asset}/file"
+        conn.close()
+
+
 def test_ab_launch_needs_a_banner_then_adds_exactly_one_ad_and_an_experiment(isolated, monkeypatch):
     fake = FakeDirect()
     with TestClient(app) as http:

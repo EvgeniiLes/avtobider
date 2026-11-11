@@ -560,9 +560,11 @@ def _ab_drafts(conn, biz) -> list[dict]:
         stats = conn.execute("SELECT COALESCE(SUM(impressions),0) i, COALESCE(SUM(clicks),0) c, COALESCE(SUM(spend_micro),0) s, COALESCE(SUM(leads),0) l FROM stats_daily WHERE unit_id = ?", (orig["id"],)).fetchone()
         ai = _ai_row(conn, biz["id"], {"title": r["title"], "text": r["body"]})
         state = "none" if ai is None else "working" if ai["status"] == "working" else "failed" if ai["status"] == "failed" else "ready"
-        o_index = next((i for i, v in enumerate(variants) if v["title"].lower() == orig["title"].lower()), None)   # баннер идущего объявления: тот же, что видно в подробностях
-        o_ai = _ai_row(conn, biz["id"], {"title": variants[o_index]["title"], "text": variants[o_index]["text"]}) if o_index is not None else None
-        o_url = f"/api/businesses/{biz['id']}/creatives/ads/{o_index}/banner.jpg?v={o_ai['id']}" if o_ai is not None and o_ai["status"] not in ("working", "failed") else ""
+        # баннер идущего объявления: последний готовый баннер с этим заголовком и текстом, а если текст с тех пор правили, то с этим заголовком
+        o_ai = _ready_row(conn, biz["id"], {"title": orig["title"], "text": orig["body"]}) or conn.execute(
+            "SELECT * FROM creatives WHERE business_id = ? AND kind = 'ai_banner' AND lower(title) = lower(?) AND status IN ('draft', 'approved') AND asset_id IS NOT NULL "
+            "ORDER BY COALESCE(picked_at, created_at) DESC, id DESC LIMIT 1", (biz["id"], orig["title"])).fetchone()
+        o_url = f"/api/businesses/{biz['id']}/assets/{o_ai['asset_id']}/file" if o_ai is not None else ""
         out.append({"creative_id": r["id"], "index": index, "title": r["title"], "text": r["body"], "banner": state,
                     "banner_url": f"/api/businesses/{biz['id']}/creatives/ads/{index}/banner.jpg?v={ai['id']}" if state == "ready" else "",
                     "original": {"unit_id": orig["id"], "title": orig["title"], "text": orig["body"], "state": orig["state"], "banner_url": o_url, "impressions": stats["i"],
